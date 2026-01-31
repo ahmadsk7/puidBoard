@@ -10,39 +10,110 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
-import multer from "multer";
+import busboy from "busboy";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 
-// Configure multer for memory storage
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB
-    files: 1,
-  },
-});
+// Max file size: 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+interface ParsedFormData {
+  fields: Record<string, string>;
+  file: Buffer | null;
+  filename: string | null;
+  mimeType: string | null;
+}
 
 /**
- * Parse multipart form data.
+ * Parse multipart form data using busboy.
  */
-function parseMultipartForm(
-  req: IncomingMessage
-): Promise<{ fields: Record<string, string>; file: Buffer | null }> {
+function parseMultipartForm(req: IncomingMessage): Promise<ParsedFormData> {
   return new Promise((resolve, reject) => {
-    const uploadSingle = upload.single("file");
-    uploadSingle(req as any, {} as any, (err: any) => {
-      if (err) {
+    const contentType = req.headers["content-type"];
+    if (!contentType || !contentType.includes("multipart/form-data")) {
+      reject(new Error("Content-Type must be multipart/form-data"));
+      return;
+    }
+
+    const fields: Record<string, string> = {};
+    let fileBuffer: Buffer | null = null;
+    let filename: string | null = null;
+    let mimeType: string | null = null;
+    const chunks: Buffer[] = [];
+    let totalSize = 0;
+    let fileLimitExceeded = false;
+
+    try {
+      const bb = busboy({
+        headers: req.headers,
+        limits: {
+          fileSize: MAX_FILE_SIZE,
+          files: 1,
+        },
+      });
+
+      bb.on("file", (fieldname, file, info) => {
+        if (fieldname !== "file") {
+          // Skip non-file fields
+          file.resume();
+          return;
+        }
+
+        filename = info.filename;
+        mimeType = info.mimeType;
+
+        file.on("data", (chunk: Buffer) => {
+          totalSize += chunk.length;
+          if (totalSize > MAX_FILE_SIZE) {
+            fileLimitExceeded = true;
+            file.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+
+        file.on("limit", () => {
+          fileLimitExceeded = true;
+        });
+
+        file.on("end", () => {
+          if (!fileLimitExceeded && chunks.length > 0) {
+            fileBuffer = Buffer.concat(chunks);
+          }
+        });
+
+        file.on("error", (err) => {
+          console.error("[parseMultipartForm] File stream error:", err);
+        });
+      });
+
+      bb.on("field", (fieldname, value) => {
+        fields[fieldname] = value;
+      });
+
+      bb.on("close", () => {
+        if (fileLimitExceeded) {
+          reject(new Error(`File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB`));
+          return;
+        }
+        resolve({
+          fields,
+          file: fileBuffer,
+          filename,
+          mimeType,
+        });
+      });
+
+      bb.on("error", (err) => {
+        console.error("[parseMultipartForm] Busboy error:", err);
         reject(err);
-        return;
-      }
+      });
 
-      const multerReq = req as any;
-      const fields: Record<string, string> = multerReq.body || {};
-      const file = multerReq.file?.buffer || null;
-
-      resolve({ fields, file });
-    });
+      req.pipe(bb);
+    } catch (err) {
+      console.error("[parseMultipartForm] Setup error:", err);
+      reject(err);
+    }
   });
 }
 
@@ -77,37 +148,55 @@ async function handleUpload(
   res: ServerResponse
 ): Promise<void> {
   try {
-    const { fields, file } = await parseMultipartForm(req);
+    console.log("[upload] Starting file upload...");
+
+    const { fields, file, filename, mimeType: parsedMimeType } = await parseMultipartForm(req);
 
     if (!file) {
+      console.log("[upload] No file in request");
       sendError(res, 400, "No file uploaded");
       return;
     }
 
+    console.log(`[upload] Received file: ${filename} (${file.length} bytes, ${parsedMimeType})`);
+
     const title = fields.title;
     const durationSec = parseFloat(fields.durationSec || "0");
-    const mimeType = (req as any).file?.mimetype || fields.mimeType;
-    const filename = (req as any).file?.originalname || "upload";
+    // Use parsed mimeType from file, fallback to field
+    const mimeType = parsedMimeType || fields.mimeType;
+    const finalFilename = filename || "upload";
     const ownerId = fields.ownerId;
 
     if (!title) {
+      console.log("[upload] Missing title field");
       sendError(res, 400, "Missing required field: title");
       return;
     }
 
     if (!durationSec || durationSec <= 0) {
+      console.log("[upload] Missing or invalid durationSec:", durationSec);
       sendError(res, 400, "Missing or invalid required field: durationSec");
       return;
     }
 
+    if (!mimeType) {
+      console.log("[upload] Missing mimeType");
+      sendError(res, 400, "Missing required field: mimeType");
+      return;
+    }
+
+    console.log(`[upload] Processing: title="${title}", duration=${durationSec}s, mimeType=${mimeType}`);
+
     const result = await trackService.upload({
       buffer: file,
-      filename,
+      filename: finalFilename,
       mimeType,
       title,
       durationSec,
       ownerId,
     });
+
+    console.log(`[upload] Success: trackId=${result.trackId}, dedup=${result.deduplication}`);
 
     sendJson(res, 200, {
       trackId: result.trackId,
@@ -116,10 +205,11 @@ async function handleUpload(
     });
   } catch (error) {
     if (error instanceof TrackValidationError) {
+      console.log("[upload] Validation error:", error.message);
       sendError(res, 400, error.message);
     } else {
-      console.error("[upload] error:", error);
-      sendError(res, 500, "Internal server error");
+      console.error("[upload] Server error:", error);
+      sendError(res, 500, error instanceof Error ? error.message : "Internal server error");
     }
   }
 }

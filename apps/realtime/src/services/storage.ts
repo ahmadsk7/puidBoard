@@ -7,10 +7,17 @@
 
 import { createHash } from "crypto";
 import { mkdir, writeFile, readFile, unlink } from "fs/promises";
-import { join } from "path";
+import { join, dirname, resolve } from "path";
 import { existsSync } from "fs";
+import { fileURLToPath } from "url";
 
-const STORAGE_DIR = process.env.STORAGE_DIR ?? "./.storage/tracks";
+// Get the directory of this module for reliable relative paths
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Use environment variable or default to .storage/tracks relative to the realtime app root
+const DEFAULT_STORAGE_DIR = resolve(__dirname, "../../.storage/tracks");
+const STORAGE_DIR = process.env.STORAGE_DIR ?? DEFAULT_STORAGE_DIR;
 const CDN_BASE_URL = process.env.CDN_BASE_URL ?? "http://localhost:3001/files";
 
 export interface UploadResult {
@@ -20,16 +27,24 @@ export interface UploadResult {
 }
 
 class StorageService {
+  private initialized = false;
+
   constructor() {
-    this.ensureStorageDir();
+    // Don't block constructor, but ensure dir exists on first operation
+    console.log(`[storage] Storage directory: ${STORAGE_DIR}`);
+    console.log(`[storage] CDN base URL: ${CDN_BASE_URL}`);
   }
 
   /**
    * Ensure storage directory exists.
    */
   private async ensureStorageDir(): Promise<void> {
-    if (!existsSync(STORAGE_DIR)) {
-      await mkdir(STORAGE_DIR, { recursive: true });
+    if (!this.initialized) {
+      if (!existsSync(STORAGE_DIR)) {
+        console.log(`[storage] Creating storage directory: ${STORAGE_DIR}`);
+        await mkdir(STORAGE_DIR, { recursive: true });
+      }
+      this.initialized = true;
     }
   }
 
@@ -54,7 +69,10 @@ class StorageService {
 
     // Write file to storage (skip if already exists from deduplication)
     if (!existsSync(filePath)) {
+      console.log(`[storage] Writing file: ${filePath} (${fileSizeBytes} bytes)`);
       await writeFile(filePath, buffer);
+    } else {
+      console.log(`[storage] File already exists (deduplication): ${storageKey}`);
     }
 
     return {

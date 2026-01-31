@@ -53,7 +53,7 @@ export default function QueueItemRow({
   item,
   index,
   members,
-  isOwnItem,
+  isOwnItem: _isOwnItem,
   onRemove,
   onLoadToDeck,
   onDragStart,

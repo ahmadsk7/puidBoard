@@ -47,7 +47,7 @@ async function uploadTrack(
   formData.append("mimeType", file.type);
 
   const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
-  
+
   const response = await fetch(`${realtimeUrl}/api/tracks/upload`, {
     method: "POST",
     body: formData,
@@ -59,7 +59,7 @@ async function uploadTrack(
   }
 
   const data = await response.json();
-  
+
   return {
     trackId: data.trackId,
     title,
@@ -70,6 +70,7 @@ async function uploadTrack(
 
 /**
  * TrackUploader - File input + upload logic for adding tracks.
+ * Dark theme design to match DJ board aesthetic.
  */
 export default function TrackUploader({
   onUploadComplete,
@@ -111,7 +112,7 @@ export default function TrackUploader({
 
       try {
         // Extract duration
-        setProgress("Analyzing audio...");
+        setProgress("Analyzing...");
         const duration = await getAudioDuration(file);
 
         // Upload to server
@@ -133,7 +134,7 @@ export default function TrackUploader({
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
       <input
         ref={inputRef}
         type="file"
@@ -141,21 +142,33 @@ export default function TrackUploader({
         onChange={handleFileSelect}
         style={{ display: "none" }}
       />
-      
+
       <button
         type="button"
         onClick={handleClick}
         disabled={disabled || isUploading}
         style={{
-          padding: "0.375rem 0.75rem",
-          fontSize: "0.75rem",
-          background: isUploading ? "#9ca3af" : "#22c55e",
-          color: "white",
+          padding: "0.375rem 0.625rem",
+          fontSize: "0.6875rem",
+          fontWeight: 500,
+          background: isUploading ? "#262626" : "rgba(34, 197, 94, 0.15)",
+          color: isUploading ? "#525252" : "#4ade80",
           border: "none",
           borderRadius: 4,
           cursor: disabled || isUploading ? "not-allowed" : "pointer",
-          fontWeight: 500,
-          minWidth: 70,
+          letterSpacing: "0.02em",
+          transition: "all 0.15s ease",
+          minWidth: 60,
+        }}
+        onMouseEnter={(e) => {
+          if (!disabled && !isUploading) {
+            e.currentTarget.style.background = "rgba(34, 197, 94, 0.25)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!disabled && !isUploading) {
+            e.currentTarget.style.background = "rgba(34, 197, 94, 0.15)";
+          }
         }}
       >
         {isUploading ? progress || "..." : "+ Add"}
@@ -164,9 +177,10 @@ export default function TrackUploader({
       {error && (
         <div
           style={{
-            fontSize: "0.625rem",
-            color: "#ef4444",
+            fontSize: "0.5625rem",
+            color: "#f87171",
             maxWidth: 120,
+            textAlign: "right",
           }}
         >
           {error}
