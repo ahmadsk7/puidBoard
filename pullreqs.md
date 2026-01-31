@@ -194,7 +194,7 @@ They should only block each other on:
 * `/apps/realtime/src/handlers/queue.ts`
 * `/apps/realtime/src/protocol/ack.ts`
 
-## PR 1.4 — Soft control locking + continuous controls (Dev B)
+## PR 1.4 ✅ — Soft control locking + continuous controls (Dev B)
 
 **Objective:** mixing feels cooperative, not janky.
 **Scope**
