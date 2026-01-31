@@ -87,6 +87,7 @@ export function handleQueueAdd(
   sendAcceptedAck(socket, clientSeq, eventId);
 
   // Broadcast mutation event to all room members (including sender for reconciliation)
+  // Include the server-generated queueItemId so clients use the same ID
   const mutationEvent: ServerMutationEvent = {
     type: "QUEUE_ADD",
     roomId,
@@ -95,7 +96,10 @@ export function handleQueueAdd(
     eventId,
     serverTs: now,
     version: room.version,
-    payload,
+    payload: {
+      ...payload,
+      queueItemId, // Include server-generated ID
+    },
   };
 
   io.to(roomId).emit("QUEUE_ADD", mutationEvent);

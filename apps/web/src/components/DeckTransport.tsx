@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
 import { useDeck } from "@/audio/useDeck";
 import { useAudioEnabled } from "./AutoplayGate";
+import { initAudioEngine } from "@/audio/engine";
 
 export type DeckTransportProps = {
   /** Deck ID (A or B) */
@@ -341,17 +342,30 @@ export default function DeckTransport({
         </button>
       </div>
 
-      {/* Audio disabled warning */}
+      {/* Audio disabled - clickable to enable */}
       {!audioEnabled && (
-        <div
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await initAudioEngine();
+            } catch (err) {
+              console.error("Failed to enable audio:", err);
+            }
+          }}
           style={{
             fontSize: "0.625rem",
             color: "#f59e0b",
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid #f59e0b",
+            borderRadius: 4,
+            padding: "4px 8px",
+            cursor: "pointer",
             textAlign: "center",
           }}
         >
-          Enable audio to play
-        </div>
+          Click to enable audio
+        </button>
       )}
     </div>
   );

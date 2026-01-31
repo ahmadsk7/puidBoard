@@ -166,8 +166,9 @@ export function applyServerEvent(
     }
 
     case "QUEUE_ADD": {
-      const { trackId, title, durationSec, insertAt } = event.payload;
-      const id = `q-${event.serverTs}-${Math.random().toString(36).slice(2, 9)}`;
+      const { trackId, title, durationSec, insertAt, queueItemId } = event.payload;
+      // Use server-provided queueItemId, or generate fallback
+      const id = queueItemId || `q-${event.serverTs}-${Math.random().toString(36).slice(2, 9)}`;
       const item = {
         id,
         trackId,
