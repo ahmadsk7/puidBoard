@@ -1,3 +1,9 @@
+---
+name: tackle-pr
+description: Tackle a PR from pullreqs.md - checks dependencies, creates feature branch, implements, and opens PR
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
+---
+
 # Tackle PR $ARGUMENTS
 
 You are helping implement a PR from the Virtual DJ Rooms project. The PR number is: **$ARGUMENTS**
