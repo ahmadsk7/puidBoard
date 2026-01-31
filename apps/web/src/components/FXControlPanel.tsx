@@ -88,13 +88,15 @@ export default function FXControlPanel({
   const isActive = fxState.type !== "none" && fxState.enabled;
   const fxLabel = fxState.type === "none" ? "OFF" : fxState.type.toUpperCase();
 
-  // SVG-aligned positions (relative to container)
-  const SLIDER_LEFT_X = 42;  // 730 - 688
-  const SLIDER_RIGHT_X = 164; // 852 - 688
+  // SVG-aligned positions (relative to container at x=688, y=346)
+  // Slider holes: left at x=730 w=18, right at x=852 w=18, both at y=384 h=84
+  // Centers: left=730+9=739, right=852+9=861
+  const SLIDER_LEFT_X = 51;   // 739 - 688 (center of left hole)
+  const SLIDER_RIGHT_X = 173; // 861 - 688 (center of right hole)
   const SLIDER_Y = 38;        // 384 - 346
   const SLIDER_HEIGHT = 84;
 
-  const LCD_CENTER_X = 103;   // (730 + 852) / 2 - 688
+  const LCD_CENTER_X = 112;   // (739 + 861) / 2 - 688 = 800 - 688
   const LCD_Y = 8;
 
   return (
