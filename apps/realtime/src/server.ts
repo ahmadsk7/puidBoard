@@ -12,6 +12,23 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
 ];
 
 const httpServer = createServer(async (req, res) => {
+  // Add CORS headers for all HTTP requests
+  const origin = req.headers.origin;
+  if (origin && CORS_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", CORS_ORIGINS[0] || "*");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Handle preflight OPTIONS requests
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   // Health check endpoint
   if (req.url === "/health") {
     const persistence = getPersistence();
