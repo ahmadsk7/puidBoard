@@ -260,7 +260,7 @@ They should only block each other on:
 * `/apps/web/src/realtime/applyEvent.ts`
 * `/apps/web/src/components/CursorsLayer.tsx`
 
-## PR 2.3 — Queue UI (drag reorder + status badges) (Dev A)
+## PR 2.3 ✅ — Queue UI (drag reorder + status badges) (Dev A)
 
 **Objective:** queue is *visibly* the source of truth.
 **Scope**

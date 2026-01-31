@@ -6,6 +6,7 @@ import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
 import CursorsLayer, { buildMemberColorMap, getGrabGlowStyle } from "@/components/CursorsLayer";
+import QueuePanel from "@/components/QueuePanel";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 import { THROTTLE } from "@puid-board/shared";
@@ -61,20 +62,6 @@ function RoomContent({
     clientId
   );
 
-  const handleAddToQueue = () => {
-    sendEvent({
-      type: "QUEUE_ADD",
-      roomId: state.roomId,
-      clientId,
-      clientSeq: nextSeq(),
-      payload: {
-        trackId: `track-${Date.now()}`,
-        title: `Track ${state.queue.length + 1}`,
-        durationSec: 180,
-      },
-    });
-  };
-
   const handleCrossfaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     sendEvent({
       type: "MIXER_SET",
@@ -105,109 +92,104 @@ function RoomContent({
   };
 
   return (
-    <>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <TopBar
         roomCode={state.roomCode}
         latencyMs={latencyMs}
         autoplayEnabled={autoplayEnabled}
       />
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif", maxWidth: 640 }}>
-        <p style={{ color: "#666", fontSize: "0.875rem" }}>
-          Version: {state.version} · Members: {state.members.length}
-        </p>
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        {/* Main content area */}
+        <main
+          style={{
+            flex: 1,
+            padding: "1.5rem",
+            fontFamily: "system-ui, sans-serif",
+            overflow: "auto",
+          }}
+        >
+          <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1rem" }}>
+            Version: {state.version} · Members: {state.members.length}
+          </p>
 
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2>Queue ({state.queue.length})</h2>
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {state.queue.map((item) => (
-              <li
-                key={item.id}
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  marginBottom: "0.25rem",
-                  background: "#f3f4f6",
-                  borderRadius: 4,
-                }}
-              >
-                {item.title} · {Math.floor(item.durationSec / 60)}m
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={handleAddToQueue}
-            style={{ marginTop: "0.5rem", padding: "0.5rem 1rem", cursor: "pointer" }}
-          >
-            Add track to queue
-          </button>
-        </section>
-
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2>Mixer</h2>
-          <label style={{ display: "block", marginBottom: "0.25rem" }}>
-            Crossfader: {(state.mixer.crossfader * 100).toFixed(0)}%
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={state.mixer.crossfader}
-            onChange={handleCrossfaderChange}
-            style={{
-              width: "100%",
-              maxWidth: 300,
-              borderRadius: 4,
-              ...(crossfaderGlow || {}),
-            }}
-          />
-        </section>
-
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2>Cursors</h2>
-          <div
-            ref={cursorAreaRef}
-            role="button"
-            tabIndex={0}
-            onMouseMove={handleCursorMove}
-            onClick={handleCursorMove}
-            style={{
-              width: "100%",
-              height: 180,
-              background: "#e5e7eb",
-              borderRadius: 8,
-              position: "relative",
-              cursor: "crosshair",
-            }}
-          >
-            <CursorsLayer
-              members={state.members}
-              currentClientId={clientId}
-              containerWidth={cursorAreaSize.width}
-              containerHeight={cursorAreaSize.height}
+          <section style={{ marginBottom: "1.5rem" }}>
+            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Mixer</h2>
+            <label style={{ display: "block", marginBottom: "0.25rem", fontSize: "0.875rem" }}>
+              Crossfader: {(state.mixer.crossfader * 100).toFixed(0)}%
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={state.mixer.crossfader}
+              onChange={handleCrossfaderChange}
+              style={{
+                width: "100%",
+                maxWidth: 300,
+                borderRadius: 4,
+                ...(crossfaderGlow || {}),
+              }}
             />
-            {/* Own cursor (if set) */}
-            {state.members.find((m) => m.clientId === clientId)?.cursor && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.x ?? 0) * 100}%`,
-                  top: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.y ?? 0) * 100}%`,
-                  width: 12,
-                  height: 12,
-                  marginLeft: -6,
-                  marginTop: -6,
-                  background: state.members.find((m) => m.clientId === clientId)?.color ?? "#333",
-                  borderRadius: "50%",
-                  pointerEvents: "none",
-                  border: "2px solid white",
-                }}
+          </section>
+
+          <section>
+            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Cursors</h2>
+            <div
+              ref={cursorAreaRef}
+              role="button"
+              tabIndex={0}
+              onMouseMove={handleCursorMove}
+              onClick={handleCursorMove}
+              style={{
+                width: "100%",
+                maxWidth: 500,
+                height: 180,
+                background: "#e5e7eb",
+                borderRadius: 8,
+                position: "relative",
+                cursor: "crosshair",
+              }}
+            >
+              <CursorsLayer
+                members={state.members}
+                currentClientId={clientId}
+                containerWidth={cursorAreaSize.width}
+                containerHeight={cursorAreaSize.height}
               />
-            )}
-          </div>
-        </section>
-      </main>
-    </>
+              {/* Own cursor (if set) */}
+              {state.members.find((m) => m.clientId === clientId)?.cursor && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.x ?? 0) * 100}%`,
+                    top: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.y ?? 0) * 100}%`,
+                    width: 12,
+                    height: 12,
+                    marginLeft: -6,
+                    marginTop: -6,
+                    background: state.members.find((m) => m.clientId === clientId)?.color ?? "#333",
+                    borderRadius: "50%",
+                    pointerEvents: "none",
+                    border: "2px solid white",
+                  }}
+                />
+              )}
+            </div>
+          </section>
+        </main>
+
+        {/* Queue panel (right sidebar) */}
+        <QueuePanel
+          queue={state.queue}
+          members={state.members}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -243,34 +225,34 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
 
   if (status === "connecting") {
     return (
-      <>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
         <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
         <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
           <p>Connecting to server...</p>
         </main>
-      </>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
         <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
         <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
           <p style={{ color: "#ef4444" }}>Error: {error.message}</p>
         </main>
-      </>
+      </div>
     );
   }
 
   if (!state || !clientId) {
     return (
-      <>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
         <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
         <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
           <p>Waiting for room state...</p>
         </main>
-      </>
+      </div>
     );
   }
 
