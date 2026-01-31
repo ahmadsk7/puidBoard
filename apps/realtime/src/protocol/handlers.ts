@@ -22,6 +22,8 @@ import {
 import { registerTimeHandlers } from "../handlers/time.js";
 import { registerDeckHandlers } from "../handlers/deck.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
+import { getPersistence } from "../rooms/persistence.js";
+import { idempotencyStore } from "./idempotency.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -111,6 +113,10 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
   // Start sync tick timer for this room
   startSyncTick(io, room.roomId);
 
+  // Start persistence snapshots
+  const persistence = getPersistence();
+  persistence.startSnapshotting(room.roomId);
+
   console.log(
     `[CREATE_ROOM] created roomId=${room.roomId} code=${room.roomCode} host=${clientId}`
   );
@@ -144,7 +150,12 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
 
   // Try to join the room
   const result = roomStore.joinRoom(roomCode, name, socket.id);
+
+  // If room not found in memory, could restore from persistence in future
+  // For MVP, if room not in memory, it's truly not found
   if (!result) {
+    console.log(`[JOIN_ROOM] room not in memory code=${roomCode}`);
+
     socket.emit("ERROR", {
       type: "ROOM_NOT_FOUND",
       message: `Room with code ${roomCode} not found`,
@@ -200,7 +211,7 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle LEAVE_ROOM event.
  */
-function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
+async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
   const parsed = LeaveRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[LEAVE_ROOM] invalid payload socket=${socket.id}`);
@@ -246,9 +257,14 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
     }
   }
 
-  // If room is now empty, stop SYNC_TICK
+  // If room is now empty, stop SYNC_TICK and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+
+    // Clean up persistence
+    const persistence = getPersistence();
+    await persistence.deleteSnapshot(roomId);
+    idempotencyStore.deleteRoom(roomId);
   }
 
   // Notify remaining members
@@ -275,7 +291,7 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle socket disconnect.
  */
-function handleDisconnect(io: Server, socket: Socket, reason: string): void {
+async function handleDisconnect(io: Server, socket: Socket, reason: string): Promise<void> {
   console.log(`[disconnect] socket=${socket.id} reason=${reason}`);
 
   // Clean up cursor throttle tracking
@@ -310,9 +326,14 @@ function handleDisconnect(io: Server, socket: Socket, reason: string): void {
     }
   }
 
-  // If room is now empty, stop SYNC_TICK
+  // If room is now empty, stop SYNC_TICK and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+
+    // Clean up persistence
+    const persistence = getPersistence();
+    await persistence.deleteSnapshot(roomId);
+    idempotencyStore.deleteRoom(roomId);
   }
 
   // Notify remaining members

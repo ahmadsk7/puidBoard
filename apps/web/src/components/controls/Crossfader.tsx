@@ -186,19 +186,19 @@ export default function Crossfader({
             pointerEvents: "none",
           }}
         />
-        {/* Thumb */}
-        <div
+        {/* Thumb with SVG */}
+        <img
+          src="/assets/dj-controls/faders/crossfader-handle.svg"
+          alt=""
           style={{
             position: "absolute",
             left: `${localValue * 100}%`,
             top: "50%",
             transform: "translate(-50%, -50%)",
-            width: 12,
+            width: 80,
             height: 40,
-            background: "#fff",
-            borderRadius: 2,
-            boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
             pointerEvents: "none",
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
           }}
         />
       </div>
