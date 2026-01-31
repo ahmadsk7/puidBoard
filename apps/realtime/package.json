@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@puid-board/shared": "workspace:*",
-    "socket.io": "^4.7.0",
-    "dotenv": "^16.4.0"
+    "@types/multer": "^2.0.0",
+    "dotenv": "^16.4.0",
+    "multer": "^2.0.2",
+    "socket.io": "^4.7.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
