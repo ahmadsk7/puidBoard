@@ -21,6 +21,7 @@ import {
   clearMixerThrottle,
   releaseAllClientControls,
 } from "../handlers/controls.js";
+import { registerDeckHandlers } from "../handlers/deck.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
 
 /**
@@ -60,6 +61,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register control handlers
   registerControlHandlers(io, socket);
+
+  // Register deck handlers
+  registerDeckHandlers(io, socket);
 }
 
 /**
