@@ -4,6 +4,7 @@ import { VERSION } from "@puid-board/shared";
 import { registerHandlers } from "./protocol/handlers.js";
 import { roomStore } from "./rooms/store.js";
 import { handleTrackApiRequest } from "./http/api.js";
+import { initPersistence, getPersistence } from "./rooms/persistence.js";
 
 const PORT = process.env.PORT ?? 3001;
 const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
@@ -13,6 +14,9 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
 const httpServer = createServer(async (req, res) => {
   // Health check endpoint
   if (req.url === "/health") {
+    const persistence = getPersistence();
+    const persistenceStats = persistence.getStats();
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
@@ -20,6 +24,7 @@ const httpServer = createServer(async (req, res) => {
         version: VERSION,
         rooms: roomStore.getRoomCount(),
         clients: roomStore.getClientCount(),
+        persistence: persistenceStats,
       })
     );
     return;
@@ -51,7 +56,12 @@ io.on("connection", (socket) => {
   registerHandlers(io, socket);
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`[realtime] server listening on port ${PORT}`);
-  console.log(`[realtime] shared package version: ${VERSION}`);
-});
+// Initialize persistence and start server
+(async () => {
+  await initPersistence();
+
+  httpServer.listen(PORT, () => {
+    console.log(`[realtime] server listening on port ${PORT}`);
+    console.log(`[realtime] shared package version: ${VERSION}`);
+  });
+})();

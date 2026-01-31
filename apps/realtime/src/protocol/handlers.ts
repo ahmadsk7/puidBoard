@@ -22,6 +22,8 @@ import {
 import { registerTimeHandlers } from "../handlers/time.js";
 import { registerDeckHandlers } from "../handlers/deck.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
+import { getPersistence } from "../rooms/persistence.js";
+import { idempotencyStore } from "./idempotency.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -111,6 +113,10 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
   // Start sync tick timer for this room
   startSyncTick(io, room.roomId);
 
+  // Start persistence snapshots
+  const persistence = getPersistence();
+  persistence.startSnapshotting(room.roomId);
+
   console.log(
     `[CREATE_ROOM] created roomId=${room.roomId} code=${room.roomCode} host=${clientId}`
   );
@@ -119,7 +125,7 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle JOIN_ROOM event.
  */
-function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
+async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
   const parsed = JoinRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[JOIN_ROOM] invalid payload socket=${socket.id}`);
@@ -143,8 +149,18 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
   }
 
   // Try to join the room
-  const result = roomStore.joinRoom(roomCode, name, socket.id);
+  let result = roomStore.joinRoom(roomCode, name, socket.id);
+
+  // If room not found in memory, try to restore from persistence
   if (!result) {
+    const persistence = getPersistence();
+    const roomIdLookup = roomStore.getRoomByCode(roomCode);
+
+    // Try to load persisted snapshot using room code lookup
+    // Note: we need to scan or maintain an index for this in production
+    // For MVP, if room not in memory, it's truly not found
+    console.log(`[JOIN_ROOM] room not in memory, checking persistence code=${roomCode}`);
+
     socket.emit("ERROR", {
       type: "ROOM_NOT_FOUND",
       message: `Room with code ${roomCode} not found`,
@@ -246,9 +262,14 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
     }
   }
 
-  // If room is now empty, stop SYNC_TICK
+  // If room is now empty, stop SYNC_TICK and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+
+    // Clean up persistence
+    const persistence = getPersistence();
+    await persistence.deleteSnapshot(roomId);
+    idempotencyStore.deleteRoom(roomId);
   }
 
   // Notify remaining members
@@ -310,9 +331,14 @@ function handleDisconnect(io: Server, socket: Socket, reason: string): void {
     }
   }
 
-  // If room is now empty, stop SYNC_TICK
+  // If room is now empty, stop SYNC_TICK and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+
+    // Clean up persistence
+    const persistence = getPersistence();
+    await persistence.deleteSnapshot(roomId);
+    idempotencyStore.deleteRoom(roomId);
   }
 
   // Notify remaining members

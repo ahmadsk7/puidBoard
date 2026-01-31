@@ -308,6 +308,28 @@ class RoomStore {
   getClientCount(): number {
     return this.clients.size;
   }
+
+  /**
+   * Restore a room from persistence.
+   * Used when a client rejoins after server restart.
+   */
+  restoreRoom(roomState: RoomState): void {
+    // Only restore if room doesn't already exist
+    if (this.rooms.has(roomState.roomId)) {
+      console.log(
+        `[room:restore] room already exists roomId=${roomState.roomId}, skipping`
+      );
+      return;
+    }
+
+    // Restore room state
+    this.rooms.set(roomState.roomId, roomState);
+    this.roomCodeIndex.set(roomState.roomCode, roomState.roomId);
+
+    console.log(
+      `[room:restore] restored roomId=${roomState.roomId} code=${roomState.roomCode} version=${roomState.version} members=${roomState.members.length}`
+    );
+  }
 }
 
 // Export singleton instance
