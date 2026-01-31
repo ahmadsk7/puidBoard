@@ -31,7 +31,7 @@ export default function Crossfader({
   nextSeq,
   ownership,
   memberColors,
-  width = 200,
+  width: _width = 200,
 }: CrossfaderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
@@ -147,17 +147,45 @@ export default function Crossfader({
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 4,
+        position: "relative",
+        width: "100%",
+        height: "100%",
         userSelect: "none",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-        <span style={{ fontSize: "0.625rem", color: "#3b82f6", fontWeight: 600 }}>A</span>
-        <span style={{ fontSize: "0.625rem", color: "#8b5cf6", fontWeight: 600 }}>B</span>
-      </div>
+      {/* A label - absolutely positioned on the left */}
+      <span
+        style={{
+          position: "absolute",
+          left: 8,
+          top: "50%",
+          transform: "translateY(-50%)",
+          fontSize: "0.625rem",
+          color: "#3b82f6",
+          fontWeight: 600,
+          zIndex: 1,
+        }}
+      >
+        A
+      </span>
+
+      {/* B label - absolutely positioned on the right */}
+      <span
+        style={{
+          position: "absolute",
+          right: 8,
+          top: "50%",
+          transform: "translateY(-50%)",
+          fontSize: "0.625rem",
+          color: "#8b5cf6",
+          fontWeight: 600,
+          zIndex: 1,
+        }}
+      >
+        B
+      </span>
+
+      {/* Crossfader track - fills entire container */}
       <div
         ref={trackRef}
         onPointerDown={handlePointerDown}
@@ -165,11 +193,13 @@ export default function Crossfader({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         style={{
-          position: "relative",
-          width,
-          height: 32,
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
           background: "linear-gradient(to bottom, #1a1a1a, #0f0f10)",
-          borderRadius: 4,
+          borderRadius: 17,
           border: "1px solid #242424",
           cursor: "pointer",
           touchAction: "none",

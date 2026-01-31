@@ -165,9 +165,14 @@ export default function Fader({
     ? `${(1 - localValue) * 100}%`
     : `${localValue * 100}%`;
 
+  // LED count for the realistic light strip
+  const LED_COUNT = 10;
+  const activeLeds = Math.ceil(localValue * LED_COUNT);
+
   return (
     <div
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -180,6 +185,40 @@ export default function Fader({
           {label}
         </span>
       )}
+      {/* LCD Value Display Box - Absolutely positioned above the A/B label */}
+      <div
+        style={{
+          position: "absolute",
+          top: -20,
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "linear-gradient(135deg, #050508 0%, #0a0a0c 100%)",
+          border: "1px solid #1a1a1a",
+          borderRadius: "3px",
+          boxShadow: `
+            inset 0 1px 3px rgba(0, 0, 0, 0.8),
+            0 1px 4px rgba(0, 0, 0, 0.6),
+            inset 0 0 8px rgba(59, 130, 246, 0.1)
+          `,
+          padding: "2px 4px",
+          minWidth: "24px",
+          zIndex: 10,
+        }}
+      >
+        <div
+          style={{
+            fontSize: "0.5rem",
+            fontWeight: 700,
+            fontFamily: "monospace",
+            color: "#60a5fa",
+            textAlign: "center",
+            letterSpacing: "0.03em",
+            textShadow: "0 0 4px rgba(96, 165, 250, 0.3)",
+          }}
+        >
+          {Math.round(localValue * 100)}
+        </div>
+      </div>
       <div
         ref={trackRef}
         onPointerDown={handlePointerDown}
@@ -199,20 +238,38 @@ export default function Fader({
           ...glowStyle,
         }}
       >
-        {/* Track fill indicator - thin line showing active range */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: isVertical ? "50%" : 0,
-            transform: isVertical ? "translateX(-50%)" : "none",
-            width: isVertical ? 4 : `${localValue * 100}%`,
-            height: isVertical ? `${localValue * 100}%` : 4,
-            background: "#3b82f6",
-            borderRadius: 2,
-            pointerEvents: "none",
-          }}
-        />
+        {/* LED Light Strip - Realistic individual LEDs */}
+        {isVertical && Array.from({ length: LED_COUNT }).map((_, i) => {
+          const isActive = LED_COUNT - i <= activeLeds;
+          return (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                bottom: `${(i / LED_COUNT) * 100}%`,
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: 3,
+                height: `${100 / LED_COUNT - 1}%`,
+                background: isActive
+                  ? "linear-gradient(90deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)"
+                  : "#0a0a0a",
+                borderRadius: "1px",
+                boxShadow: isActive
+                  ? `
+                    0 0 2px #3b82f6,
+                    0 0 4px rgba(59, 130, 246, 0.6),
+                    inset 0 1px 1px rgba(96, 165, 250, 0.8),
+                    inset 0 -1px 1px rgba(30, 64, 175, 0.8)
+                  `
+                  : "inset 0 1px 1px rgba(0, 0, 0, 0.8)",
+                border: isActive ? "0.5px solid rgba(96, 165, 250, 0.3)" : "0.5px solid #0a0a0a",
+                pointerEvents: "none",
+                opacity: isActive ? 1 : 0.3,
+              }}
+            />
+          );
+        })}
         {/* Thumb with SVG */}
         <img
           src="/assets/dj-controls/faders/fader-handle.svg"
@@ -229,9 +286,6 @@ export default function Fader({
           }}
         />
       </div>
-      <span style={{ fontSize: "0.625rem", color: "#9ca3af" }}>
-        {Math.round(localValue * 100)}
-      </span>
     </div>
   );
 }

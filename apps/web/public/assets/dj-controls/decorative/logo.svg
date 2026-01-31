@@ -12,8 +12,8 @@
     </filter>
   </defs>
   <g filter="url(#soft)">
-    <text x="0" y="32" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"
-          font-size="26" font-weight="800" letter-spacing="0.08em" fill="url(#g)">DJ ROOMS</text>
+    <text x="110" y="32" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"
+          font-size="29" font-weight="800" letter-spacing="0.08em" fill="url(#g)" text-anchor="middle">PuidBoard</text>
     <path d="M2 40H218" stroke="#3a3a3a" stroke-width="2" opacity="0.6"/>
     <path d="M2 40H86" stroke="#00ff9f" stroke-width="2" opacity="0.18"/>
   </g>

@@ -5,8 +5,9 @@
 **/node_modules
 .pnpm-store
 
-# Build outputs (rebuilt in container)
-**/dist
+# Build outputs
+# Note: dist folders are NOT ignored because we use pre-built artifacts
+# **/dist  <-- COMMENTED OUT - we need dist for deployment
 **/.turbo
 **/.next
 

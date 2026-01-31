@@ -10,7 +10,7 @@ import type {
 import { Knob, Crossfader, JogWheel } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
-import ClippingIndicator from "./ClippingIndicator";
+// import ClippingIndicator from "./ClippingIndicator"; // TODO: add clipping indicator later
 import FXControlPanel from "./FXControlPanel";
 import { useMixerSync } from "@/audio/useMixer";
 import { useDeck } from "@/audio/useDeck";
@@ -216,51 +216,52 @@ function MixerKnobs({
 
   return (
     <>
-      {/* Header display area */}
+      {/* Signal level indicators - positioned above knobs */}
       <div
         style={{
           position: "absolute",
-          left: MIXER.display.x,
-          top: MIXER.display.y,
-          width: MIXER.display.width,
-          height: 60,
+          left: MIXER.display.x + MIXER.display.width / 2,
+          top: MIXER.display.y + 20,
+          transform: "translateX(-50%)",
           display: "flex",
-          flexDirection: "column",
+          gap: 4,
           alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          boxSizing: "border-box",
         }}
       >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: "0.625rem", color: "#9ca3af", fontWeight: 600 }}>
-            MASTER
-          </span>
-          <ClippingIndicator compact />
-        </div>
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
+          <img
+            key={i}
+            src={`/assets/dj-controls/indicators/led-indicator-${
+              i < 3 ? "green" : i < 4 ? "orange" : "red"
+            }.svg`}
+            alt=""
+            style={{
+              width: 10,
+              height: 10,
+              filter:
+                mixer.masterVolume > threshold
+                  ? "brightness(1)"
+                  : "brightness(0.3)",
+              transition: "filter 0.1s",
+            }}
+          />
+        ))}
+      </div>
 
-        {/* Signal level indicators */}
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
-            <img
-              key={i}
-              src={`/assets/dj-controls/indicators/led-indicator-${
-                i < 3 ? "green" : i < 4 ? "orange" : "red"
-              }.svg`}
-              alt=""
-              style={{
-                width: 10,
-                height: 10,
-                filter:
-                  mixer.masterVolume > threshold
-                    ? "brightness(1)"
-                    : "brightness(0.3)",
-                transition: "filter 0.1s",
-              }}
-            />
-          ))}
-        </div>
+      {/* Master volume label */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.masterVolume.cx,
+          top: MIXER.knobs.masterVolume.cy - 36,
+          transform: "translateX(-50%)",
+          fontSize: "0.625rem",
+          color: "#9ca3af",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+        }}
+      >
+        MASTER
       </div>
 
       {/* Master volume knob - centered at (744, 238) */}
@@ -269,7 +270,7 @@ function MixerKnobs({
           position: "absolute",
           left: MIXER.knobs.masterVolume.cx,
           top: MIXER.knobs.masterVolume.cy,
-          transform: "translate(-50%, calc(-50% - 12px))", // Shift UP to center the knob circle (label is above)
+          transform: "translate(-50%, -50%)",
         }}
       >
         <Knob
@@ -281,9 +282,24 @@ function MixerKnobs({
           nextSeq={nextSeq}
           ownership={controlOwners["masterVolume"]}
           memberColors={memberColors}
-          label="MASTER"
           size={knobSize}
         />
+      </div>
+
+      {/* HI A label */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.channelAHigh.cx,
+          top: MIXER.knobs.channelAHigh.cy - 36,
+          transform: "translateX(-50%)",
+          fontSize: "0.625rem",
+          color: "#9ca3af",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+        }}
+      >
+        HI A
       </div>
 
       {/* Channel A EQ High - centered at (856, 238) */}
@@ -292,7 +308,7 @@ function MixerKnobs({
           position: "absolute",
           left: MIXER.knobs.channelAHigh.cx,
           top: MIXER.knobs.channelAHigh.cy,
-          transform: "translate(-50%, calc(-50% - 12px))",
+          transform: "translate(-50%, -50%)",
         }}
       >
         <Knob
@@ -304,12 +320,27 @@ function MixerKnobs({
           nextSeq={nextSeq}
           ownership={controlOwners["channelA.eq.high"]}
           memberColors={memberColors}
-          label="HI A"
           size={knobSize}
           min={-1}
           max={1}
           bipolar
         />
+      </div>
+
+      {/* HI B label */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.channelBHigh.cx,
+          top: MIXER.knobs.channelBHigh.cy - 36,
+          transform: "translateX(-50%)",
+          fontSize: "0.625rem",
+          color: "#9ca3af",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+        }}
+      >
+        HI B
       </div>
 
       {/* Channel B EQ High - centered at (744, 302) */}
@@ -318,7 +349,7 @@ function MixerKnobs({
           position: "absolute",
           left: MIXER.knobs.channelBHigh.cx,
           top: MIXER.knobs.channelBHigh.cy,
-          transform: "translate(-50%, calc(-50% - 12px))",
+          transform: "translate(-50%, -50%)",
         }}
       >
         <Knob
@@ -330,12 +361,27 @@ function MixerKnobs({
           nextSeq={nextSeq}
           ownership={controlOwners["channelB.eq.high"]}
           memberColors={memberColors}
-          label="HI B"
           size={knobSize}
           min={-1}
           max={1}
           bipolar
         />
+      </div>
+
+      {/* CUE label */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.headphoneMix.cx,
+          top: MIXER.knobs.headphoneMix.cy - 36,
+          transform: "translateX(-50%)",
+          fontSize: "0.625rem",
+          color: "#9ca3af",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+        }}
+      >
+        CUE
       </div>
 
       {/* Headphone cue mix - centered at (856, 302) */}
@@ -344,7 +390,7 @@ function MixerKnobs({
           position: "absolute",
           left: MIXER.knobs.headphoneMix.cx,
           top: MIXER.knobs.headphoneMix.cy,
-          transform: "translate(-50%, calc(-50% - 12px))",
+          transform: "translate(-50%, -50%)",
         }}
       >
         <Knob
@@ -356,7 +402,6 @@ function MixerKnobs({
           nextSeq={nextSeq}
           ownership={controlOwners["headphoneMix"]}
           memberColors={memberColors}
-          label="CUE"
           size={knobSize}
         />
       </div>
@@ -433,10 +478,6 @@ function CrossfaderSection({
         top: MIXER.crossfader.y,
         width: MIXER.crossfader.width,
         height: MIXER.crossfader.height,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxSizing: "border-box",
       }}
     >
       <Crossfader
@@ -447,7 +488,6 @@ function CrossfaderSection({
         nextSeq={nextSeq}
         ownership={controlOwners["crossfader"]}
         memberColors={memberColors}
-        width={MIXER.crossfader.width - 40}
       />
     </div>
   );

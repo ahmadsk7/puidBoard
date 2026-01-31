@@ -183,6 +183,8 @@ export const QueueAddPayloadSchema = z.object({
   durationSec: z.number().nonnegative(),
   /** Optional: insert at specific position (0 = top). Default: end */
   insertAt: z.number().int().nonnegative().optional(),
+  /** Server-generated queue item ID (included in mutation events) */
+  queueItemId: z.string().min(1).optional(),
 });
 export type QueueAddPayload = z.infer<typeof QueueAddPayloadSchema>;
 

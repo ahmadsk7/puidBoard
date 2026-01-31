@@ -91,13 +91,15 @@ export default function FXControlPanel({
   // SVG-aligned positions (relative to container at x=688, y=346)
   // Slider holes: left at x=730 w=18, right at x=852 w=18, both at y=384 h=84
   // Centers: left=730+9=739, right=852+9=861
+  // Fader handle is 60px tall, so reduce track height to fit within bounds
   const SLIDER_LEFT_X = 51;   // 739 - 688 (center of left hole)
   const SLIDER_RIGHT_X = 173; // 861 - 688 (center of right hole)
   const SLIDER_Y = 38;        // 384 - 346
-  const SLIDER_HEIGHT = 84;
+  const SLIDER_HEIGHT = 70;   // Reduced from 84 to account for fader handle size
 
   const LCD_CENTER_X = 112;   // (739 + 861) / 2 - 688 = 800 - 688
   const LCD_Y = 8;
+  const LCD_WIDTH = 70;       // Narrower to avoid overlapping sliders
 
   return (
     <div
@@ -176,11 +178,11 @@ export default function FXControlPanel({
             0 2px 8px rgba(0, 0, 0, 0.5),
             inset 0 0 12px ${isActive ? "rgba(59, 130, 246, 0.15)" : "rgba(0, 0, 0, 0.3)"}
           `,
-          padding: "6px 8px",
+          padding: "4px 6px",
           display: "flex",
           flexDirection: "column",
-          gap: "4px",
-          width: "90px",
+          gap: "3px",
+          width: `${LCD_WIDTH}px`,
         }}
       >
         {/* Header with FX label and LED */}
@@ -189,14 +191,14 @@ export default function FXControlPanel({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: "2px",
+            marginBottom: "1px",
           }}
         >
           <span
             style={{
-              fontSize: "7px",
+              fontSize: "6px",
               fontWeight: 700,
-              letterSpacing: "0.1em",
+              letterSpacing: "0.08em",
               color: "#6b7280",
             }}
           >
@@ -205,11 +207,11 @@ export default function FXControlPanel({
           {/* Status LED */}
           <div
             style={{
-              width: "4px",
-              height: "4px",
+              width: "3px",
+              height: "3px",
               borderRadius: "50%",
               background: isActive ? "#22c55e" : "#ef4444",
-              boxShadow: `0 0 4px ${isActive ? "#22c55e" : "#ef4444"}`,
+              boxShadow: `0 0 3px ${isActive ? "#22c55e" : "#ef4444"}`,
               opacity: fxState.type === "none" ? 0.3 : 1,
             }}
           />
@@ -220,19 +222,19 @@ export default function FXControlPanel({
           style={{
             background: "rgba(0, 0, 0, 0.4)",
             borderRadius: "3px",
-            padding: "3px 6px",
+            padding: "2px 4px",
             textAlign: "center",
             border: isActive ? "1px solid #3b82f6" : "1px solid #1a1a1a",
-            marginBottom: "2px",
+            marginBottom: "1px",
           }}
         >
           <div
             style={{
-              fontSize: "11px",
+              fontSize: "9px",
               fontWeight: 700,
               fontFamily: "monospace",
               color: isActive ? "#60a5fa" : "#6b7280",
-              letterSpacing: "0.03em",
+              letterSpacing: "0.02em",
             }}
           >
             {fxState.enabled ? fxLabel : "BYPASS"}
@@ -244,8 +246,8 @@ export default function FXControlPanel({
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
-            gap: "2px",
-            marginBottom: "2px",
+            gap: "1px",
+            marginBottom: "1px",
           }}
         >
           {FX_TYPES.map((fx) => (
@@ -254,8 +256,8 @@ export default function FXControlPanel({
               type="button"
               onClick={() => handleTypeChange(fx.value)}
               style={{
-                padding: "2px 4px",
-                fontSize: "0.45rem",
+                padding: "1px 2px",
+                fontSize: "0.4rem",
                 fontWeight: 700,
                 background: fxState.type === fx.value ? "#3b82f6" : "#1a1a1a",
                 color: fxState.type === fx.value ? "#fff" : "#6b7280",
@@ -263,7 +265,7 @@ export default function FXControlPanel({
                 borderRadius: "2px",
                 cursor: "pointer",
                 transition: "all 0.1s",
-                letterSpacing: "0.02em",
+                letterSpacing: "0.01em",
               }}
             >
               {fx.label}
@@ -277,16 +279,16 @@ export default function FXControlPanel({
           onClick={handleToggle}
           disabled={fxState.type === "none"}
           style={{
-            padding: "3px 6px",
-            fontSize: "0.5rem",
+            padding: "2px 4px",
+            fontSize: "0.45rem",
             fontWeight: 700,
             background: fxState.enabled ? "#22c55e" : "#1a1a1a",
             color: fxState.enabled ? "#fff" : "#6b7280",
             border: "1px solid #2a2a2a",
-            borderRadius: "3px",
+            borderRadius: "2px",
             cursor: fxState.type === "none" ? "not-allowed" : "pointer",
             opacity: fxState.type === "none" ? 0.4 : 1,
-            letterSpacing: "0.05em",
+            letterSpacing: "0.03em",
             transition: "all 0.1s",
           }}
         >
@@ -300,23 +302,23 @@ export default function FXControlPanel({
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              paddingTop: "2px",
+              paddingTop: "1px",
               borderTop: "1px solid #1a1a1a",
             }}
           >
             <span
               style={{
-                fontSize: "6px",
+                fontSize: "5px",
                 fontWeight: 600,
                 color: "#6b7280",
-                letterSpacing: "0.05em",
+                letterSpacing: "0.03em",
               }}
             >
               {paramInfo.label}
             </span>
             <span
               style={{
-                fontSize: "7px",
+                fontSize: "6px",
                 fontWeight: 700,
                 fontFamily: "monospace",
                 color: isActive ? "#60a5fa" : "#6b7280",

@@ -102,7 +102,7 @@ export default function QueuePanel({
     (e: React.DragEvent, toIndex: number) => {
       e.preventDefault();
       const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-      
+
       if (isNaN(fromIndex) || fromIndex === toIndex) {
         setDragIndex(null);
         setDropIndex(null);
@@ -147,27 +147,45 @@ export default function QueuePanel({
   return (
     <aside
       style={{
-        width: 280,
-        background: "#fff",
-        borderLeft: "1px solid #e5e7eb",
+        width: 300,
+        background: "#0a0a0a",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: "0.75rem 1rem",
-          borderBottom: "1px solid #e5e7eb",
+          padding: "1rem 1.25rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
         }}
       >
-        <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>
-          Queue ({queue.length})
-        </h2>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              color: "#e5e5e5",
+              letterSpacing: "0.025em",
+              textTransform: "uppercase",
+            }}
+          >
+            Queue
+          </h2>
+          <span
+            style={{
+              fontSize: "0.75rem",
+              color: "#525252",
+              fontWeight: 500,
+            }}
+          >
+            {queue.length}
+          </span>
+        </div>
         <TrackUploader onUploadComplete={handleUploadComplete} />
       </div>
 
@@ -177,7 +195,7 @@ export default function QueuePanel({
           flex: 1,
           overflow: "auto",
           margin: 0,
-          padding: "0.5rem",
+          padding: "0 0.75rem 0.75rem",
           listStyle: "none",
         }}
         onDragEnd={handleDragEnd}
@@ -185,15 +203,28 @@ export default function QueuePanel({
         {queue.length === 0 ? (
           <li
             style={{
-              padding: "2rem 1rem",
+              padding: "3rem 1rem",
               textAlign: "center",
-              color: "#9ca3af",
-              fontSize: "0.875rem",
             }}
           >
-            Queue is empty
-            <br />
-            <span style={{ fontSize: "0.75rem" }}>Click &quot;+ Add&quot; to add tracks</span>
+            <div
+              style={{
+                color: "#404040",
+                fontSize: "0.8125rem",
+                fontWeight: 500,
+                marginBottom: "0.5rem",
+              }}
+            >
+              No tracks in queue
+            </div>
+            <div
+              style={{
+                color: "#333333",
+                fontSize: "0.6875rem",
+              }}
+            >
+              Add tracks to get started
+            </div>
           </li>
         ) : (
           queue.map((item, index) => (
@@ -214,18 +245,20 @@ export default function QueuePanel({
         )}
       </ul>
 
-      {/* Footer with hint */}
-      <div
-        style={{
-          padding: "0.5rem 1rem",
-          borderTop: "1px solid #e5e7eb",
-          fontSize: "0.625rem",
-          color: "#9ca3af",
-          textAlign: "center",
-        }}
-      >
-        Drag to reorder · Click A/B to load to deck
-      </div>
+      {/* Footer hint - only show when there are tracks */}
+      {queue.length > 0 && (
+        <div
+          style={{
+            padding: "0.75rem 1.25rem",
+            fontSize: "0.625rem",
+            color: "#404040",
+            textAlign: "center",
+            letterSpacing: "0.02em",
+          }}
+        >
+          Drag to reorder
+        </div>
+      )}
     </aside>
   );
 }
