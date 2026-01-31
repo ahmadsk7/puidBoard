@@ -7,11 +7,11 @@ import type {
   ControlOwnership,
   QueueItem,
 } from "@puid-board/shared";
-import { Fader, Knob, Crossfader, JogWheel } from "./controls";
+import { Knob, Crossfader, JogWheel } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
 import ClippingIndicator from "./ClippingIndicator";
-import FXStrip from "./FXStrip";
+import FXControlPanel from "./FXControlPanel";
 import { useMixerSync } from "@/audio/useMixer";
 import { useDeck } from "@/audio/useDeck";
 import { useBoardScale } from "@/hooks/useBoardScale";
@@ -364,7 +364,7 @@ function MixerKnobs({
   );
 }
 
-/** Mixer faders section */
+/** Mixer faders and FX section - Aligned to SVG background */
 function MixerFaders({
   mixer,
   roomId,
@@ -390,32 +390,12 @@ function MixerFaders({
         top: MIXER.faders.y,
         width: MIXER.faders.width,
         height: MIXER.faders.height,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "8px 24px",
-        boxSizing: "border-box",
       }}
     >
-      {/* Channel A fader */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-        <span style={{ fontSize: "0.5rem", color: "#3b82f6", fontWeight: 600 }}>A</span>
-        <Fader
-          controlId="channelA.fader"
-          value={mixer.channelA.fader}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["channelA.fader"]}
-          memberColors={memberColors}
-          height={84}
-        />
-      </div>
-
-      {/* FX Strip in center */}
-      <FXStrip
+      <FXControlPanel
         fxState={mixer.fx}
+        channelAFader={mixer.channelA.fader}
+        channelBFader={mixer.channelB.fader}
         roomId={roomId}
         clientId={clientId}
         sendEvent={sendEvent}
@@ -423,22 +403,6 @@ function MixerFaders({
         controlOwners={controlOwners}
         memberColors={memberColors}
       />
-
-      {/* Channel B fader */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-        <span style={{ fontSize: "0.5rem", color: "#8b5cf6", fontWeight: 600 }}>B</span>
-        <Fader
-          controlId="channelB.fader"
-          value={mixer.channelB.fader}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["channelB.fader"]}
-          memberColors={memberColors}
-          height={84}
-        />
-      </div>
     </div>
   );
 }
@@ -558,12 +522,6 @@ export default function DJBoard({
           queue={state.queue}
         />
 
-        <PositionedJogWheel
-          deckId="A"
-          position={DECK_A.jogWheel}
-          accentColor="#3b82f6"
-        />
-
         <DeckControls
           deck={state.deckA}
           deckId="A"
@@ -574,6 +532,12 @@ export default function DJBoard({
           nextSeq={nextSeq}
           accentColor="#3b82f6"
           queue={state.queue}
+        />
+
+        <PositionedJogWheel
+          deckId="A"
+          position={DECK_A.jogWheel}
+          accentColor="#3b82f6"
         />
 
         {/* === MIXER (Center) === */}
@@ -616,12 +580,6 @@ export default function DJBoard({
           queue={state.queue}
         />
 
-        <PositionedJogWheel
-          deckId="B"
-          position={DECK_B.jogWheel}
-          accentColor="#8b5cf6"
-        />
-
         <DeckControls
           deck={state.deckB}
           deckId="B"
@@ -632,6 +590,12 @@ export default function DJBoard({
           nextSeq={nextSeq}
           accentColor="#8b5cf6"
           queue={state.queue}
+        />
+
+        <PositionedJogWheel
+          deckId="B"
+          position={DECK_B.jogWheel}
+          accentColor="#8b5cf6"
         />
 
         {/* NOTE: Decorative screws are rendered in the SVG background */}
