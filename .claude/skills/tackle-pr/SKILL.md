@@ -1,162 +1,189 @@
 ---
 name: tackle-pr
-description: Tackle a PR from pullreqs.md - checks dependencies, creates feature branch, implements, and opens PR
+description: Tackle a PR from pullreqs.md - takes "Dev A" or "Dev B" and outputs the next PR to implement
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 ---
 
-# Tackle PR $ARGUMENTS
+# Tackle PR for $ARGUMENTS
 
-You are helping implement a PR from the Virtual DJ Rooms project. The PR number is: **$ARGUMENTS**
+You are helping implement the next PR for the Virtual DJ Rooms project.
 
-## Step 1: Load PR Specs and Dependencies
+**Input:** `$ARGUMENTS` should be either `Dev A` or `Dev B`
 
-Read the PR breakdown document at `pullreqs.md` to understand:
-1. The full scope of PR $ARGUMENTS (objective, scope, acceptance criteria, files)
-2. The dependency chain for this PR
+## Step 1: Determine the Next PR
 
-## Step 2: Check Dependencies
+Read `pullreqs.md` and scan for PR headings. A PR is **complete** if its heading contains ✅ (e.g., `## PR 0.1 ✅ —`).
 
-Based on `pullreqs.md`, verify that all blocking PRs have been merged. The dependency rules are:
+### Dev Lanes
+
+**Dev A (Client + Audio):**
+```
+PR 0.3 → PR 2.1 → PR 2.2 → PR 2.3 → PR 2.4
+                              ↓
+PR 3.2 → PR 3.3 → PR 3.4
+    ↓
+PR 4.2
+    ↓
+PR 6.1 → PR 6.2
+```
+
+**Dev B (Backend + Infra):**
+```
+PR 0.1 → PR 0.2
+    ↓
+PR 1.1 → PR 1.2
+    ↓     PR 1.3
+    ↓     PR 1.4
+PR 3.1
+    ↓
+PR 4.1 → PR 4.3
+    ↓
+PR 5.1 → PR 5.2 → PR 5.3
+```
+
+### Dependency Rules
 
 **Phase 0 (Foundation):**
-- PR 0.1 - No dependencies (must land first)
+- PR 0.1 - No dependencies (Dev B starts here)
 - PR 0.2 - Depends on PR 0.1
-- PR 0.3 - Depends on PR 0.2
+- PR 0.3 - Depends on PR 0.2 (Dev A starts here)
 
-**Phase 1 (Realtime core):**
+**Phase 1 (Realtime core) - Dev B:**
 - PR 1.1 - Depends on PR 0.1, 0.2
 - PR 1.2 - Depends on PR 1.1
 - PR 1.3 - Depends on PR 1.1
 - PR 1.4 - Depends on PR 1.1
 
-**Phase 2 (Frontend UI):**
+**Phase 2 (Frontend UI) - Dev A:**
 - PR 2.1 - Depends on PR 0.3
 - PR 2.2 - Depends on PR 2.1, PR 1.1
 - PR 2.3 - Depends on PR 2.2, PR 1.3
 - PR 2.4 - Depends on PR 2.2, PR 1.4
 
 **Phase 3 (Audio engine):**
-- PR 3.1 - Depends on PR 0.2 (can run parallel)
-- PR 3.2 - Depends on PR 2.4, PR 3.1
-- PR 3.3 - Depends on PR 3.2
-- PR 3.4 - Depends on PR 3.3
+- PR 3.1 - Depends on PR 0.2 (Dev B, can run parallel)
+- PR 3.2 - Depends on PR 2.4, PR 3.1 (Dev A)
+- PR 3.3 - Depends on PR 3.2 (Dev A)
+- PR 3.4 - Depends on PR 3.3 (Dev A)
 
 **Phase 4 (Sync):**
-- PR 4.1 - Depends on PR 1.1
-- PR 4.2 - Depends on PR 3.2, PR 4.1
-- PR 4.3 - Depends on PR 4.1
+- PR 4.1 - Depends on PR 1.1 (Dev B)
+- PR 4.2 - Depends on PR 3.2, PR 4.1 (Dev A)
+- PR 4.3 - Depends on PR 4.1 (Dev B)
 
-**Phase 5 (Production):**
+**Phase 5 (Production) - Dev B:**
 - PR 5.1 - Depends on PR 4.3
 - PR 5.2 - Depends on PR 5.1
 - PR 5.3 - Depends on PR 5.2
 
-**Phase 6 (Polish):**
+**Phase 6 (Polish) - Dev A:**
 - PR 6.1 - Depends on PR 3.3
 - PR 6.2 - Depends on PR 6.1
 
-**To verify dependencies:**
-1. **Check pullreqs.md first** - look for the ✅ marker on dependency PR headings (e.g., `## PR 0.1 ✅`)
-2. As backup, run `git branch -r` and `gh pr list --state merged` to check what's been merged
-3. If dependencies are NOT met (no ✅ marker and not merged), STOP and report which PRs need to land first
+### Finding the Next PR
 
-The ✅ marker in `pullreqs.md` is the **source of truth** for PR completion status.
+1. Read `pullreqs.md` and identify all PRs with ✅ (completed)
+2. Based on the dev lane ($ARGUMENTS), find the **first PR** in their lane where:
+   - The PR does NOT have ✅
+   - All its dependencies HAVE ✅
+3. Output the next PR number and its details
 
-## Step 3: Prepare the Branch
+**If no PR is available** (dependencies not met), report:
+- Which PR is next in line
+- Which dependencies are blocking (missing ✅)
+- Suggest the dev waits or helps with blocking PRs
 
-If dependencies are satisfied:
+## Step 2: Output the Next PR
 
-```bash
-# Fetch latest and rebase
-git fetch origin
-git checkout main
-git pull origin main
+Once determined, output:
 
-# Create feature branch
-git checkout -b pr-$ARGUMENTS-<short-description>
+```
+## Next PR for $ARGUMENTS: PR X.X
+
+**Title:** <from pullreqs.md>
+**Objective:** <from pullreqs.md>
+**Dependencies:** <list, all should be ✅>
+**Files to create/modify:** <from pullreqs.md>
+**Acceptance criteria:** <from pullreqs.md>
 ```
 
-Use a descriptive branch name based on the PR scope (e.g., `pr-0.1-monorepo-scaffold`, `pr-3.2-deck-playback`).
+Then ask: "Ready to implement PR X.X? (yes/no)"
 
-## Step 4: Implement the PR
+## Step 3: Implement the PR (if confirmed)
 
-Based on the scope from `pullreqs.md`:
+If the user confirms, proceed with implementation:
 
-1. **Create the required files** as specified in the "Files" section
-2. **Follow repo conventions:**
+1. **Prepare the branch:**
+   ```bash
+   git fetch origin
+   git checkout main
+   git pull origin main
+   git checkout -b pr-X.X-<short-description>
+   ```
+
+2. **Create the required files** as specified in the "Files" section of pullreqs.md
+
+3. **Follow repo conventions:**
    - TypeScript strict mode
    - Shared types/schemas in `/packages/shared`
    - Server code in `/apps/realtime`
    - Client code in `/apps/web`
-3. **Implement the acceptance criteria** exactly as specified
-4. **Add basic tests** for the new functionality
-5. **Ensure types compile** with `pnpm typecheck` (or equivalent)
 
-## Step 5: Create the Pull Request
+4. **Implement the acceptance criteria** exactly as specified
 
-After implementation is complete:
+5. **Add basic tests** for the new functionality
 
-1. Stage and commit changes with a clear message:
+## Step 4: Create the Pull Request
+
+After implementation:
+
+1. Stage and commit:
    ```bash
-   git add -A
-   git commit -m "PR $ARGUMENTS: <objective from pullreqs.md>"
+   git add <specific files>
+   git commit -m "PR X.X: <objective from pullreqs.md>"
    ```
 
-2. Push the branch:
+2. Push and create PR:
    ```bash
-   git push -u origin pr-$ARGUMENTS-<short-description>
-   ```
-
-3. Create the PR using this template from `pullreqs.md`:
-   ```
+   git push -u origin pr-X.X-<short-description>
+   gh pr create --title "PR X.X: <title>" --body "$(cat <<'EOF'
    ## Objective
    <from pullreqs.md>
 
-   ## Scope (what changes)
+   ## Scope
    <from pullreqs.md>
 
-   ## Non-scope (explicitly not doing)
-   <anything explicitly excluded>
-
-   ## Implementation notes
-   <key decisions made during implementation>
+   ## Acceptance checklist
+   - [ ] <each criterion>
 
    ## Tests
-   <what tests were added>
-
-   ## Acceptance checklist
-   - [ ] <each acceptance criterion from pullreqs.md>
-
-   ## Rollout / flags
-   <any feature flags or env vars added>
-
-   ## Screenshots / clips (if UI)
-   <for frontend PRs>
+   <what was added>
+   EOF
+   )"
    ```
 
-## Step 6: Mark PR as Complete in pullreqs.md
+## Step 5: Mark PR as Complete
 
-After the PR is created and pushed, update `pullreqs.md` to mark this PR as done:
+After the PR is created:
 
-1. **Find the PR heading** in `pullreqs.md` (e.g., `## PR 0.1 — Monorepo scaffold`)
-2. **Add a checkmark** to indicate completion by changing the heading to include `✅`:
-   - Before: `## PR 0.1 — Monorepo scaffold + CI baseline (Dev B)`
-   - After: `## PR 0.1 ✅ — Monorepo scaffold + CI baseline (Dev B)`
-3. **Commit and push this change** to main so the other dev can see what's done:
+1. **Update pullreqs.md** - add ✅ to the PR heading:
+   - Before: `## PR X.X — Title (Dev X)`
+   - After: `## PR X.X ✅ — Title (Dev X)`
+
+2. **Commit and push to main:**
    ```bash
    git checkout main
    git pull origin main
    git add pullreqs.md
-   git commit -m "Mark PR $ARGUMENTS as complete in pullreqs.md"
+   git commit -m "Mark PR X.X as complete in pullreqs.md"
    git push origin main
    ```
 
-This serves as a shared record of progress that both Dev A and Dev B can reference.
+This updates the shared record so the other dev knows what's done.
 
 ## Important Notes
 
-- If this is PR 0.1 (monorepo scaffold), you'll be creating the initial project structure
+- The ✅ marker in `pullreqs.md` is the **source of truth** for completion
+- If blocked by dependencies, coordinate with the other dev
 - For PRs that touch `/packages/shared`, ensure no circular dependencies
-- Always validate against the acceptance criteria before marking complete
-- If you encounter blockers, document them clearly
-- **Always mark completed PRs in pullreqs.md** so the other developer knows what's done
+- Always validate against acceptance criteria before marking complete
