@@ -135,7 +135,7 @@ They should only block each other on:
 
 # Phase 1 — Realtime core (authoritative multiplayer)
 
-## PR 1.1 — Realtime server: rooms + membership + snapshots (Dev B)
+## PR 1.1 ✅ — Realtime server: rooms + membership + snapshots (Dev B)
 
 **Objective:** create/join room, presence, authoritative snapshots.
 **Scope**
