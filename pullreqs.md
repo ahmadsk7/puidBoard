@@ -157,7 +157,7 @@ They should only block each other on:
 * `/apps/realtime/src/rooms/store.ts`
 * `/apps/realtime/src/protocol/handlers.ts`
 
-## PR 1.2 — Cursor broadcast (Dev B)
+## PR 1.2 ✅ — Cursor broadcast (Dev B)
 
 **Objective:** shared “everyone is here” feeling fast.
 **Scope**
