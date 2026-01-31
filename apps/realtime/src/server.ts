@@ -3,13 +3,14 @@ import { Server } from "socket.io";
 import { VERSION } from "@puid-board/shared";
 import { registerHandlers } from "./protocol/handlers.js";
 import { roomStore } from "./rooms/store.js";
+import { handleTrackApiRequest } from "./http/api.js";
 
 const PORT = process.env.PORT ?? 3001;
 const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
   "http://localhost:3000",
 ];
 
-const httpServer = createServer((req, res) => {
+const httpServer = createServer(async (req, res) => {
   // Health check endpoint
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -21,6 +22,12 @@ const httpServer = createServer((req, res) => {
         clients: roomStore.getClientCount(),
       })
     );
+    return;
+  }
+
+  // Track API endpoints
+  const handled = await handleTrackApiRequest(req, res);
+  if (handled) {
     return;
   }
 
