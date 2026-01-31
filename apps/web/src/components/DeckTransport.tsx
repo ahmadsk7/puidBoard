@@ -196,6 +196,32 @@ export default function DeckTransport({
         />
       </div>
 
+      {/* Status LEDs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          marginTop: 4,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <img
+          src={isPlaying
+            ? "/assets/dj-controls/indicators/led-indicator-green.svg"
+            : "/assets/dj-controls/indicators/led-indicator-red.svg"}
+          alt={isPlaying ? "Playing" : "Stopped"}
+          style={{
+            width: 12,
+            height: 12,
+            opacity: hasTrack ? 1 : 0.3,
+          }}
+        />
+        <span style={{ fontSize: "0.5rem", color: "#6b7280", textTransform: "uppercase" }}>
+          {isPlaying ? "PLAY" : hasTrack ? "READY" : "EMPTY"}
+        </span>
+      </div>
+
       {/* Transport controls */}
       <div
         style={{
@@ -256,6 +282,35 @@ export default function DeckTransport({
           <img
             src={isPlaying ? "/assets/dj-controls/buttons/pause-icon.svg" : "/assets/dj-controls/buttons/play-icon.svg"}
             alt={isPlaying ? "Pause" : "Play"}
+            style={{
+              width: "100%",
+              height: "100%",
+            }}
+          />
+        </button>
+
+        {/* Sync button */}
+        <button
+          type="button"
+          disabled={!hasTrack || !audioEnabled}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 4,
+            border: "none",
+            background: "#1f1f1f",
+            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
+            opacity: hasTrack && audioEnabled ? 1 : 0.5,
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title="Sync BPM"
+        >
+          <img
+            src="/assets/dj-controls/buttons/sync-icon.svg"
+            alt="Sync"
             style={{
               width: "100%",
               height: "100%",

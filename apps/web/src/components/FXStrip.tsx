@@ -100,6 +100,17 @@ export default function FXStrip({
           width: "100%",
         }}
       >
+        {/* FX active indicator - blue LED */}
+        <img
+          src="/assets/dj-controls/indicators/led-indicator-blue.svg"
+          alt={isActive ? "FX Active" : "FX Inactive"}
+          style={{
+            width: 10,
+            height: 10,
+            opacity: isActive ? 1 : 0.3,
+            transition: "opacity 0.2s",
+          }}
+        />
         <span
           style={{
             fontSize: "0.75rem",

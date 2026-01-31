@@ -81,14 +81,29 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
 
   const { name } = parsed.data;
 
-  // Check if client is already in a room
+  // Check if client is already in a room - auto-leave before creating new
   const existingClient = roomStore.getClient(socket.id);
   if (existingClient?.roomId) {
-    socket.emit("ERROR", {
-      type: "ALREADY_IN_ROOM",
-      message: "Already in a room. Leave first.",
-    });
-    return;
+    console.log(`[CREATE_ROOM] client already in room, auto-leaving roomId=${existingClient.roomId}`);
+    // Leave the existing room first
+    const leaveResult = roomStore.leaveRoom(socket.id);
+    if (leaveResult) {
+      socket.leave(leaveResult.roomId);
+      // Notify remaining members
+      if (leaveResult.room && leaveResult.room.members.length > 0) {
+        const memberLeft: MemberLeftEvent = {
+          type: "MEMBER_LEFT",
+          roomId: leaveResult.roomId,
+          serverTs: Date.now(),
+          payload: { clientId: leaveResult.clientId },
+        };
+        io.to(leaveResult.roomId).emit("MEMBER_LEFT", memberLeft);
+      }
+      // Stop sync tick if room is empty
+      if (!leaveResult.room || leaveResult.room.members.length === 0) {
+        stopSyncTick(leaveResult.roomId);
+      }
+    }
   }
 
   // Create the room
@@ -138,14 +153,29 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
 
   const { roomCode, name } = parsed.data;
 
-  // Check if client is already in a room
+  // Check if client is already in a room - auto-leave before joining new
   const existingClient = roomStore.getClient(socket.id);
   if (existingClient?.roomId) {
-    socket.emit("ERROR", {
-      type: "ALREADY_IN_ROOM",
-      message: "Already in a room. Leave first.",
-    });
-    return;
+    console.log(`[JOIN_ROOM] client already in room, auto-leaving roomId=${existingClient.roomId}`);
+    // Leave the existing room first
+    const leaveResult = roomStore.leaveRoom(socket.id);
+    if (leaveResult) {
+      socket.leave(leaveResult.roomId);
+      // Notify remaining members
+      if (leaveResult.room && leaveResult.room.members.length > 0) {
+        const memberLeft: MemberLeftEvent = {
+          type: "MEMBER_LEFT",
+          roomId: leaveResult.roomId,
+          serverTs: Date.now(),
+          payload: { clientId: leaveResult.clientId },
+        };
+        io.to(leaveResult.roomId).emit("MEMBER_LEFT", memberLeft);
+      }
+      // Stop sync tick if room is empty
+      if (!leaveResult.room || leaveResult.room.members.length === 0) {
+        stopSyncTick(leaveResult.roomId);
+      }
+    }
   }
 
   // Try to join the room

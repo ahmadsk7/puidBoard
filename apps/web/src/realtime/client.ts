@@ -127,6 +127,11 @@ export class RealtimeClient {
       this.emitError({ type: "NOT_CONNECTED", message: "Not connected to server" });
       return;
     }
+    // Leave any existing room first
+    if (this.state) {
+      this.socket.emit("LEAVE_ROOM", { type: "LEAVE_ROOM", roomId: this.state.roomId });
+      this.state = null;
+    }
     this.pendingRejoin = { roomCode: "", name }; // Will be set on snapshot
     this.socket.emit("CREATE_ROOM", { type: "CREATE_ROOM", name });
   }
@@ -137,17 +142,35 @@ export class RealtimeClient {
       this.emitError({ type: "NOT_CONNECTED", message: "Not connected to server" });
       return;
     }
+    // Leave any existing room first
+    if (this.state) {
+      this.socket.emit("LEAVE_ROOM", { type: "LEAVE_ROOM", roomId: this.state.roomId });
+      this.state = null;
+    }
     this.pendingRejoin = { roomCode, name };
     this.socket.emit("JOIN_ROOM", { type: "JOIN_ROOM", roomCode, name });
   }
 
   /** Leave the current room */
   leaveRoom(): void {
-    if (!this.socket?.connected || !this.state) return;
-    this.socket.emit("LEAVE_ROOM", { type: "LEAVE_ROOM", roomId: this.state.roomId });
+    if (!this.socket?.connected) return;
+    if (this.state) {
+      this.socket.emit("LEAVE_ROOM", { type: "LEAVE_ROOM", roomId: this.state.roomId });
+    }
     this.state = null;
     this.pendingRejoin = null;
     this.notifyStateListeners();
+  }
+
+  /** Reset client state (useful when navigating to a new room) */
+  resetState(): void {
+    this.state = null;
+    this.notifyStateListeners();
+  }
+
+  /** Check if currently in a room */
+  isInRoom(): boolean {
+    return this.state !== null;
   }
 
   /** Send a client mutation event */
