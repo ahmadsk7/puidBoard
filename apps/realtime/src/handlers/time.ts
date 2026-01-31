@@ -1,38 +1,42 @@
 /**
- * Time synchronization handlers.
- * Handles TIME_PING/TIME_PONG for client clock sync.
+ * Time synchronization handlers for Virtual DJ Rooms.
+ *
+ * Implements a simple time sync protocol:
+ * 1. Client sends TIME_PING(t0)
+ * 2. Server responds TIME_PONG(t0, server_ts)
+ * 3. Client computes RTT = (t1 - t0), offset = server_ts - ((t0 + t1) / 2)
  */
 
-import { Socket } from "socket.io";
+import type { Socket } from "socket.io";
 import { TimePingEventSchema, TimePongEvent } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 
 /**
- * Handle TIME_PING event for latency measurement and clock sync.
- * 
- * Client sends: TIME_PING { t0: clientTimestamp }
- * Server responds: TIME_PONG { t0: clientTimestamp, serverTs: serverTimestamp }
- * 
- * Client can then compute:
- * - RTT = t1 - t0 (where t1 is when client receives pong)
- * - clock_skew = serverTs - (t0 + RTT/2)
+ * Handle TIME_PING for clock synchronization.
+ *
+ * This allows clients to:
+ * - Estimate round-trip time (RTT)
+ * - Calculate clock offset from server
+ * - Compensate for network latency in sync
  */
 export function handleTimePing(socket: Socket, data: unknown): void {
   const parsed = TimePingEventSchema.safeParse(data);
   if (!parsed.success) {
-    return; // Silently ignore invalid pings
+    // Silently ignore invalid pings (high-frequency, not critical)
+    return;
   }
 
   const { t0 } = parsed.data;
   const serverTs = Date.now();
 
-  // Calculate approximate latency (one-way estimate)
-  const latencyMs = Math.max(0, Math.round((serverTs - t0) / 2));
+  // Estimate one-way latency (assumes symmetric network)
+  // This is approximate - clients should use multiple samples
+  const estimatedLatencyMs = Math.max(0, Math.round((serverTs - t0) / 2));
 
-  // Update stored latency for the client
-  roomStore.updateLatency(socket.id, latencyMs);
+  // Update stored latency for this client (used for UI indicators)
+  roomStore.updateLatency(socket.id, estimatedLatencyMs);
 
-  // Send pong response
+  // Send pong with server timestamp
   const pong: TimePongEvent = {
     type: "TIME_PONG",
     t0,

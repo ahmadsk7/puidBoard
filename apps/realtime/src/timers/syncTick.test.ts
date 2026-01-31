@@ -1,194 +1,272 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+/**
+ * Tests for SYNC_TICK timer.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   startSyncTick,
   stopSyncTick,
-  hasSyncTick,
-  getActiveSyncTickCount,
-  stopAllSyncTicks,
-  SYNC_TICK_INTERVAL_MS,
+  getActiveSyncTickRooms,
+  cleanupAllSyncTicks,
 } from "./syncTick.js";
 import { roomStore } from "../rooms/store.js";
 
-// Mock socket.io Server
-function createMockIO() {
-  const emittedEvents: Array<{ roomId: string; event: string; data: unknown }> = [];
-  return {
-    to: (roomId: string) => ({
-      emit: (event: string, data: unknown) => {
-        emittedEvents.push({ roomId, event, data });
-      },
-    }),
-    emittedEvents,
-  };
-}
-
-describe("syncTick", () => {
+describe("SyncTick Timer", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    stopAllSyncTicks(); // Clean up any previous timers
+    cleanupAllSyncTicks(); // Clean slate
   });
 
   afterEach(() => {
-    stopAllSyncTicks();
-    vi.useRealTimers();
+    cleanupAllSyncTicks();
+    vi.restoreAllMocks();
   });
 
   describe("startSyncTick", () => {
-    it("should start a timer for a room", () => {
-      const mockIO = createMockIO();
-      const socketId = `test-socket-${Date.now()}`;
-
-      // Create a room
-      const { room } = roomStore.createRoom("TestHost", socketId);
-
-      expect(hasSyncTick(room.roomId)).toBe(false);
-
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-
-      expect(hasSyncTick(room.roomId)).toBe(true);
-      expect(getActiveSyncTickCount()).toBe(1);
-
-      // Cleanup
-      roomStore.leaveRoom(socketId);
-    });
-
-    it("should emit SYNC_TICK events at regular intervals", () => {
-      const mockIO = createMockIO();
-      const socketId = `test-socket-${Date.now()}`;
-
-      // Create a room
-      const { room } = roomStore.createRoom("TestHost", socketId);
-
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-
-      // No events initially
-      expect(mockIO.emittedEvents.length).toBe(0);
-
-      // Advance time by one interval
-      vi.advanceTimersByTime(SYNC_TICK_INTERVAL_MS);
-
-      // Should have emitted one SYNC_TICK
-      expect(mockIO.emittedEvents.length).toBe(1);
-      expect(mockIO.emittedEvents[0]!.event).toBe("SYNC_TICK");
-      expect(mockIO.emittedEvents[0]!.roomId).toBe(room.roomId);
-
-      // Advance time by another interval
-      vi.advanceTimersByTime(SYNC_TICK_INTERVAL_MS);
-
-      // Should have emitted two SYNC_TICKs
-      expect(mockIO.emittedEvents.length).toBe(2);
-
-      // Cleanup
-      roomStore.leaveRoom(socketId);
-    });
-
-    it("should include deck states in SYNC_TICK payload", () => {
-      const mockIO = createMockIO();
-      const socketId = `test-socket-${Date.now()}`;
-
-      // Create a room
-      const { room } = roomStore.createRoom("TestHost", socketId);
-
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-
-      // Advance time to trigger a tick
-      vi.advanceTimersByTime(SYNC_TICK_INTERVAL_MS);
-
-      const syncTick = mockIO.emittedEvents[0]!.data as {
-        type: string;
-        roomId: string;
-        payload: {
-          serverTs: number;
-          version: number;
-          deckA: { deckId: string };
-          deckB: { deckId: string };
-        };
+    it("should start broadcasting SYNC_TICK for a room", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
       };
 
-      expect(syncTick.type).toBe("SYNC_TICK");
-      expect(syncTick.roomId).toBe(room.roomId);
-      expect(syncTick.payload.deckA.deckId).toBe("A");
-      expect(syncTick.payload.deckB.deckId).toBe("B");
-      expect(typeof syncTick.payload.serverTs).toBe("number");
-      expect(typeof syncTick.payload.version).toBe("number");
+      const { room } = roomStore.createRoom("Host", "socket-1");
 
-      // Cleanup
-      roomStore.leaveRoom(socketId);
+      startSyncTick(mockIo as any, room.roomId);
+
+      expect(getActiveSyncTickRooms()).toContain(room.roomId);
+
+      // Clean up
+      roomStore.leaveRoom("socket-1");
     });
 
-    it("should not create duplicate timers for the same room", () => {
-      const mockIO = createMockIO();
-      const socketId = `test-socket-${Date.now()}`;
+    it("should not start duplicate timers for the same room", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
 
-      // Create a room
-      const { room } = roomStore.createRoom("TestHost", socketId);
+      const { room } = roomStore.createRoom("Host", "socket-2");
 
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
+      startSyncTick(mockIo as any, room.roomId);
+      const timerCountBefore = getActiveSyncTickRooms().length;
 
-      expect(getActiveSyncTickCount()).toBe(1);
+      startSyncTick(mockIo as any, room.roomId);
+      const timerCountAfter = getActiveSyncTickRooms().length;
 
-      // Advance time
-      vi.advanceTimersByTime(SYNC_TICK_INTERVAL_MS);
+      expect(timerCountBefore).toBe(timerCountAfter);
 
-      // Should only have one event (not three)
-      expect(mockIO.emittedEvents.length).toBe(1);
+      // Clean up
+      roomStore.leaveRoom("socket-2");
+    });
 
-      // Cleanup
-      roomStore.leaveRoom(socketId);
+    it("should broadcast SYNC_TICK every 2 seconds", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
+
+      const { room } = roomStore.createRoom("Host", "socket-3");
+
+      startSyncTick(mockIo as any, room.roomId);
+
+      // Initially, no broadcasts
+      expect(mockIo.emit).not.toHaveBeenCalled();
+
+      // Advance 2 seconds
+      vi.advanceTimersByTime(2000);
+
+      // Should have broadcast once
+      expect(mockIo.to).toHaveBeenCalledWith(room.roomId);
+      expect(mockIo.emit).toHaveBeenCalledWith("SYNC_TICK", {
+        type: "SYNC_TICK",
+        roomId: room.roomId,
+        payload: {
+          serverTs: expect.any(Number),
+          version: room.version,
+          deckA: {
+            deckId: "A",
+            loadedTrackId: null,
+            playState: "stopped",
+            serverStartTime: null,
+            playheadSec: 0,
+          },
+          deckB: {
+            deckId: "B",
+            loadedTrackId: null,
+            playState: "stopped",
+            serverStartTime: null,
+            playheadSec: 0,
+          },
+        },
+      });
+
+      // Advance another 2 seconds
+      vi.advanceTimersByTime(2000);
+
+      // Should have broadcast twice total
+      expect(mockIo.emit).toHaveBeenCalledTimes(2);
+
+      // Clean up
+      roomStore.leaveRoom("socket-3");
     });
   });
 
   describe("stopSyncTick", () => {
-    it("should stop the timer for a room", () => {
-      const mockIO = createMockIO();
-      const socketId = `test-socket-${Date.now()}`;
+    it("should stop broadcasting SYNC_TICK for a room", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
 
-      // Create a room
-      const { room } = roomStore.createRoom("TestHost", socketId);
+      const { room } = roomStore.createRoom("Host", "socket-4");
 
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room.roomId);
-      expect(hasSyncTick(room.roomId)).toBe(true);
+      startSyncTick(mockIo as any, room.roomId);
+      expect(getActiveSyncTickRooms()).toContain(room.roomId);
 
       stopSyncTick(room.roomId);
-      expect(hasSyncTick(room.roomId)).toBe(false);
-      expect(getActiveSyncTickCount()).toBe(0);
+      expect(getActiveSyncTickRooms()).not.toContain(room.roomId);
 
-      // Advance time - should not emit any events
-      vi.advanceTimersByTime(SYNC_TICK_INTERVAL_MS * 3);
-      expect(mockIO.emittedEvents.length).toBe(0);
+      // Advance time - should not broadcast anymore
+      vi.advanceTimersByTime(2000);
+      expect(mockIo.emit).not.toHaveBeenCalled();
 
-      // Cleanup
-      roomStore.leaveRoom(socketId);
+      // Clean up
+      roomStore.leaveRoom("socket-4");
+    });
+
+    it("should handle stopping a non-existent timer gracefully", () => {
+      expect(() => {
+        stopSyncTick("non-existent-room");
+      }).not.toThrow();
     });
   });
 
-  describe("stopAllSyncTicks", () => {
-    it("should stop all active timers", () => {
-      const mockIO = createMockIO();
+  describe("SYNC_TICK payload", () => {
+    it("should include current deck states in payload", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
 
-      // Create multiple rooms
-      const socketId1 = `test-socket-1-${Date.now()}`;
-      const socketId2 = `test-socket-2-${Date.now()}`;
+      const { room } = roomStore.createRoom("Host", "socket-5");
 
-      const { room: room1 } = roomStore.createRoom("Host1", socketId1);
-      const { room: room2 } = roomStore.createRoom("Host2", socketId2);
+      // Modify deck state
+      room.deckA.loadedTrackId = "track-123";
+      room.deckA.playState = "playing";
+      room.deckA.serverStartTime = Date.now();
+      room.deckA.playheadSec = 30.5;
 
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room1.roomId);
-      startSyncTick(mockIO as unknown as Parameters<typeof startSyncTick>[0], room2.roomId);
+      startSyncTick(mockIo as any, room.roomId);
 
-      expect(getActiveSyncTickCount()).toBe(2);
+      vi.advanceTimersByTime(2000);
 
-      stopAllSyncTicks();
+      expect(mockIo.emit).toHaveBeenCalledWith("SYNC_TICK", {
+        type: "SYNC_TICK",
+        roomId: room.roomId,
+        payload: {
+          serverTs: expect.any(Number),
+          version: room.version,
+          deckA: {
+            deckId: "A",
+            loadedTrackId: "track-123",
+            playState: "playing",
+            serverStartTime: expect.any(Number),
+            playheadSec: 30.5,
+          },
+          deckB: {
+            deckId: "B",
+            loadedTrackId: null,
+            playState: "stopped",
+            serverStartTime: null,
+            playheadSec: 0,
+          },
+        },
+      });
 
-      expect(getActiveSyncTickCount()).toBe(0);
-      expect(hasSyncTick(room1.roomId)).toBe(false);
-      expect(hasSyncTick(room2.roomId)).toBe(false);
+      // Clean up
+      roomStore.leaveRoom("socket-5");
+    });
 
-      // Cleanup
-      roomStore.leaveRoom(socketId1);
-      roomStore.leaveRoom(socketId2);
+    it("should include current room version in payload", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
+
+      const { room } = roomStore.createRoom("Host", "socket-6");
+
+      // Increment version
+      room.version = 42;
+
+      startSyncTick(mockIo as any, room.roomId);
+
+      vi.advanceTimersByTime(2000);
+
+      const syncTickEvent = mockIo.emit.mock.calls[0]?.[1];
+      expect(syncTickEvent).toBeDefined();
+      expect(syncTickEvent!.payload.version).toBe(42);
+
+      // Clean up
+      roomStore.leaveRoom("socket-6");
+    });
+  });
+
+  describe("cleanupAllSyncTicks", () => {
+    it("should stop all active sync tick timers", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
+
+      const { room: room1 } = roomStore.createRoom("Host1", "socket-7");
+      const { room: room2 } = roomStore.createRoom("Host2", "socket-8");
+
+      startSyncTick(mockIo as any, room1.roomId);
+      startSyncTick(mockIo as any, room2.roomId);
+
+      expect(getActiveSyncTickRooms()).toHaveLength(2);
+
+      cleanupAllSyncTicks();
+
+      expect(getActiveSyncTickRooms()).toHaveLength(0);
+
+      // Advance time - should not broadcast
+      vi.advanceTimersByTime(2000);
+      expect(mockIo.emit).not.toHaveBeenCalled();
+
+      // Clean up
+      roomStore.leaveRoom("socket-7");
+      roomStore.leaveRoom("socket-8");
+    });
+  });
+
+  describe("auto-cleanup on room deletion", () => {
+    it("should stop SYNC_TICK when room no longer exists", () => {
+      const mockIo = {
+        to: vi.fn().mockReturnThis(),
+        emit: vi.fn(),
+      };
+
+      const { room } = roomStore.createRoom("Host", "socket-9");
+
+      startSyncTick(mockIo as any, room.roomId);
+
+      // Broadcast once
+      vi.advanceTimersByTime(2000);
+      expect(mockIo.emit).toHaveBeenCalledTimes(1);
+
+      // Delete the room
+      roomStore.leaveRoom("socket-9");
+
+      // Advance time - should attempt broadcast, detect room is gone, and stop
+      mockIo.emit.mockClear();
+      vi.advanceTimersByTime(2000);
+
+      // Should not have broadcast (room is gone)
+      expect(mockIo.emit).not.toHaveBeenCalled();
+
+      // Timer should be stopped
+      expect(getActiveSyncTickRooms()).not.toContain(room.roomId);
     });
   });
 });

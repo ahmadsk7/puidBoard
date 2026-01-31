@@ -1,105 +1,107 @@
 /**
- * SYNC_TICK timer - broadcasts deck state to all room members at regular intervals.
- * This allows clients to compute server-time basis and correct drift.
+ * SYNC_TICK timer for Virtual DJ Rooms.
+ *
+ * Broadcasts authoritative deck state to all room members every ~2 seconds.
+ * This is the foundation for synchronized playback across clients.
  */
 
-import { Server } from "socket.io";
-import type { SyncTickEvent, SyncTickDeckState } from "@puid-board/shared";
+import type { Server } from "socket.io";
+import { SyncTickEvent, SyncTickDeckState } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 
-/** Sync tick interval in milliseconds (~2 seconds) */
-export const SYNC_TICK_INTERVAL_MS = 2000;
+/** Interval for SYNC_TICK broadcasts (milliseconds) */
+const SYNC_TICK_INTERVAL_MS = 2000; // 2 seconds
 
-/** Map of roomId -> interval timer */
-const roomTimers = new Map<string, NodeJS.Timeout>();
-
-/**
- * Create a SyncTickDeckState from the current deck state.
- */
-function createDeckState(
-  deck: { deckId: "A" | "B"; loadedTrackId: string | null; playState: string; serverStartTime: number | null; playheadSec: number }
-): SyncTickDeckState {
-  return {
-    deckId: deck.deckId,
-    loadedTrackId: deck.loadedTrackId,
-    playState: deck.playState as "stopped" | "playing" | "paused" | "cued",
-    serverStartTime: deck.serverStartTime,
-    playheadSec: deck.playheadSec,
-  };
-}
+/** Active sync tick intervals by roomId */
+const activeTimers: Map<string, NodeJS.Timeout> = new Map();
 
 /**
- * Start the sync tick timer for a room.
- * Called when a room is created or when the first client joins.
+ * Start broadcasting SYNC_TICK for a room.
  */
 export function startSyncTick(io: Server, roomId: string): void {
   // Don't start if already running
-  if (roomTimers.has(roomId)) {
+  if (activeTimers.has(roomId)) {
     return;
   }
 
   const timer = setInterval(() => {
-    const room = roomStore.getRoom(roomId);
-    if (!room) {
-      // Room was deleted, stop the timer
-      stopSyncTick(roomId);
-      return;
-    }
-
-    // Build sync tick event
-    const syncTick: SyncTickEvent = {
-      type: "SYNC_TICK",
-      roomId,
-      payload: {
-        serverTs: Date.now(),
-        version: room.version,
-        deckA: createDeckState(room.deckA),
-        deckB: createDeckState(room.deckB),
-      },
-    };
-
-    // Broadcast to all room members
-    io.to(roomId).emit("SYNC_TICK", syncTick);
+    broadcastSyncTick(io, roomId);
   }, SYNC_TICK_INTERVAL_MS);
 
-  roomTimers.set(roomId, timer);
+  activeTimers.set(roomId, timer);
+
   console.log(`[sync-tick] started for roomId=${roomId}`);
 }
 
 /**
- * Stop the sync tick timer for a room.
- * Called when a room is deleted or when the last client leaves.
+ * Stop broadcasting SYNC_TICK for a room.
  */
 export function stopSyncTick(roomId: string): void {
-  const timer = roomTimers.get(roomId);
+  const timer = activeTimers.get(roomId);
   if (timer) {
     clearInterval(timer);
-    roomTimers.delete(roomId);
+    activeTimers.delete(roomId);
     console.log(`[sync-tick] stopped for roomId=${roomId}`);
   }
 }
 
 /**
- * Check if a room has an active sync tick timer.
+ * Broadcast a single SYNC_TICK to a room.
  */
-export function hasSyncTick(roomId: string): boolean {
-  return roomTimers.has(roomId);
-}
-
-/**
- * Get the number of active sync tick timers (for monitoring).
- */
-export function getActiveSyncTickCount(): number {
-  return roomTimers.size;
-}
-
-/**
- * Stop all sync tick timers (for graceful shutdown).
- */
-export function stopAllSyncTicks(): void {
-  for (const [roomId, timer] of roomTimers) {
-    clearInterval(timer);
-    console.log(`[sync-tick] stopped for roomId=${roomId} (shutdown)`);
+function broadcastSyncTick(io: Server, roomId: string): void {
+  const room = roomStore.getRoom(roomId);
+  if (!room) {
+    // Room no longer exists, stop the timer
+    stopSyncTick(roomId);
+    return;
   }
-  roomTimers.clear();
+
+  const serverTs = Date.now();
+
+  // Build deck state snapshots for the tick
+  const deckA: SyncTickDeckState = {
+    deckId: room.deckA.deckId,
+    loadedTrackId: room.deckA.loadedTrackId,
+    playState: room.deckA.playState,
+    serverStartTime: room.deckA.serverStartTime,
+    playheadSec: room.deckA.playheadSec,
+  };
+
+  const deckB: SyncTickDeckState = {
+    deckId: room.deckB.deckId,
+    loadedTrackId: room.deckB.loadedTrackId,
+    playState: room.deckB.playState,
+    serverStartTime: room.deckB.serverStartTime,
+    playheadSec: room.deckB.playheadSec,
+  };
+
+  const syncTick: SyncTickEvent = {
+    type: "SYNC_TICK",
+    roomId,
+    payload: {
+      serverTs,
+      version: room.version,
+      deckA,
+      deckB,
+    },
+  };
+
+  // Broadcast to all clients in the room
+  io.to(roomId).emit("SYNC_TICK", syncTick);
+}
+
+/**
+ * Get all active sync tick room IDs (for testing/monitoring).
+ */
+export function getActiveSyncTickRooms(): string[] {
+  return Array.from(activeTimers.keys());
+}
+
+/**
+ * Clean up all sync tick timers (for graceful shutdown).
+ */
+export function cleanupAllSyncTicks(): void {
+  for (const roomId of activeTimers.keys()) {
+    stopSyncTick(roomId);
+  }
 }
