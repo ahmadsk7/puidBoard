@@ -114,7 +114,7 @@ They should only block each other on:
 * `/packages/shared/src/events.ts`
 * `/packages/shared/src/validators.ts`
 
-## PR 0.3 — Local dev “room simulator” harness (Dev A)
+## PR 0.3 ✅ — Local dev “room simulator” harness (Dev A)
 
 **Objective:** Dev A can build UI without waiting on full backend.
 **Scope**
