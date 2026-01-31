@@ -309,7 +309,7 @@ They should only block each other on:
 
 # Phase 3 — Audio engine (local playback + mixing)
 
-## PR 3.1 — Track asset pipeline (upload + metadata + CDN URLs) (Dev B)
+## PR 3.1 ✅ — Track asset pipeline (upload + metadata + CDN URLs) (Dev B)
 
 **Objective:** a real track_id maps to a playable asset URL for every client.
 **Scope**
