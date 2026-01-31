@@ -377,7 +377,7 @@ They should only block each other on:
 * `/apps/web/src/audio/mixerGraph.ts`
 * `/apps/web/src/audio/params.ts`
 
-## PR 3.4 — Minimal FX slot (Echo/Reverb/Filter) (Dev A)
+## PR 3.4 ✅ — Minimal FX slot (Echo/Reverb/Filter) (Dev A)
 
 **Objective:** one satisfying FX chain that’s fun + easy.
 **Scope**
