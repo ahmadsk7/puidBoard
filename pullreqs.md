@@ -332,7 +332,7 @@ They should only block each other on:
 * `/apps/realtime/src/db/schema.sql` (or migrations)
 * `/apps/realtime/src/services/tracks.ts`
 
-## PR 3.2 — Deck transport + basic playback (Dev A)
+## PR 3.2 ✅ — Deck transport + basic playback (Dev A)
 
 **Objective:** Deck A/B can load + play/pause a track locally.
 **Scope**
@@ -357,7 +357,7 @@ They should only block each other on:
 * `/apps/web/src/audio/deck.ts`
 * `/apps/web/src/components/AutoplayGate.tsx`
 
-## PR 3.3 — Mixer routing + crossfader + EQ (Dev A)
+## PR 3.3 ✅ — Mixer routing + crossfader + EQ (Dev A)
 
 **Objective:** real mixing works (it’s the whole point).
 **Scope**
@@ -377,7 +377,7 @@ They should only block each other on:
 * `/apps/web/src/audio/mixerGraph.ts`
 * `/apps/web/src/audio/params.ts`
 
-## PR 3.4 — Minimal FX slot (Echo/Reverb/Filter) (Dev A)
+## PR 3.4 ✅ — Minimal FX slot (Echo/Reverb/Filter) (Dev A)
 
 **Objective:** one satisfying FX chain that’s fun + easy.
 **Scope**
@@ -397,7 +397,7 @@ They should only block each other on:
 
 # Phase 4 — Sync (the make-or-break)
 
-## PR 4.1 — Server clock sync + SYNC_TICK protocol (Dev B)
+## PR 4.1 ✅ — Server clock sync + SYNC_TICK protocol (Dev B)
 
 **Objective:** every client can compute a shared server-time basis.
 **Scope**
@@ -442,7 +442,7 @@ They should only block each other on:
 * `/apps/web/src/audio/sync/drift.ts`
 * `/apps/web/src/audio/sync/clock.ts`
 
-## PR 4.3 — Server-authoritative deck actions (Dev B)
+## PR 4.3 ✅ — Server-authoritative deck actions (Dev B)
 
 **Objective:** prevent “ghost playheads” and order deck actions cleanly.
 **Scope**
