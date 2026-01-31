@@ -220,7 +220,7 @@ They should only block each other on:
 
 # Phase 2 — Frontend MVP UI (real-time rig)
 
-## PR 2.1 — Web app: create/join room + top bar status (Dev A)
+## PR 2.1 ✅ — Web app: create/join room + top bar status (Dev A)
 
 **Objective:** <10s to create/join; surface latency + autoplay status.
 **Scope**
