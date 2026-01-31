@@ -1,6 +1,8 @@
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { VERSION } from "@puid-board/shared";
+import { registerHandlers } from "./protocol/handlers.js";
+import { roomStore } from "./rooms/store.js";
 
 const PORT = process.env.PORT ?? 3001;
 const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
@@ -11,7 +13,14 @@ const httpServer = createServer((req, res) => {
   // Health check endpoint
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", version: VERSION }));
+    res.end(
+      JSON.stringify({
+        status: "ok",
+        version: VERSION,
+        rooms: roomStore.getRoomCount(),
+        clients: roomStore.getClientCount(),
+      })
+    );
     return;
   }
 
@@ -24,16 +33,15 @@ const io = new Server(httpServer, {
     origin: CORS_ORIGINS,
     methods: ["GET", "POST"],
   },
+  pingInterval: 10000,
+  pingTimeout: 5000,
 });
 
 io.on("connection", (socket) => {
-  console.log(`[connect] client=${socket.id}`);
+  console.log(`[connect] socket=${socket.id}`);
 
-  socket.on("disconnect", (reason) => {
-    console.log(`[disconnect] client=${socket.id} reason=${reason}`);
-  });
-
-  // Placeholder for room and event handlers (PR 1.1+)
+  // Register all protocol handlers
+  registerHandlers(io, socket);
 });
 
 httpServer.listen(PORT, () => {
