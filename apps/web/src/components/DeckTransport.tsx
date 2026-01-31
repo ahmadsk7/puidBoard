@@ -205,15 +205,24 @@ export default function DeckTransport({
             height: 36,
             borderRadius: 4,
             border: "none",
-            background: serverState.playState === "cued" ? "#f59e0b" : "#374151",
-            color: "#fff",
-            fontSize: "0.75rem",
-            fontWeight: 600,
+            background: serverState.playState === "cued" ? "#1a1a1a" : "#1f1f1f",
             cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
             opacity: hasTrack && audioEnabled ? 1 : 0.5,
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          CUE
+          <img
+            src="/assets/dj-controls/buttons/cue-icon.svg"
+            alt="Cue"
+            style={{
+              width: "100%",
+              height: "100%",
+              filter: serverState.playState === "cued" ? "brightness(1.2)" : "brightness(0.8)",
+            }}
+          />
         </button>
 
         {/* Play/Pause button */}
@@ -226,14 +235,23 @@ export default function DeckTransport({
             height: 36,
             borderRadius: 4,
             border: "none",
-            background: isPlaying ? "#ef4444" : "#22c55e",
-            color: "#fff",
-            fontSize: "1rem",
+            background: "#1f1f1f",
             cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
             opacity: hasTrack && audioEnabled ? 1 : 0.5,
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {isPlaying ? "⏸" : "▶"}
+          <img
+            src={isPlaying ? "/assets/dj-controls/buttons/pause-icon.svg" : "/assets/dj-controls/buttons/play-icon.svg"}
+            alt={isPlaying ? "Pause" : "Play"}
+            style={{
+              width: "100%",
+              height: "100%",
+            }}
+          />
         </button>
 
         {/* Load button */}
