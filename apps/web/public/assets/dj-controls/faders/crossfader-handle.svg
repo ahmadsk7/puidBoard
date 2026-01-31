@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- crossfader-handle.svg -->
+<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Crossfader handle">
+  <defs>
+    <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b3b3b"/>
+      <stop offset="45%" stop-color="#1f1f1f"/>
+      <stop offset="100%" stop-color="#0f0f10"/>
+    </linearGradient>
+    <linearGradient id="gMetal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6f6f6f"/>
+      <stop offset="30%" stop-color="#e0e0e0"/>
+      <stop offset="55%" stop-color="#9a9a9a"/>
+      <stop offset="100%" stop-color="#2b2b2b"/>
+    </linearGradient>
+    <pattern id="pGrip" width="6" height="6" patternUnits="userSpaceOnUse">
+      <path d="M0 6 L6 0" stroke="#000000" stroke-opacity="0.25" stroke-width="1"/>
+      <path d="M-3 6 L3 0" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-60%" width="160%" height="220%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.65"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="4" y="6" width="72" height="28" rx="10" fill="url(#gBody)" stroke="#3a3a3a" stroke-width="1"/>
+    <rect x="8" y="10" width="14" height="20" rx="6" fill="#0b0b0c" opacity="0.85"/>
+    <rect x="58" y="10" width="14" height="20" rx="6" fill="#0b0b0c" opacity="0.85"/>
+    <rect x="8" y="10" width="14" height="20" rx="6" fill="url(#pGrip)" opacity="0.9"/>
+    <rect x="58" y="10" width="14" height="20" rx="6" fill="url(#pGrip)" opacity="0.9"/>
+
+    <rect x="26" y="9" width="28" height="22" rx="9" fill="url(#gMetal)" opacity="0.9"/>
+
+    <path d="M40 12v16" stroke="#0b0b0c" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round"/>
+    <path d="M40 13v14" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1" stroke-linecap="round"/>
+
+    <path d="M10 11c8-6 42-6 60 0" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

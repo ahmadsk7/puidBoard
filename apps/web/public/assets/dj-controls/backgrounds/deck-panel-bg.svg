@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- deck-panel-bg.svg -->
+<svg viewBox="0 0 568 444" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deck panel background">
+  <defs>
+    <linearGradient id="gDeck" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#242424"/>
+      <stop offset="100%" stop-color="#151517"/>
+    </linearGradient>
+    <pattern id="pBrush" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="transparent"/>
+      <rect x="0" y="1" width="8" height="1" fill="#ffffff" opacity="0.02"/>
+      <rect x="0" y="5" width="8" height="1" fill="#000000" opacity="0.035"/>
+    </pattern>
+    <linearGradient id="gBevel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
+    <radialGradient id="gScrew" cx="35%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#b9b9b9" stop-opacity="0.9"/>
+      <stop offset="35%" stop-color="#6f6f6f" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#1b1b1b" stop-opacity="0.95"/>
+    </radialGradient>
+  </defs>
+  <rect width="568" height="444" rx="16" fill="url(#gDeck)"/>
+  <rect width="568" height="444" rx="16" fill="url(#pBrush)" opacity="0.6"/>
+  <rect width="568" height="444" rx="16" fill="url(#gBevel)" opacity="0.5"/>
+
+  <g opacity="0.65">
+    <circle cx="20" cy="20" r="8" fill="url(#gScrew)"/>
+    <circle cx="548" cy="20" r="8" fill="url(#gScrew)"/>
+    <circle cx="20" cy="424" r="8" fill="url(#gScrew)"/>
+    <circle cx="548" cy="424" r="8" fill="url(#gScrew)"/>
+  </g>
+
+  <rect x="38" y="36" width="492" height="92" rx="14" fill="#0b0b0c" opacity="0.5" stroke="#3a3a3a" stroke-width="1"/>
+  <circle cx="218" cy="248" r="150" fill="#0b0b0c" opacity="0.5" stroke="#3a3a3a" stroke-width="2"/>
+  <rect x="358" y="210" width="160" height="132" rx="16" fill="#0b0b0c" opacity="0.45" stroke="#3a3a3a" stroke-width="1"/>
+</svg>

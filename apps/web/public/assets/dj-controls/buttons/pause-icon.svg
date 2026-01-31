@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pause-icon.svg -->
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pause icon">
+  <defs>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#60a5fa" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#60a5fa" flood-opacity="0.22"/>
+    </filter>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7ab8ff"/>
+      <stop offset="100%" stop-color="#3f86ee"/>
+    </linearGradient>
+  </defs>
+
+  <g filter="url(#glow)" fill="url(#fill)" stroke="#d6e7ff" stroke-opacity="0.25" stroke-width="1">
+    <rect x="14" y="12" width="8" height="24" rx="4"/>
+    <rect x="26" y="12" width="8" height="24" rx="4"/>
+  </g>
+  <g opacity="0.13" fill="#ffffff">
+    <rect x="15.2" y="13.2" width="5.6" height="21.6" rx="2.8"/>
+    <rect x="27.2" y="13.2" width="5.6" height="21.6" rx="2.8"/>
+  </g>
+</svg>

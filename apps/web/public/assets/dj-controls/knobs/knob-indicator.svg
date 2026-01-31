@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- knob-indicator.svg -->
+<svg viewBox="0 0 8 30" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Knob indicator">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="30%" stop-color="#00ff9f" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#00ff9f" stop-opacity="0.25"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-40%" width="260%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#00ff9f" flood-opacity="0.6"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#00ff9f" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect x="2.25" y="2" width="3.5" height="26" rx="1.75" fill="url(#g)" filter="url(#glow)"/>
+</svg>
