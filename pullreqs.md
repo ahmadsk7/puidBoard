@@ -332,7 +332,7 @@ They should only block each other on:
 * `/apps/realtime/src/db/schema.sql` (or migrations)
 * `/apps/realtime/src/services/tracks.ts`
 
-## PR 3.2 — Deck transport + basic playback (Dev A)
+## PR 3.2 ✅ — Deck transport + basic playback (Dev A)
 
 **Objective:** Deck A/B can load + play/pause a track locally.
 **Scope**
