@@ -15,6 +15,7 @@ import {
 } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 import { registerCursorHandlers, clearCursorThrottle } from "../handlers/cursor.js";
+import { registerQueueHandlers } from "../handlers/queue.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -47,6 +48,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register cursor handlers
   registerCursorHandlers(io, socket);
+
+  // Register queue handlers
+  registerQueueHandlers(io, socket);
 }
 
 /**
