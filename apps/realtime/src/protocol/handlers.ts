@@ -125,7 +125,7 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle JOIN_ROOM event.
  */
-async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
+function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
   const parsed = JoinRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[JOIN_ROOM] invalid payload socket=${socket.id}`);
@@ -149,17 +149,12 @@ async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promis
   }
 
   // Try to join the room
-  let result = roomStore.joinRoom(roomCode, name, socket.id);
+  const result = roomStore.joinRoom(roomCode, name, socket.id);
 
-  // If room not found in memory, try to restore from persistence
+  // If room not found in memory, could restore from persistence in future
+  // For MVP, if room not in memory, it's truly not found
   if (!result) {
-    const persistence = getPersistence();
-    const roomIdLookup = roomStore.getRoomByCode(roomCode);
-
-    // Try to load persisted snapshot using room code lookup
-    // Note: we need to scan or maintain an index for this in production
-    // For MVP, if room not in memory, it's truly not found
-    console.log(`[JOIN_ROOM] room not in memory, checking persistence code=${roomCode}`);
+    console.log(`[JOIN_ROOM] room not in memory code=${roomCode}`);
 
     socket.emit("ERROR", {
       type: "ROOM_NOT_FOUND",
@@ -216,7 +211,7 @@ async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promis
 /**
  * Handle LEAVE_ROOM event.
  */
-function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
+async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
   const parsed = LeaveRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[LEAVE_ROOM] invalid payload socket=${socket.id}`);
@@ -296,7 +291,7 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle socket disconnect.
  */
-function handleDisconnect(io: Server, socket: Socket, reason: string): void {
+async function handleDisconnect(io: Server, socket: Socket, reason: string): Promise<void> {
   console.log(`[disconnect] socket=${socket.id} reason=${reason}`);
 
   // Clean up cursor throttle tracking

@@ -2,17 +2,9 @@
  * Tests for persistence manager.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { RoomState } from "@puid-board/shared";
 import { createDefaultDeck, createDefaultMixer } from "@puid-board/shared";
-
-// Mock the persistence module components
-const mockRedisClient = {
-  get: vi.fn(),
-  set: vi.fn(),
-  del: vi.fn(),
-  ping: vi.fn().mockResolvedValue("PONG"),
-};
 
 describe("Persistence (in-memory fallback)", () => {
   // We'll test the in-memory fallback since Redis is optional
