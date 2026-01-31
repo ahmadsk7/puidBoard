@@ -429,7 +429,7 @@ describe("Control Handlers", () => {
       const expired = cleanupExpiredOwnerships(room.roomId);
 
       expect(expired).toHaveLength(1);
-      expect(expired[0].controlId).toBe("crossfader");
+      expect(expired[0]!.controlId).toBe("crossfader");
 
       const roomAfter = roomStore.getRoom(room.roomId);
       expect(roomAfter?.controlOwners["crossfader"]).toBeUndefined();

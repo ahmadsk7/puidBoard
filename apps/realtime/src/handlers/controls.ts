@@ -298,7 +298,12 @@ function updateMixerValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let target: any = room.mixer;
     for (let i = 0; i < parts.length - 1; i++) {
-      target = target[parts[i]];
+      const key = parts[i];
+      if (key === undefined) {
+        console.error(`[updateMixerValue] invalid path: ${controlId}`);
+        return false;
+      }
+      target = target[key];
       if (target === undefined) {
         console.error(`[updateMixerValue] invalid path: ${controlId}`);
         return false;
@@ -307,6 +312,10 @@ function updateMixerValue(
 
     // Set the final property
     const finalKey = parts[parts.length - 1];
+    if (finalKey === undefined) {
+      console.error(`[updateMixerValue] invalid path: ${controlId}`);
+      return false;
+    }
     target[finalKey] = value;
 
     return true;
