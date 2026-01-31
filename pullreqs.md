@@ -463,7 +463,7 @@ They should only block each other on:
 
 # Phase 5 — Production hardening (reconnect, permissions, abuse)
 
-## PR 5.1 — Reconnect resilience + state persistence (Dev B)
+## PR 5.1 ✅ — Reconnect resilience + state persistence (Dev B)
 
 **Objective:** room survives disconnect/reconnect without state loss.
 **Scope**
