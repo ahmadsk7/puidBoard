@@ -16,6 +16,11 @@ import {
 import { roomStore } from "../rooms/store.js";
 import { registerCursorHandlers, clearCursorThrottle } from "../handlers/cursor.js";
 import { registerQueueHandlers } from "../handlers/queue.js";
+import {
+  registerControlHandlers,
+  clearMixerThrottle,
+  releaseAllClientControls,
+} from "../handlers/controls.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -51,6 +56,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register queue handlers
   registerQueueHandlers(io, socket);
+
+  // Register control handlers
+  registerControlHandlers(io, socket);
 }
 
 /**
@@ -198,6 +206,14 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
   // Clean up cursor throttle tracking
   clearCursorThrottle(socket.id);
 
+  // Clean up mixer throttle tracking
+  clearMixerThrottle(socket.id);
+
+  // Get client info before leaving to release controls
+  const client = roomStore.getClient(socket.id);
+  const clientIdForCleanup = client?.clientId;
+  const roomIdForCleanup = client?.roomId;
+
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {
     return; // Client wasn't in a room
@@ -207,6 +223,20 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
 
   // Leave the socket.io room
   socket.leave(roomId);
+
+  // Release all controls owned by this client
+  if (clientIdForCleanup && roomIdForCleanup) {
+    const releasedControls = releaseAllClientControls(roomIdForCleanup, clientIdForCleanup);
+    // Broadcast control releases to remaining members
+    for (const controlId of releasedControls) {
+      io.to(roomIdForCleanup).emit("CONTROL_OWNERSHIP", {
+        type: "CONTROL_OWNERSHIP",
+        roomId: roomIdForCleanup,
+        controlId,
+        ownership: null,
+      });
+    }
+  }
 
   // Notify remaining members
   if (room && room.members.length > 0) {
@@ -263,12 +293,34 @@ function handleDisconnect(io: Server, socket: Socket, reason: string): void {
   // Clean up cursor throttle tracking
   clearCursorThrottle(socket.id);
 
+  // Clean up mixer throttle tracking
+  clearMixerThrottle(socket.id);
+
+  // Get client info before leaving to release controls
+  const client = roomStore.getClient(socket.id);
+  const clientIdForCleanup = client?.clientId;
+  const roomIdForCleanup = client?.roomId;
+
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {
     return; // Client wasn't in a room
   }
 
   const { roomId, clientId, room } = result;
+
+  // Release all controls owned by this client
+  if (clientIdForCleanup && roomIdForCleanup) {
+    const releasedControls = releaseAllClientControls(roomIdForCleanup, clientIdForCleanup);
+    // Broadcast control releases to remaining members
+    for (const controlId of releasedControls) {
+      io.to(roomIdForCleanup).emit("CONTROL_OWNERSHIP", {
+        type: "CONTROL_OWNERSHIP",
+        roomId: roomIdForCleanup,
+        controlId,
+        ownership: null,
+      });
+    }
+  }
 
   // Notify remaining members
   if (room && room.members.length > 0) {
