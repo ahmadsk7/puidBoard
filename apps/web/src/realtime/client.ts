@@ -210,6 +210,9 @@ export class RealtimeClient {
 
     this.socket.on("CLIENT_ID", (data: { clientId: string }) => {
       this.clientId = data.clientId;
+      // Notify state listeners so the UI can update with the new clientId
+      // This is important because ROOM_SNAPSHOT might arrive before CLIENT_ID
+      this.notifyStateListeners();
     });
 
     this.socket.on("ROOM_SNAPSHOT", (event: RoomSnapshotEvent) => {

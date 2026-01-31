@@ -4,16 +4,16 @@ import type {
   ClientMutationEvent,
   RoomState,
   DeckState,
-  ChannelState,
   ControlOwnership,
   QueueItem,
 } from "@puid-board/shared";
-import { Fader, Knob, EQControl, Crossfader } from "./controls";
+import { Fader, Knob, Crossfader, JogWheel } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
 import ClippingIndicator from "./ClippingIndicator";
 import FXStrip from "./FXStrip";
 import { useMixerSync } from "@/audio/useMixer";
+import { useDeck } from "@/audio/useDeck";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -22,114 +22,95 @@ export type DJBoardProps = {
   nextSeq: () => number;
 };
 
-/** Deck display component */
-function DeckPanel({
+// Board dimensions based on the SVG viewBox
+const BOARD_WIDTH = 1600;
+const BOARD_HEIGHT = 600;
+
+// Deck A positions (from SVG)
+const DECK_A = {
+  // Waveform display area
+  waveform: { x: 110, y: 138, width: 492, height: 92 },
+  // Jog wheel center
+  jogWheel: { cx: 290, cy: 350, r: 150 },
+  // Controls area (right of jog wheel)
+  controls: { x: 430, y: 312, width: 160, height: 132 },
+};
+
+// Deck B positions (from SVG - mirrored)
+const DECK_B = {
+  waveform: { x: 998, y: 138, width: 492, height: 92 },
+  jogWheel: { cx: 1310, cy: 350, r: 150 },
+  controls: { x: 1010, y: 312, width: 160, height: 132 },
+};
+
+// Mixer positions (from SVG)
+const MIXER = {
+  // Display area
+  display: { x: 688, y: 170, width: 224, height: 160 },
+  // Knob positions
+  knobs: {
+    topLeft: { cx: 744, cy: 238, r: 26 },
+    topRight: { cx: 856, cy: 238, r: 26 },
+    bottomLeft: { cx: 744, cy: 302, r: 26 },
+    bottomRight: { cx: 856, cy: 302, r: 26 },
+  },
+  // Fader area
+  faders: { x: 688, y: 346, width: 224, height: 132 },
+  // Channel fader positions
+  channelA: { x: 730, y: 384, width: 18, height: 84 },
+  channelB: { x: 852, y: 384, width: 18, height: 84 },
+  // Crossfader area
+  crossfader: { x: 552, y: 534, width: 496, height: 34 },
+};
+
+/** Deck waveform and transport display */
+function DeckDisplay({
   deck,
-  deckLabel,
   deckId,
-  channel,
-  channelPrefix,
-  roomId,
-  clientId,
-  sendEvent,
-  nextSeq,
-  controlOwners,
-  memberColors,
+  deckLabel,
+  position,
   accentColor,
-  queue,
 }: {
   deck: DeckState;
-  deckLabel: string;
   deckId: "A" | "B";
-  channel: ChannelState;
-  channelPrefix: string;
-  roomId: string;
-  clientId: string;
-  sendEvent: (e: ClientMutationEvent) => void;
-  nextSeq: () => number;
-  controlOwners: Record<string, ControlOwnership>;
-  memberColors: Record<string, string>;
+  deckLabel: string;
+  position: { x: number; y: number; width: number; height: number };
   accentColor: string;
-  queue: QueueItem[];
 }) {
   const hasTrack = deck.loadedTrackId !== null;
   const isPlaying = deck.playState === "playing";
 
+  // Get the progress from local audio state
+  const localDeck = useDeck(deckId);
+  const progress = localDeck.duration > 0 ? localDeck.playhead / localDeck.duration : 0;
+
   return (
     <div
       style={{
-        position: "relative",
+        position: "absolute",
+        left: `${(position.x / BOARD_WIDTH) * 100}%`,
+        top: `${(position.y / BOARD_HEIGHT) * 100}%`,
+        width: `${(position.width / BOARD_WIDTH) * 100}%`,
+        height: `${(position.height / BOARD_HEIGHT) * 100}%`,
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        padding: "1rem",
-        background: "transparent",
-        borderRadius: 8,
-        minWidth: 200,
-        overflow: "hidden",
+        padding: "8px 12px",
+        gap: 4,
       }}
     >
-      {/* Deck background */}
-      <img
-        src="/assets/dj-controls/backgrounds/deck-panel-bg.svg"
-        alt=""
+      {/* Track info */}
+      <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          opacity: 0.5,
-          zIndex: 0,
-          pointerEvents: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
-      />
-
-      {/* Corner screws */}
-      <img
-        src="/assets/dj-controls/decorative/panel-screws.svg"
-        alt=""
-        style={{
-          position: "absolute",
-          top: 4,
-          left: 4,
-          width: 16,
-          height: 16,
-          opacity: 0.5,
-          zIndex: 1,
-        }}
-      />
-      <img
-        src="/assets/dj-controls/decorative/panel-screws.svg"
-        alt=""
-        style={{
-          position: "absolute",
-          top: 4,
-          right: 4,
-          width: 16,
-          height: 16,
-          opacity: 0.5,
-          zIndex: 1,
-        }}
-      />
-
-      {/* Content */}
-      <div style={{ position: "relative", zIndex: 2 }}>
-        {/* Deck header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 12,
-            width: "100%",
-          }}
-        >
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div
             style={{
-              width: 32,
-              height: 32,
+              width: 24,
+              height: 24,
               borderRadius: "50%",
               background: accentColor,
               display: "flex",
@@ -137,161 +118,210 @@ function DeckPanel({
               justifyContent: "center",
               fontWeight: 700,
               color: "#fff",
-              fontSize: "0.875rem",
+              fontSize: "0.75rem",
             }}
           >
             {deckLabel}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: "0.75rem",
-                color: "#9ca3af",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {hasTrack ? "Track loaded" : "No track"}
-            </div>
-            <div
-              style={{
-                fontSize: "0.625rem",
-                color: "#6b7280",
-                textTransform: "uppercase",
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-              }}
-            >
-              <img
-                src={isPlaying
-                  ? "/assets/dj-controls/indicators/led-indicator-green.svg"
-                  : hasTrack
-                    ? "/assets/dj-controls/indicators/led-indicator-orange.svg"
-                    : "/assets/dj-controls/indicators/led-indicator-red.svg"}
-                alt=""
-                style={{ width: 8, height: 8 }}
-              />
-              {deck.playState}
-            </div>
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: hasTrack ? "#fff" : "#6b7280",
+              fontWeight: 500,
+            }}
+          >
+            {hasTrack ? "Track Loaded" : "Empty"}
           </div>
         </div>
-
-        {/* Jog wheel with SVG */}
-        <div
-          style={{
-            position: "relative",
-            width: 120,
-            height: 120,
-            marginBottom: 12,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <img
-            src="/assets/dj-controls/wheels/jog-wheel-disc.svg"
-            alt={`Deck ${deckLabel} jog wheel`}
-            style={{
-              width: "100%",
-              height: "100%",
-              filter: `drop-shadow(0 0 8px ${accentColor}40)`,
-            }}
-          />
-          <img
-            src="/assets/dj-controls/wheels/jog-wheel-center-cap.svg"
+            src={isPlaying
+              ? "/assets/dj-controls/indicators/led-indicator-green.svg"
+              : hasTrack
+                ? "/assets/dj-controls/indicators/led-indicator-orange.svg"
+                : "/assets/dj-controls/indicators/led-indicator-red.svg"}
             alt=""
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: "30%",
-              height: "30%",
-            }}
+            style={{ width: 10, height: 10 }}
           />
+          <span style={{ fontSize: "0.625rem", color: "#9ca3af", textTransform: "uppercase" }}>
+            {deck.playState}
+          </span>
         </div>
+      </div>
 
-        {/* Transport controls */}
-        <DeckTransport
-          deckId={deckId}
-          serverState={deck}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          accentColor={accentColor}
-          queue={queue}
-        />
-
-        {/* Channel controls */}
+      {/* Waveform visualization placeholder */}
+      <div
+        style={{
+          flex: 1,
+          background: "linear-gradient(90deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.1) 100%)",
+          borderRadius: 4,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Fake waveform bars */}
         <div
           style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             display: "flex",
-            gap: 12,
-            alignItems: "flex-start",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
+            padding: "0 8px",
+            opacity: hasTrack ? 1 : 0.3,
           }}
         >
-          {/* Gain knob */}
-          <Knob
-            controlId={`${channelPrefix}.gain`}
-            value={channel.gain}
-            roomId={roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            ownership={controlOwners[`${channelPrefix}.gain`]}
-            memberColors={memberColors}
-            label="GAIN"
-            size={40}
-            min={-1}
-            max={1}
-            bipolar
-          />
-
-          {/* EQ */}
-          <EQControl
-            controlIdPrefix={`${channelPrefix}.eq`}
-            eq={channel.eq}
-            roomId={roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            controlOwners={controlOwners}
-            memberColors={memberColors}
-          />
-
-          {/* Channel fader */}
-          <Fader
-            controlId={`${channelPrefix}.fader`}
-            value={channel.fader}
-            roomId={roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            ownership={controlOwners[`${channelPrefix}.fader`]}
-            memberColors={memberColors}
-            label="VOL"
-            height={140}
-          />
+          {Array.from({ length: 48 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                flex: 1,
+                height: `${20 + Math.sin(i * 0.5) * 40 + Math.random() * 20}%`,
+                background: i / 48 < progress
+                  ? `linear-gradient(180deg, ${accentColor}, ${accentColor}80)`
+                  : "#374151",
+                borderRadius: 1,
+                transition: "background 0.1s",
+              }}
+            />
+          ))}
         </div>
 
-        {/* Vent grille at bottom */}
-        <img
-          src="/assets/dj-controls/decorative/vent-grille.svg"
-          alt=""
+        {/* Playhead */}
+        <div
           style={{
-            width: "100%",
-            height: 12,
-            marginTop: 12,
-            opacity: 0.6,
+            position: "absolute",
+            left: `${progress * 100}%`,
+            top: 0,
+            bottom: 0,
+            width: 2,
+            background: "#fff",
+            boxShadow: "0 0 8px rgba(255,255,255,0.5)",
           }}
         />
+      </div>
+
+      {/* Time display */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontFamily: "monospace",
+          fontSize: "0.75rem",
+        }}
+      >
+        <span style={{ color: "#fff" }}>
+          {formatTime(localDeck.playhead)}
+        </span>
+        <span style={{ color: "#6b7280" }}>
+          -{formatTime(Math.max(0, (localDeck.duration || 0) - localDeck.playhead))}
+        </span>
       </div>
     </div>
   );
 }
 
-/** Mixer section */
-function MixerPanel({
+/** Format time as M:SS */
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Deck controls (transport buttons, etc.) */
+function DeckControls({
+  deck,
+  deckId,
+  position,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
+  accentColor,
+  queue,
+}: {
+  deck: DeckState;
+  deckId: "A" | "B";
+  position: { x: number; y: number; width: number; height: number };
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
+  accentColor: string;
+  queue: QueueItem[];
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${(position.x / BOARD_WIDTH) * 100}%`,
+        top: `${(position.y / BOARD_HEIGHT) * 100}%`,
+        width: `${(position.width / BOARD_WIDTH) * 100}%`,
+        height: `${(position.height / BOARD_HEIGHT) * 100}%`,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 8,
+      }}
+    >
+      <DeckTransport
+        deckId={deckId}
+        serverState={deck}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        accentColor={accentColor}
+        queue={queue}
+      />
+    </div>
+  );
+}
+
+/** Positioned jog wheel */
+function PositionedJogWheel({
+  deckId,
+  position,
+  accentColor,
+}: {
+  deckId: "A" | "B";
+  position: { cx: number; cy: number; r: number };
+  accentColor: string;
+}) {
+  const localDeck = useDeck(deckId);
+  const isPlaying = localDeck.isPlaying;
+
+  // Calculate size based on the SVG radius (accounting for aspect ratio)
+  const size = (position.r * 2 / BOARD_WIDTH) * 100;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${((position.cx - position.r) / BOARD_WIDTH) * 100}%`,
+        top: `${((position.cy - position.r) / BOARD_HEIGHT) * 100}%`,
+        width: `${size}%`,
+        // Maintain aspect ratio using padding trick
+        aspectRatio: "1 / 1",
+      }}
+    >
+      <JogWheel
+        deckId={deckId}
+        accentColor={accentColor}
+        size={position.r * 2}
+        isPlaying={isPlaying}
+      />
+    </div>
+  );
+}
+
+/** Mixer knobs section */
+function MixerKnobs({
   mixer,
   roomId,
   clientId,
@@ -308,99 +338,69 @@ function MixerPanel({
   controlOwners: Record<string, ControlOwnership>;
   memberColors: Record<string, string>;
 }) {
-  // Determine signal level for LED indicators (simplified)
-  const masterLevel = mixer.masterVolume;
-
   return (
     <div
       style={{
-        position: "relative",
+        position: "absolute",
+        left: `${(MIXER.display.x / BOARD_WIDTH) * 100}%`,
+        top: `${(MIXER.display.y / BOARD_HEIGHT) * 100}%`,
+        width: `${(MIXER.display.width / BOARD_WIDTH) * 100}%`,
+        height: `${(MIXER.display.height / BOARD_HEIGHT) * 100}%`,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "1rem",
-        background: "transparent",
-        borderRadius: 8,
-        gap: 16,
-        overflow: "hidden",
+        justifyContent: "center",
+        padding: 12,
+        gap: 8,
       }}
     >
-      {/* Mixer background */}
-      <img
-        src="/assets/dj-controls/backgrounds/mixer-center-bg.svg"
-        alt=""
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          opacity: 0.5,
-          zIndex: 0,
-          pointerEvents: "none",
-        }}
-      />
-
-      {/* Content */}
+      {/* Header with clipping indicator */}
       <div
         style={{
-          position: "relative",
-          zIndex: 2,
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
-          gap: 16,
+          gap: 8,
+          marginBottom: 4,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <span style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600 }}>
-            MIXER
-          </span>
-          <ClippingIndicator compact />
-        </div>
+        <span style={{ fontSize: "0.625rem", color: "#9ca3af", fontWeight: 600 }}>
+          MASTER
+        </span>
+        <ClippingIndicator compact />
+      </div>
 
-        {/* Signal level indicators */}
-        <div
-          style={{
-            display: "flex",
-            gap: 4,
-            alignItems: "center",
-          }}
-        >
+      {/* Signal level indicators */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          alignItems: "center",
+        }}
+      >
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
           <img
-            src="/assets/dj-controls/indicators/led-indicator-green.svg"
+            key={i}
+            src={`/assets/dj-controls/indicators/led-indicator-${i < 3 ? "green" : i < 4 ? "orange" : "red"}.svg`}
             alt=""
-            style={{ width: 10, height: 10, opacity: masterLevel > 0.1 ? 1 : 0.3 }}
+            style={{
+              width: 10,
+              height: 10,
+              opacity: mixer.masterVolume > threshold ? 1 : 0.3,
+              transition: "opacity 0.1s",
+            }}
           />
-          <img
-            src="/assets/dj-controls/indicators/led-indicator-green.svg"
-            alt=""
-            style={{ width: 10, height: 10, opacity: masterLevel > 0.3 ? 1 : 0.3 }}
-          />
-          <img
-            src="/assets/dj-controls/indicators/led-indicator-orange.svg"
-            alt=""
-            style={{ width: 10, height: 10, opacity: masterLevel > 0.5 ? 1 : 0.3 }}
-          />
-          <img
-            src="/assets/dj-controls/indicators/led-indicator-orange.svg"
-            alt=""
-            style={{ width: 10, height: 10, opacity: masterLevel > 0.7 ? 1 : 0.3 }}
-          />
-          <img
-            src="/assets/dj-controls/indicators/led-indicator-red.svg"
-            alt=""
-            style={{ width: 10, height: 10, opacity: masterLevel > 0.9 ? 1 : 0.3 }}
-          />
-        </div>
+        ))}
+      </div>
 
+      {/* Knobs grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 16,
+          marginTop: 4,
+        }}
+      >
         {/* Master volume */}
         <Knob
           controlId="masterVolume"
@@ -412,49 +412,186 @@ function MixerPanel({
           ownership={controlOwners["masterVolume"]}
           memberColors={memberColors}
           label="MASTER"
-          size={48}
+          size={44}
         />
 
-        {/* Crossfader */}
-        <Crossfader
-          value={mixer.crossfader}
+        {/* Channel A EQ High */}
+        <Knob
+          controlId="channelA.eq.high"
+          value={mixer.channelA.eq.high}
           roomId={roomId}
           clientId={clientId}
           sendEvent={sendEvent}
           nextSeq={nextSeq}
-          ownership={controlOwners["crossfader"]}
+          ownership={controlOwners["channelA.eq.high"]}
           memberColors={memberColors}
+          label="HI A"
+          size={44}
+          min={-1}
+          max={1}
+          bipolar
         />
 
-        {/* FX Strip */}
-        <FXStrip
-          fxState={mixer.fx}
+        {/* Channel B EQ High */}
+        <Knob
+          controlId="channelB.eq.high"
+          value={mixer.channelB.eq.high}
           roomId={roomId}
           clientId={clientId}
           sendEvent={sendEvent}
           nextSeq={nextSeq}
-          controlOwners={controlOwners}
+          ownership={controlOwners["channelB.eq.high"]}
           memberColors={memberColors}
+          label="HI B"
+          size={44}
+          min={-1}
+          max={1}
+          bipolar
         />
 
-        {/* Decorative vent */}
-        <img
-          src="/assets/dj-controls/decorative/vent-grille.svg"
-          alt=""
-          style={{
-            width: "80%",
-            height: 12,
-            marginTop: 8,
-            opacity: 0.6,
-          }}
+        {/* Headphone cue mix (placeholder) */}
+        <Knob
+          controlId="headphoneMix"
+          value={0.5}
+          roomId={roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          ownership={controlOwners["headphoneMix"]}
+          memberColors={memberColors}
+          label="CUE"
+          size={44}
         />
       </div>
     </div>
   );
 }
 
+/** Mixer faders section */
+function MixerFaders({
+  mixer,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
+  controlOwners,
+  memberColors,
+}: {
+  mixer: RoomState["mixer"];
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
+  controlOwners: Record<string, ControlOwnership>;
+  memberColors: Record<string, string>;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${(MIXER.faders.x / BOARD_WIDTH) * 100}%`,
+        top: `${(MIXER.faders.y / BOARD_HEIGHT) * 100}%`,
+        width: `${(MIXER.faders.width / BOARD_WIDTH) * 100}%`,
+        height: `${(MIXER.faders.height / BOARD_HEIGHT) * 100}%`,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "8px 24px",
+      }}
+    >
+      {/* Channel A fader */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: "0.5rem", color: "#3b82f6", fontWeight: 600 }}>A</span>
+        <Fader
+          controlId="channelA.fader"
+          value={mixer.channelA.fader}
+          roomId={roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          ownership={controlOwners["channelA.fader"]}
+          memberColors={memberColors}
+          height={80}
+        />
+      </div>
+
+      {/* FX Strip in center */}
+      <FXStrip
+        fxState={mixer.fx}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        controlOwners={controlOwners}
+        memberColors={memberColors}
+      />
+
+      {/* Channel B fader */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: "0.5rem", color: "#8b5cf6", fontWeight: 600 }}>B</span>
+        <Fader
+          controlId="channelB.fader"
+          value={mixer.channelB.fader}
+          roomId={roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          ownership={controlOwners["channelB.fader"]}
+          memberColors={memberColors}
+          height={80}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Crossfader section */
+function CrossfaderSection({
+  mixer,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
+  controlOwners,
+  memberColors,
+}: {
+  mixer: RoomState["mixer"];
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
+  controlOwners: Record<string, ControlOwnership>;
+  memberColors: Record<string, string>;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${(MIXER.crossfader.x / BOARD_WIDTH) * 100}%`,
+        top: `${(MIXER.crossfader.y / BOARD_HEIGHT) * 100}%`,
+        width: `${(MIXER.crossfader.width / BOARD_WIDTH) * 100}%`,
+        height: `${(MIXER.crossfader.height / BOARD_HEIGHT) * 100}%`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Crossfader
+        value={mixer.crossfader}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["crossfader"]}
+        memberColors={memberColors}
+      />
+    </div>
+  );
+}
+
 /**
- * Main DJ Board component with two decks and mixer.
+ * Main DJ Board component - professional controller layout.
+ * Uses the background SVG as the source of truth with absolute positioning.
  */
 export default function DJBoard({
   state,
@@ -470,144 +607,148 @@ export default function DJBoard({
   return (
     <div
       style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        gap: 16,
-        padding: 0,
-        borderRadius: 12,
-        fontFamily: "system-ui, sans-serif",
-        overflow: "hidden",
+        width: "100%",
+        maxWidth: 1600,
+        margin: "0 auto",
+        padding: "24px",
+        boxSizing: "border-box",
       }}
     >
-      {/* SVG Background */}
-      <img
-        src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
-        alt=""
+      {/* Main board container with aspect ratio */}
+      <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
+          position: "relative",
           width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          zIndex: 0,
-          pointerEvents: "none",
+          paddingBottom: `${(BOARD_HEIGHT / BOARD_WIDTH) * 100}%`, // Maintain 1600:600 aspect ratio
+          borderRadius: 16,
+          overflow: "hidden",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255,255,255,0.05)",
         }}
-      />
+      >
+        {/* Background SVG - source of truth for layout */}
+        <img
+          src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
+          alt="DJ Controller"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            pointerEvents: "none",
+          }}
+        />
 
-      {/* Decorative corners */}
-      <img
-        src="/assets/dj-controls/decorative/corner-accent.svg"
-        alt=""
-        style={{
-          position: "absolute",
-          top: 8,
-          left: 8,
-          width: 32,
-          height: 32,
-          opacity: 0.6,
-          zIndex: 1,
-          pointerEvents: "none",
-        }}
-      />
-      <img
-        src="/assets/dj-controls/decorative/corner-accent.svg"
-        alt=""
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          width: 32,
-          height: 32,
-          opacity: 0.6,
-          zIndex: 1,
-          transform: "scaleX(-1)",
-          pointerEvents: "none",
-        }}
-      />
+        {/* === DECK A (Left Side) === */}
 
-      {/* Content layer */}
-      <div style={{ position: "relative", zIndex: 2, padding: "1rem" }}>
-        {/* Header */}
+        {/* Deck A Waveform Display */}
+        <DeckDisplay
+          deck={state.deckA}
+          deckId="A"
+          deckLabel="A"
+          position={DECK_A.waveform}
+          accentColor="#3b82f6"
+        />
+
+        {/* Deck A Jog Wheel */}
+        <PositionedJogWheel
+          deckId="A"
+          position={DECK_A.jogWheel}
+          accentColor="#3b82f6"
+        />
+
+        {/* Deck A Controls */}
+        <DeckControls
+          deck={state.deckA}
+          deckId="A"
+          position={DECK_A.controls}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          accentColor="#3b82f6"
+          queue={state.queue}
+        />
+
+        {/* === MIXER (Center) === */}
+
+        {/* Mixer Knobs */}
+        <MixerKnobs
+          mixer={state.mixer}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          controlOwners={state.controlOwners}
+          memberColors={memberColors}
+        />
+
+        {/* Mixer Faders */}
+        <MixerFaders
+          mixer={state.mixer}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          controlOwners={state.controlOwners}
+          memberColors={memberColors}
+        />
+
+        {/* Crossfader */}
+        <CrossfaderSection
+          mixer={state.mixer}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          controlOwners={state.controlOwners}
+          memberColors={memberColors}
+        />
+
+        {/* === DECK B (Right Side) === */}
+
+        {/* Deck B Waveform Display */}
+        <DeckDisplay
+          deck={state.deckB}
+          deckId="B"
+          deckLabel="B"
+          position={DECK_B.waveform}
+          accentColor="#8b5cf6"
+        />
+
+        {/* Deck B Jog Wheel */}
+        <PositionedJogWheel
+          deckId="B"
+          position={DECK_B.jogWheel}
+          accentColor="#8b5cf6"
+        />
+
+        {/* Deck B Controls */}
+        <DeckControls
+          deck={state.deckB}
+          deckId="B"
+          position={DECK_B.controls}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          accentColor="#8b5cf6"
+          queue={state.queue}
+        />
+
+        {/* Version badge */}
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "0 0.5rem",
-            marginBottom: 16,
+            position: "absolute",
+            bottom: 8,
+            right: 16,
+            fontSize: "0.5rem",
+            color: "#4b5563",
+            fontFamily: "monospace",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img
-              src="/assets/dj-controls/decorative/logo.svg"
-              alt="DJ Board"
-              style={{ width: 24, height: 24, opacity: 0.8 }}
-            />
-            <span style={{ fontSize: "0.875rem", color: "#fff", fontWeight: 600 }}>
-              DJ Board
-            </span>
-          </div>
-          <span style={{ fontSize: "0.625rem", color: "#6b7280" }}>
-            v{state.version}
-          </span>
-        </div>
-
-        {/* Main layout: Deck A | Mixer | Deck B */}
-        <div
-          style={{
-            display: "flex",
-            gap: 16,
-            justifyContent: "center",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Deck A */}
-          <DeckPanel
-            deck={state.deckA}
-            deckLabel="A"
-            deckId="A"
-            channel={state.mixer.channelA}
-            channelPrefix="channelA"
-            roomId={state.roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            controlOwners={state.controlOwners}
-            memberColors={memberColors}
-            accentColor="#3b82f6"
-            queue={state.queue}
-          />
-
-          {/* Mixer */}
-          <MixerPanel
-            mixer={state.mixer}
-            roomId={state.roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            controlOwners={state.controlOwners}
-            memberColors={memberColors}
-          />
-
-          {/* Deck B */}
-          <DeckPanel
-            deck={state.deckB}
-            deckLabel="B"
-            deckId="B"
-            channel={state.mixer.channelB}
-            channelPrefix="channelB"
-            roomId={state.roomId}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-            controlOwners={state.controlOwners}
-            memberColors={memberColors}
-            accentColor="#8b5cf6"
-            queue={state.queue}
-          />
+          v{state.version}
         </div>
       </div>
     </div>

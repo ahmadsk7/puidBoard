@@ -1,28 +1,14 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
-import CursorsLayer from "@/components/CursorsLayer";
 import QueuePanel from "@/components/QueuePanel";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
-import { THROTTLE } from "@puid-board/shared";
-
-/** Simulates latency for mock mode */
-function useSimulatedLatency(intervalMs = 1500): number {
-  const [latencyMs, setLatencyMs] = useState(50);
-  useEffect(() => {
-    const t = setInterval(() => {
-      setLatencyMs(Math.floor(30 + Math.random() * 220));
-    }, intervalMs);
-    return () => clearInterval(t);
-  }, [intervalMs]);
-  return latencyMs;
-}
 
 /** Shared room UI content */
 function RoomContent({
@@ -40,110 +26,40 @@ function RoomContent({
   sendEvent: (e: ClientMutationEvent) => void;
   nextSeq: () => number;
 }) {
-  const cursorAreaRef = useRef<HTMLDivElement>(null);
-  const [cursorAreaSize, setCursorAreaSize] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    const el = cursorAreaRef.current;
-    if (!el) return;
-    const updateSize = () => {
-      setCursorAreaSize({ width: el.offsetWidth, height: el.offsetHeight });
-    };
-    updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // Throttle cursor moves
-  const lastCursorMove = useRef(0);
-  const handleCursorMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const now = Date.now();
-    if (now - lastCursorMove.current < THROTTLE.CURSOR_MS) return;
-    lastCursorMove.current = now;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    sendEvent({
-      type: "CURSOR_MOVE",
-      roomId: state.roomId,
-      clientId,
-      clientSeq: nextSeq(),
-      payload: { x, y },
-    });
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        background: "#0a0a0b",
+      }}
+    >
       <TopBar
         roomCode={state.roomCode}
         latencyMs={latencyMs}
         autoplayEnabled={autoplayEnabled}
       />
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Main content area */}
+        {/* Main content area - centered DJ board */}
         <main
           style={{
             flex: 1,
-            padding: "1.5rem",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "24px",
             fontFamily: "system-ui, sans-serif",
             overflow: "auto",
+            background: "linear-gradient(180deg, #0a0a0b 0%, #111113 100%)",
           }}
         >
-          {/* DJ Board */}
           <DJBoard
             state={state}
             clientId={clientId}
             sendEvent={sendEvent}
             nextSeq={nextSeq}
           />
-
-          {/* Cursors section */}
-          <section style={{ marginTop: "1rem" }}>
-            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Cursors</h2>
-            <div
-              ref={cursorAreaRef}
-              role="button"
-              tabIndex={0}
-              onMouseMove={handleCursorMove}
-              onClick={handleCursorMove}
-              style={{
-                width: "100%",
-                maxWidth: 500,
-                height: 180,
-                background: "#e5e7eb",
-                borderRadius: 8,
-                position: "relative",
-                cursor: "crosshair",
-              }}
-            >
-              <CursorsLayer
-                members={state.members}
-                currentClientId={clientId}
-                containerWidth={cursorAreaSize.width}
-                containerHeight={cursorAreaSize.height}
-              />
-              {/* Own cursor (if set) */}
-              {state.members.find((m) => m.clientId === clientId)?.cursor && (
-                <div
-                  style={{
-                    position: "absolute",
-                    left: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.x ?? 0) * 100}%`,
-                    top: `${(state.members.find((m) => m.clientId === clientId)?.cursor?.y ?? 0) * 100}%`,
-                    width: 12,
-                    height: 12,
-                    marginLeft: -6,
-                    marginTop: -6,
-                    background: state.members.find((m) => m.clientId === clientId)?.color ?? "#333",
-                    borderRadius: "50%",
-                    pointerEvents: "none",
-                    border: "2px solid white",
-                  }}
-                />
-              )}
-            </div>
-          </section>
         </main>
 
         {/* Queue panel (right sidebar) */}
@@ -163,7 +79,8 @@ function RoomContent({
 /** Mock room wrapper */
 function MockRoomContent() {
   const { state, sendEvent, room } = useMockRoom();
-  const latencyMs = useSimulatedLatency(1500);
+  // Use a fixed latency value for mock mode
+  const latencyMs = 50;
 
   return (
     <RoomContent
@@ -193,24 +110,63 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
     autoCreate: false, // Don't auto-create for join attempts
   });
 
-  // Update URL with actual room code after room is created
-  // Use history.replaceState to avoid triggering a re-render/reconnect
-  useEffect(() => {
-    if (isCreating && state && state.roomCode && state.roomCode !== roomCode) {
-      // Use replaceState instead of router.replace to avoid component remount
-      window.history.replaceState({}, '', `/room/${state.roomCode}`);
-    }
-  }, [isCreating, state, roomCode]);
+  // Don't update URL - just show the actual room code in the UI
+  // Updating URL causes navigation issues and disconnects
 
   const seqRef = useRef(0);
   const nextSeq = () => ++seqRef.current;
 
+  // Show actual room code if we have it, otherwise show status
+  const displayCode = state?.roomCode || (isCreating ? "Creating..." : roomCode);
+
   if (status === "connecting") {
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar roomCode={isCreating ? "Creating..." : roomCode} latencyMs={0} autoplayEnabled={false} />
-        <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-          <p>{isCreating ? "Creating room..." : "Connecting to server..."}</p>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          background: "#0a0a0b",
+        }}
+      >
+        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={false} />
+        <main
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "2rem",
+            fontFamily: "system-ui, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                border: "3px solid #3b82f6",
+                borderTopColor: "transparent",
+                borderRadius: "50%",
+                animation: "spin 1s linear infinite",
+              }}
+            />
+            <p style={{ color: "#9ca3af" }}>
+              {isCreating ? "Creating room..." : "Connecting to server..."}
+            </p>
+          </div>
+          <style>{`
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
         </main>
       </div>
     );
@@ -218,10 +174,35 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
 
   if (error) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
-        <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-          <p style={{ color: "#ef4444" }}>Error: {error.message}</p>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          background: "#0a0a0b",
+        }}
+      >
+        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={false} />
+        <main
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "2rem",
+            fontFamily: "system-ui, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              padding: 24,
+              background: "#1f2937",
+              borderRadius: 8,
+              border: "1px solid #ef4444",
+            }}
+          >
+            <p style={{ color: "#ef4444", margin: 0 }}>Error: {error.message}</p>
+          </div>
         </main>
       </div>
     );
@@ -229,10 +210,26 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
 
   if (!state || !clientId) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
-        <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-          <p>Waiting for room state...</p>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          background: "#0a0a0b",
+        }}
+      >
+        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={false} />
+        <main
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "2rem",
+            fontFamily: "system-ui, sans-serif",
+          }}
+        >
+          <p style={{ color: "#9ca3af" }}>Waiting for room state...</p>
         </main>
       </div>
     );
@@ -256,8 +253,17 @@ export default function RoomByCodePage() {
 
   if (!code) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        <p>Missing room code.</p>
+      <main
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          background: "#0a0a0b",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        <p style={{ color: "#ef4444" }}>Missing room code.</p>
       </main>
     );
   }
