@@ -87,6 +87,12 @@ export function useDeck(deckId: "A" | "B") {
     isPlaying: state.playState === "playing",
     /** Is track loaded */
     isLoaded: state.buffer !== null,
+    /** Waveform data */
+    waveform: state.analysis?.waveform ?? null,
+    /** Detected BPM */
+    bpm: state.analysis?.bpm ?? null,
+    /** Is analyzing audio */
+    isAnalyzing: state.analysis?.status === "analyzing",
   };
 }
 

@@ -4,6 +4,7 @@ import { useCallback, useState, useEffect } from "react";
 import type { ClientMutationEvent, FxType, FxState, ControlOwnership } from "@puid-board/shared";
 import { Knob } from "./controls";
 import { subscribeToFXManager } from "@/audio/fx/manager";
+import { FXDisplay } from "./displays";
 
 export type FXStripProps = {
   fxState: FxState;
@@ -75,74 +76,24 @@ export default function FXStrip({
     });
   }, [sendEvent, roomId, clientId, nextSeq, fxState.enabled]);
 
-  const isActive = fxState.type !== "none" && fxState.enabled;
-
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "0.75rem",
-        background: isActive ? "#1e3a5f" : "#1f2937",
-        borderRadius: 8,
-        gap: 12,
-        border: isActive ? "1px solid #3b82f6" : "1px solid transparent",
-        transition: "all 0.2s",
+        gap: 10,
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "100%",
-        }}
-      >
-        {/* FX active indicator - blue LED */}
-        <img
-          src="/assets/dj-controls/indicators/led-indicator-blue.svg"
-          alt={isActive ? "FX Active" : "FX Inactive"}
-          style={{
-            width: 10,
-            height: 10,
-            opacity: isActive ? 1 : 0.3,
-            transition: "opacity 0.2s",
-          }}
-        />
-        <span
-          style={{
-            fontSize: "0.75rem",
-            color: isActive ? "#60a5fa" : "#9ca3af",
-            fontWeight: 600,
-          }}
-        >
-          FX
-        </span>
+      {/* LCD Display */}
+      <FXDisplay
+        fxType={fxState.type}
+        enabled={fxState.enabled}
+        wetDry={fxState.wetDry}
+        paramInfo={paramInfo}
+      />
 
-        {/* Enable/Bypass button */}
-        <button
-          type="button"
-          onClick={handleToggle}
-          disabled={fxState.type === "none"}
-          style={{
-            padding: "2px 6px",
-            fontSize: "0.5rem",
-            fontWeight: 600,
-            background: fxState.enabled ? "#22c55e" : "#374151",
-            color: "#fff",
-            border: "none",
-            borderRadius: 3,
-            cursor: fxState.type === "none" ? "not-allowed" : "pointer",
-            opacity: fxState.type === "none" ? 0.5 : 1,
-          }}
-        >
-          {fxState.enabled ? "ON" : "OFF"}
-        </button>
-      </div>
-
-      {/* FX Type Selector */}
+      {/* FX Type Selector Buttons */}
       <div
         style={{
           display: "flex",
@@ -173,7 +124,27 @@ export default function FXStrip({
         ))}
       </div>
 
-      {/* Controls - only show when FX is active */}
+      {/* Enable/Bypass toggle */}
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={fxState.type === "none"}
+        style={{
+          padding: "4px 12px",
+          fontSize: "0.6rem",
+          fontWeight: 600,
+          background: fxState.enabled ? "#22c55e" : "#374151",
+          color: "#fff",
+          border: "none",
+          borderRadius: 4,
+          cursor: fxState.type === "none" ? "not-allowed" : "pointer",
+          opacity: fxState.type === "none" ? 0.5 : 1,
+        }}
+      >
+        {fxState.enabled ? "ON" : "OFF"}
+      </button>
+
+      {/* Control Knobs - only show when FX is not "none" */}
       {fxState.type !== "none" && (
         <div
           style={{
@@ -197,34 +168,18 @@ export default function FXStrip({
           />
 
           {/* Parameter knob */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <Knob
-              controlId="fx.param"
-              value={fxState.param}
-              roomId={roomId}
-              clientId={clientId}
-              sendEvent={sendEvent}
-              nextSeq={nextSeq}
-              ownership={controlOwners["fx.param"]}
-              memberColors={memberColors}
-              label={paramInfo?.label ?? "PARAM"}
-              size={36}
-            />
-            {/* Parameter value display */}
-            {paramInfo && (
-              <div
-                style={{
-                  fontSize: "0.5rem",
-                  color: "#6b7280",
-                  marginTop: 2,
-                  fontFamily: "monospace",
-                }}
-              >
-                {paramInfo.displayValue}
-                {paramInfo.unit}
-              </div>
-            )}
-          </div>
+          <Knob
+            controlId="fx.param"
+            value={fxState.param}
+            roomId={roomId}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
+            ownership={controlOwners["fx.param"]}
+            memberColors={memberColors}
+            label={paramInfo?.label ?? "PARAM"}
+            size={36}
+          />
         </div>
       )}
     </div>

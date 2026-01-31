@@ -173,8 +173,8 @@ export default function JogWheel({
           height: "100%",
           borderRadius: "50%",
           boxShadow: isDragging
-            ? `0 0 30px 8px ${accentColor}60, inset 0 0 20px rgba(0,0,0,0.5)`
-            : `0 0 20px 4px ${accentColor}30, inset 0 0 15px rgba(0,0,0,0.4)`,
+            ? `0 0 20px 6px ${accentColor}, inset 0 0 20px rgba(0,0,0,0.8)`
+            : `0 0 12px 3px ${accentColor}, inset 0 0 15px rgba(0,0,0,0.7)`,
           transition: "box-shadow 0.2s ease",
           pointerEvents: "none",
         }}
@@ -222,7 +222,7 @@ export default function JogWheel({
             width: "100%",
             height: "100%",
             borderRadius: "50%",
-            background: `radial-gradient(circle, ${accentColor}10 0%, transparent 70%)`,
+            background: `radial-gradient(circle, ${accentColor}20 0%, transparent 60%)`,
             pointerEvents: "none",
           }}
         />

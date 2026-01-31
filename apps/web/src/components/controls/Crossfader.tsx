@@ -14,6 +14,8 @@ export type CrossfaderProps = {
   ownership?: ControlOwnership;
   /** Member color map for glow */
   memberColors?: Record<string, string>;
+  /** Width of the crossfader track */
+  width?: number;
 };
 
 const CONTROL_ID = "crossfader";
@@ -29,6 +31,7 @@ export default function Crossfader({
   nextSeq,
   ownership,
   memberColors,
+  width = 200,
 }: CrossfaderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
@@ -163,12 +166,14 @@ export default function Crossfader({
         onPointerCancel={handlePointerUp}
         style={{
           position: "relative",
-          width: 200,
+          width,
           height: 32,
-          background: "linear-gradient(to right, #3b82f6, #6b7280, #8b5cf6)",
+          background: "linear-gradient(to bottom, #1a1a1a, #0f0f10)",
           borderRadius: 4,
+          border: "1px solid #242424",
           cursor: "pointer",
           touchAction: "none",
+          boxShadow: "inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03)",
           ...glowStyle,
         }}
       >
@@ -180,8 +185,7 @@ export default function Crossfader({
             top: 0,
             bottom: 0,
             width: 2,
-            background: "#fff",
-            opacity: 0.5,
+            background: "#3a3a3a",
             transform: "translateX(-50%)",
             pointerEvents: "none",
           }}
@@ -195,8 +199,8 @@ export default function Crossfader({
             left: `${localValue * 100}%`,
             top: "50%",
             transform: "translate(-50%, -50%)",
-            width: 80,
-            height: 40,
+            width: 60,
+            height: 30,
             pointerEvents: "none",
             filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
           }}

@@ -14,6 +14,8 @@ import ClippingIndicator from "./ClippingIndicator";
 import FXStrip from "./FXStrip";
 import { useMixerSync } from "@/audio/useMixer";
 import { useDeck } from "@/audio/useDeck";
+import { useBoardScale } from "@/hooks/useBoardScale";
+import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -22,217 +24,97 @@ export type DJBoardProps = {
   nextSeq: () => number;
 };
 
-// Board dimensions based on the SVG viewBox
+// FIXED BOARD DIMENSIONS - Source of truth from SVG viewBox
 const BOARD_WIDTH = 1600;
 const BOARD_HEIGHT = 600;
 
-// Deck A positions (from SVG)
+// EXACT COORDINATES FROM SVG SOURCE (viewBox units)
+// All measurements extracted directly from mixer-panel-background.svg
+
+// Deck A positions (left side)
 const DECK_A = {
-  // Waveform display area
   waveform: { x: 110, y: 138, width: 492, height: 92 },
-  // Jog wheel center
-  jogWheel: { cx: 290, cy: 350, r: 150 },
-  // Controls area (right of jog wheel)
-  controls: { x: 430, y: 312, width: 160, height: 132 },
+  jogWheel: { cx: 290, cy: 350, r: 150 }, // From SVG: <circle cx="290" cy="350" r="150"/>
+  controls: { x: 430, y: 312, width: 160, height: 132 }, // From SVG: <rect x="430" y="312" width="160" height="132"/>
 };
 
-// Deck B positions (from SVG - mirrored)
+// Deck B positions (right side)
 const DECK_B = {
   waveform: { x: 998, y: 138, width: 492, height: 92 },
-  jogWheel: { cx: 1310, cy: 350, r: 150 },
-  controls: { x: 1010, y: 312, width: 160, height: 132 },
+  jogWheel: { cx: 1310, cy: 350, r: 150 }, // From SVG: <circle cx="1310" cy="350" r="150"/>
+  controls: { x: 1010, y: 312, width: 160, height: 132 }, // From SVG: <rect x="1010" y="312" width="160" height="132"/>
 };
 
-// Mixer positions (from SVG)
+// Mixer positions (center)
 const MIXER = {
-  // Display area
-  display: { x: 688, y: 170, width: 224, height: 160 },
-  // Knob positions
+  display: { x: 688, y: 170, width: 224, height: 160 }, // From SVG: <rect x="688" y="170" width="224" height="160"/>
+  // Knob positions - EXACT centers from SVG circles
   knobs: {
-    topLeft: { cx: 744, cy: 238, r: 26 },
-    topRight: { cx: 856, cy: 238, r: 26 },
-    bottomLeft: { cx: 744, cy: 302, r: 26 },
-    bottomRight: { cx: 856, cy: 302, r: 26 },
+    masterVolume: { cx: 744, cy: 238 },   // <circle cx="744" cy="238" r="26"/>
+    channelAHigh: { cx: 856, cy: 238 },   // <circle cx="856" cy="238" r="26"/>
+    channelBHigh: { cx: 744, cy: 302 },   // <circle cx="744" cy="302" r="26"/>
+    headphoneMix: { cx: 856, cy: 302 },   // <circle cx="856" cy="302" r="26"/>
   },
-  // Fader area
+  knobRadius: 26, // From SVG: r="26"
+  // Fader track positions
   faders: { x: 688, y: 346, width: 224, height: 132 },
-  // Channel fader positions
-  channelA: { x: 730, y: 384, width: 18, height: 84 },
-  channelB: { x: 852, y: 384, width: 18, height: 84 },
-  // Crossfader area
-  crossfader: { x: 552, y: 534, width: 496, height: 34 },
+  channelA: { x: 730, y: 384, width: 18, height: 84 }, // From SVG: <rect x="730" y="384" width="18" height="84"/>
+  channelB: { x: 852, y: 384, width: 18, height: 84 }, // From SVG: <rect x="852" y="384" width="18" height="84"/>
+  // Crossfader
+  crossfader: { x: 552, y: 534, width: 496, height: 34 }, // From SVG: <rect x="552" y="534" width="496" height="34"/>
 };
+
+// NOTE: Decorative screws are already rendered in the SVG background
+// (mixer-panel-background.svg lines 215-229), so no CSS duplicates needed.
 
 /** Deck waveform and transport display */
 function DeckDisplay({
   deck,
   deckId,
-  deckLabel,
   position,
   accentColor,
+  queue,
 }: {
   deck: DeckState;
   deckId: "A" | "B";
-  deckLabel: string;
   position: { x: number; y: number; width: number; height: number };
   accentColor: string;
+  queue: QueueItem[];
 }) {
-  const hasTrack = deck.loadedTrackId !== null;
-  const isPlaying = deck.playState === "playing";
-
-  // Get the progress from local audio state
   const localDeck = useDeck(deckId);
+  const loadedItem = queue.find(q => q.id === deck.loadedQueueItemId);
   const progress = localDeck.duration > 0 ? localDeck.playhead / localDeck.duration : 0;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        left: `${(position.x / BOARD_WIDTH) * 100}%`,
-        top: `${(position.y / BOARD_HEIGHT) * 100}%`,
-        width: `${(position.width / BOARD_WIDTH) * 100}%`,
-        height: `${(position.height / BOARD_HEIGHT) * 100}%`,
-        display: "flex",
-        flexDirection: "column",
-        padding: "8px 12px",
-        gap: 4,
-      }}
+    <LCDScreen
+      width={position.width}
+      height={position.height}
+      accentColor={accentColor}
+      style={{ position: "absolute", left: position.x, top: position.y }}
     >
-      {/* Track info */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: "50%",
-              background: accentColor,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              color: "#fff",
-              fontSize: "0.75rem",
-            }}
-          >
-            {deckLabel}
-          </div>
-          <div
-            style={{
-              fontSize: "0.75rem",
-              color: hasTrack ? "#fff" : "#6b7280",
-              fontWeight: 500,
-            }}
-          >
-            {hasTrack ? "Track Loaded" : "Empty"}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <img
-            src={isPlaying
-              ? "/assets/dj-controls/indicators/led-indicator-green.svg"
-              : hasTrack
-                ? "/assets/dj-controls/indicators/led-indicator-orange.svg"
-                : "/assets/dj-controls/indicators/led-indicator-red.svg"}
-            alt=""
-            style={{ width: 10, height: 10 }}
-          />
-          <span style={{ fontSize: "0.625rem", color: "#9ca3af", textTransform: "uppercase" }}>
-            {deck.playState}
-          </span>
-        </div>
-      </div>
-
-      {/* Waveform visualization placeholder */}
-      <div
-        style={{
-          flex: 1,
-          background: "linear-gradient(90deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.1) 100%)",
-          borderRadius: 4,
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {/* Fake waveform bars */}
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 2,
-            padding: "0 8px",
-            opacity: hasTrack ? 1 : 0.3,
-          }}
-        >
-          {Array.from({ length: 48 }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                height: `${20 + Math.sin(i * 0.5) * 40 + Math.random() * 20}%`,
-                background: i / 48 < progress
-                  ? `linear-gradient(180deg, ${accentColor}, ${accentColor}80)`
-                  : "#374151",
-                borderRadius: 1,
-                transition: "background 0.1s",
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Playhead */}
-        <div
-          style={{
-            position: "absolute",
-            left: `${progress * 100}%`,
-            top: 0,
-            bottom: 0,
-            width: 2,
-            background: "#fff",
-            boxShadow: "0 0 8px rgba(255,255,255,0.5)",
-          }}
-        />
-      </div>
-
-      {/* Time display */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontFamily: "monospace",
-          fontSize: "0.75rem",
-        }}
-      >
-        <span style={{ color: "#fff" }}>
-          {formatTime(localDeck.playhead)}
-        </span>
-        <span style={{ color: "#6b7280" }}>
-          -{formatTime(Math.max(0, (localDeck.duration || 0) - localDeck.playhead))}
-        </span>
-      </div>
-    </div>
+      <TrackInfoDisplay
+        deckId={deckId}
+        title={loadedItem?.title ?? null}
+        bpm={localDeck.bpm}
+        playState={deck.playState}
+        accentColor={accentColor}
+      />
+      <WaveformDisplay
+        waveform={localDeck.waveform}
+        progress={progress}
+        accentColor={accentColor}
+        isPlaying={localDeck.isPlaying}
+        isLoading={localDeck.isAnalyzing}
+      />
+      <TimeDisplay
+        currentTime={localDeck.playhead}
+        duration={localDeck.duration}
+      />
+    </LCDScreen>
   );
 }
 
-/** Format time as M:SS */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-/** Deck controls (transport buttons, etc.) */
+/** Deck controls (transport buttons) */
 function DeckControls({
   deck,
   deckId,
@@ -258,15 +140,16 @@ function DeckControls({
     <div
       style={{
         position: "absolute",
-        left: `${(position.x / BOARD_WIDTH) * 100}%`,
-        top: `${(position.y / BOARD_HEIGHT) * 100}%`,
-        width: `${(position.width / BOARD_WIDTH) * 100}%`,
-        height: `${(position.height / BOARD_HEIGHT) * 100}%`,
+        left: position.x,
+        top: position.y,
+        width: position.width,
+        height: position.height,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         padding: 8,
+        boxSizing: "border-box",
       }}
     >
       <DeckTransport
@@ -296,31 +179,30 @@ function PositionedJogWheel({
   const localDeck = useDeck(deckId);
   const isPlaying = localDeck.isPlaying;
 
-  // Calculate size based on the SVG radius (accounting for aspect ratio)
-  const size = (position.r * 2 / BOARD_WIDTH) * 100;
+  const size = position.r * 2; // Diameter from SVG radius
 
   return (
     <div
       style={{
         position: "absolute",
-        left: `${((position.cx - position.r) / BOARD_WIDTH) * 100}%`,
-        top: `${((position.cy - position.r) / BOARD_HEIGHT) * 100}%`,
-        width: `${size}%`,
-        // Maintain aspect ratio using padding trick
-        aspectRatio: "1 / 1",
+        left: position.cx,
+        top: position.cy,
+        transform: "translate(-50%, -50%)",
+        width: size,
+        height: size,
       }}
     >
       <JogWheel
         deckId={deckId}
         accentColor={accentColor}
-        size={position.r * 2}
+        size={size}
         isPlaying={isPlaying}
       />
     </div>
   );
 }
 
-/** Mixer knobs section */
+/** Mixer knobs section - centered at exact SVG coordinates */
 function MixerKnobs({
   mixer,
   roomId,
@@ -338,70 +220,66 @@ function MixerKnobs({
   controlOwners: Record<string, ControlOwnership>;
   memberColors: Record<string, string>;
 }) {
+  const knobSize = MIXER.knobRadius * 2; // 52px diameter
+
   return (
-    <div
-      style={{
-        position: "absolute",
-        left: `${(MIXER.display.x / BOARD_WIDTH) * 100}%`,
-        top: `${(MIXER.display.y / BOARD_HEIGHT) * 100}%`,
-        width: `${(MIXER.display.width / BOARD_WIDTH) * 100}%`,
-        height: `${(MIXER.display.height / BOARD_HEIGHT) * 100}%`,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 12,
-        gap: 8,
-      }}
-    >
-      {/* Header with clipping indicator */}
+    <>
+      {/* Header display area */}
       <div
         style={{
+          position: "absolute",
+          left: MIXER.display.x,
+          top: MIXER.display.y,
+          width: MIXER.display.width,
+          height: 60,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
+          justifyContent: "center",
           gap: 8,
-          marginBottom: 4,
+          boxSizing: "border-box",
         }}
       >
-        <span style={{ fontSize: "0.625rem", color: "#9ca3af", fontWeight: 600 }}>
-          MASTER
-        </span>
-        <ClippingIndicator compact />
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: "0.625rem", color: "#9ca3af", fontWeight: 600 }}>
+            MASTER
+          </span>
+          <ClippingIndicator compact />
+        </div>
+
+        {/* Signal level indicators */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
+            <img
+              key={i}
+              src={`/assets/dj-controls/indicators/led-indicator-${
+                i < 3 ? "green" : i < 4 ? "orange" : "red"
+              }.svg`}
+              alt=""
+              style={{
+                width: 10,
+                height: 10,
+                filter:
+                  mixer.masterVolume > threshold
+                    ? "brightness(1)"
+                    : "brightness(0.3)",
+                transition: "filter 0.1s",
+              }}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Signal level indicators */}
+      {/* Master volume knob - centered at (744, 238) */}
       <div
         style={{
-          display: "flex",
-          gap: 4,
-          alignItems: "center",
+          position: "absolute",
+          left: MIXER.knobs.masterVolume.cx,
+          top: MIXER.knobs.masterVolume.cy,
+          transform: "translate(-50%, calc(-50% - 12px))", // Shift UP to center the knob circle (label is above)
         }}
       >
-        {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
-          <img
-            key={i}
-            src={`/assets/dj-controls/indicators/led-indicator-${i < 3 ? "green" : i < 4 ? "orange" : "red"}.svg`}
-            alt=""
-            style={{
-              width: 10,
-              height: 10,
-              opacity: mixer.masterVolume > threshold ? 1 : 0.3,
-              transition: "opacity 0.1s",
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Knobs grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-          marginTop: 4,
-        }}
-      >
-        {/* Master volume */}
         <Knob
           controlId="masterVolume"
           value={mixer.masterVolume}
@@ -412,10 +290,19 @@ function MixerKnobs({
           ownership={controlOwners["masterVolume"]}
           memberColors={memberColors}
           label="MASTER"
-          size={44}
+          size={knobSize}
         />
+      </div>
 
-        {/* Channel A EQ High */}
+      {/* Channel A EQ High - centered at (856, 238) */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.channelAHigh.cx,
+          top: MIXER.knobs.channelAHigh.cy,
+          transform: "translate(-50%, calc(-50% - 12px))",
+        }}
+      >
         <Knob
           controlId="channelA.eq.high"
           value={mixer.channelA.eq.high}
@@ -426,13 +313,22 @@ function MixerKnobs({
           ownership={controlOwners["channelA.eq.high"]}
           memberColors={memberColors}
           label="HI A"
-          size={44}
+          size={knobSize}
           min={-1}
           max={1}
           bipolar
         />
+      </div>
 
-        {/* Channel B EQ High */}
+      {/* Channel B EQ High - centered at (744, 302) */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.channelBHigh.cx,
+          top: MIXER.knobs.channelBHigh.cy,
+          transform: "translate(-50%, calc(-50% - 12px))",
+        }}
+      >
         <Knob
           controlId="channelB.eq.high"
           value={mixer.channelB.eq.high}
@@ -443,13 +339,22 @@ function MixerKnobs({
           ownership={controlOwners["channelB.eq.high"]}
           memberColors={memberColors}
           label="HI B"
-          size={44}
+          size={knobSize}
           min={-1}
           max={1}
           bipolar
         />
+      </div>
 
-        {/* Headphone cue mix (placeholder) */}
+      {/* Headphone cue mix - centered at (856, 302) */}
+      <div
+        style={{
+          position: "absolute",
+          left: MIXER.knobs.headphoneMix.cx,
+          top: MIXER.knobs.headphoneMix.cy,
+          transform: "translate(-50%, calc(-50% - 12px))",
+        }}
+      >
         <Knob
           controlId="headphoneMix"
           value={0.5}
@@ -460,10 +365,10 @@ function MixerKnobs({
           ownership={controlOwners["headphoneMix"]}
           memberColors={memberColors}
           label="CUE"
-          size={44}
+          size={knobSize}
         />
       </div>
-    </div>
+    </>
   );
 }
 
@@ -489,14 +394,15 @@ function MixerFaders({
     <div
       style={{
         position: "absolute",
-        left: `${(MIXER.faders.x / BOARD_WIDTH) * 100}%`,
-        top: `${(MIXER.faders.y / BOARD_HEIGHT) * 100}%`,
-        width: `${(MIXER.faders.width / BOARD_WIDTH) * 100}%`,
-        height: `${(MIXER.faders.height / BOARD_HEIGHT) * 100}%`,
+        left: MIXER.faders.x,
+        top: MIXER.faders.y,
+        width: MIXER.faders.width,
+        height: MIXER.faders.height,
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         padding: "8px 24px",
+        boxSizing: "border-box",
       }}
     >
       {/* Channel A fader */}
@@ -511,7 +417,7 @@ function MixerFaders({
           nextSeq={nextSeq}
           ownership={controlOwners["channelA.fader"]}
           memberColors={memberColors}
-          height={80}
+          height={84}
         />
       </div>
 
@@ -538,7 +444,7 @@ function MixerFaders({
           nextSeq={nextSeq}
           ownership={controlOwners["channelB.fader"]}
           memberColors={memberColors}
-          height={80}
+          height={84}
         />
       </div>
     </div>
@@ -567,13 +473,14 @@ function CrossfaderSection({
     <div
       style={{
         position: "absolute",
-        left: `${(MIXER.crossfader.x / BOARD_WIDTH) * 100}%`,
-        top: `${(MIXER.crossfader.y / BOARD_HEIGHT) * 100}%`,
-        width: `${(MIXER.crossfader.width / BOARD_WIDTH) * 100}%`,
-        height: `${(MIXER.crossfader.height / BOARD_HEIGHT) * 100}%`,
+        left: MIXER.crossfader.x,
+        top: MIXER.crossfader.y,
+        width: MIXER.crossfader.width,
+        height: MIXER.crossfader.height,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        boxSizing: "border-box",
       }}
     >
       <Crossfader
@@ -584,6 +491,7 @@ function CrossfaderSection({
         nextSeq={nextSeq}
         ownership={controlOwners["crossfader"]}
         memberColors={memberColors}
+        width={MIXER.crossfader.width - 40}
       />
     </div>
   );
@@ -591,7 +499,7 @@ function CrossfaderSection({
 
 /**
  * Main DJ Board component - professional controller layout.
- * Uses the background SVG as the source of truth with absolute positioning.
+ * FIXED SIZE with CSS scale transform for perfect pixel alignment.
  */
 export default function DJBoard({
   state,
@@ -601,31 +509,39 @@ export default function DJBoard({
 }: DJBoardProps) {
   const memberColors = buildMemberColorMap(state.members);
 
-  // Sync mixer state to audio graph for remote changes
+  // Calculate responsive scale (board takes 55% of viewport)
+  const scale = useBoardScale(BOARD_WIDTH, BOARD_HEIGHT, 0.55);
+
+  // Sync mixer state to audio graph
   useMixerSync(state.mixer);
 
   return (
     <div
       style={{
         width: "100%",
-        maxWidth: 1600,
-        margin: "0 auto",
-        padding: "24px",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0a0a0a",
+        padding: "20px",
         boxSizing: "border-box",
       }}
     >
-      {/* Main board container with aspect ratio */}
+      {/* Fixed-size board container - scales to fit viewport */}
       <div
         style={{
           position: "relative",
-          width: "100%",
-          paddingBottom: `${(BOARD_HEIGHT / BOARD_WIDTH) * 100}%`, // Maintain 1600:600 aspect ratio
-          borderRadius: 16,
-          overflow: "hidden",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255,255,255,0.05)",
+          width: BOARD_WIDTH,
+          height: BOARD_HEIGHT,
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
+          overflow: "visible",
+          boxShadow:
+            "0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255,255,255,0.05), inset 0 2px 20px rgba(0,0,0,0.4)",
         }}
       >
-        {/* Background SVG - source of truth for layout */}
+        {/* SVG Background - The Source of Truth */}
         <img
           src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
           alt="DJ Controller"
@@ -633,32 +549,29 @@ export default function DJBoard({
             position: "absolute",
             top: 0,
             left: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT,
             pointerEvents: "none",
+            userSelect: "none",
+            zIndex: 0,
           }}
         />
 
         {/* === DECK A (Left Side) === */}
-
-        {/* Deck A Waveform Display */}
         <DeckDisplay
           deck={state.deckA}
           deckId="A"
-          deckLabel="A"
           position={DECK_A.waveform}
           accentColor="#3b82f6"
+          queue={state.queue}
         />
 
-        {/* Deck A Jog Wheel */}
         <PositionedJogWheel
           deckId="A"
           position={DECK_A.jogWheel}
           accentColor="#3b82f6"
         />
 
-        {/* Deck A Controls */}
         <DeckControls
           deck={state.deckA}
           deckId="A"
@@ -672,8 +585,6 @@ export default function DJBoard({
         />
 
         {/* === MIXER (Center) === */}
-
-        {/* Mixer Knobs */}
         <MixerKnobs
           mixer={state.mixer}
           roomId={state.roomId}
@@ -684,7 +595,6 @@ export default function DJBoard({
           memberColors={memberColors}
         />
 
-        {/* Mixer Faders */}
         <MixerFaders
           mixer={state.mixer}
           roomId={state.roomId}
@@ -695,7 +605,6 @@ export default function DJBoard({
           memberColors={memberColors}
         />
 
-        {/* Crossfader */}
         <CrossfaderSection
           mixer={state.mixer}
           roomId={state.roomId}
@@ -707,24 +616,20 @@ export default function DJBoard({
         />
 
         {/* === DECK B (Right Side) === */}
-
-        {/* Deck B Waveform Display */}
         <DeckDisplay
           deck={state.deckB}
           deckId="B"
-          deckLabel="B"
           position={DECK_B.waveform}
           accentColor="#8b5cf6"
+          queue={state.queue}
         />
 
-        {/* Deck B Jog Wheel */}
         <PositionedJogWheel
           deckId="B"
           position={DECK_B.jogWheel}
           accentColor="#8b5cf6"
         />
 
-        {/* Deck B Controls */}
         <DeckControls
           deck={state.deckB}
           deckId="B"
@@ -737,6 +642,8 @@ export default function DJBoard({
           queue={state.queue}
         />
 
+        {/* NOTE: Decorative screws are rendered in the SVG background */}
+
         {/* Version badge */}
         <div
           style={{
@@ -746,6 +653,7 @@ export default function DJBoard({
             fontSize: "0.5rem",
             color: "#4b5563",
             fontFamily: "monospace",
+            zIndex: 1000,
           }}
         >
           v{state.version}

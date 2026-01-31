@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
 import { useDeck } from "@/audio/useDeck";
 import { useAudioEnabled } from "./AutoplayGate";
 import { initAudioEngine } from "@/audio/engine";
+import { DeckStatusDisplay } from "./displays";
 
 export type DeckTransportProps = {
   /** Deck ID (A or B) */
@@ -25,15 +26,8 @@ export type DeckTransportProps = {
   queue: Array<{ id: string; trackId: string; title: string }>;
 };
 
-/** Format time as M:SS */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 /**
- * Deck transport controls (play/pause/cue + playhead display).
+ * Deck transport controls (play/pause/cue + status display).
  */
 export default function DeckTransport({
   deckId,
@@ -149,8 +143,6 @@ export default function DeckTransport({
 
   const hasTrack = deck.isLoaded || serverState.loadedTrackId !== null;
   const isPlaying = deck.isPlaying;
-  const playhead = deck.playhead;
-  const duration = deck.duration || serverState.durationSec || 0;
 
   return (
     <div
@@ -162,66 +154,13 @@ export default function DeckTransport({
         width: "100%",
       }}
     >
-      {/* Playhead display */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          width: "100%",
-          padding: "0 4px",
-          fontFamily: "monospace",
-          fontSize: "0.875rem",
-        }}
-      >
-        <span style={{ color: "#fff" }}>{formatTime(playhead)}</span>
-        <span style={{ color: "#6b7280" }}>{formatTime(duration)}</span>
-      </div>
-
-      {/* Progress bar */}
-      <div
-        style={{
-          width: "100%",
-          height: 4,
-          background: "#374151",
-          borderRadius: 2,
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            width: `${duration > 0 ? (playhead / duration) * 100 : 0}%`,
-            height: "100%",
-            background: accentColor,
-            transition: "width 0.1s linear",
-          }}
-        />
-      </div>
-
-      {/* Status LEDs */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginTop: 4,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <img
-          src={isPlaying
-            ? "/assets/dj-controls/indicators/led-indicator-green.svg"
-            : "/assets/dj-controls/indicators/led-indicator-red.svg"}
-          alt={isPlaying ? "Playing" : "Stopped"}
-          style={{
-            width: 12,
-            height: 12,
-            opacity: hasTrack ? 1 : 0.3,
-          }}
-        />
-        <span style={{ fontSize: "0.5rem", color: "#6b7280", textTransform: "uppercase" }}>
-          {isPlaying ? "PLAY" : hasTrack ? "READY" : "EMPTY"}
-        </span>
-      </div>
+      {/* Deck Status LCD Display */}
+      <DeckStatusDisplay
+        bpm={deck.bpm}
+        playState={serverState.playState}
+        hasTrack={hasTrack}
+        accentColor={accentColor}
+      />
 
       {/* Transport controls */}
       <div

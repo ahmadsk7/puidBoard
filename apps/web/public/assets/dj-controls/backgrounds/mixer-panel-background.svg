@@ -159,23 +159,26 @@
     </g>
   </g>
 
+  <!-- Deck A recess circles - right side, avoiding screw at x=620 -->
   <g opacity="0.9">
+    <circle cx="530" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
     <circle cx="560" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
     <circle cx="590" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
-    <circle cx="620" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
   </g>
 
+  <!-- Mixer recess circles - avoiding screws at x=684 and x=916 -->
   <g opacity="0.9">
-    <circle cx="684" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
     <circle cx="714" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
     <circle cx="744" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
-    <circle cx="914" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
+    <circle cx="856" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
+    <circle cx="886" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
   </g>
 
+  <!-- Deck B recess circles - right side, avoiding screw at x=1508 -->
   <g opacity="0.9">
-    <circle cx="980" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
-    <circle cx="1010" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
-    <circle cx="1040" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
+    <circle cx="1418" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
+    <circle cx="1448" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
+    <circle cx="1478" cy="110" r="10" fill="url(#gRecess)" stroke="#3a3a3a" stroke-width="1"/>
   </g>
 
   <g opacity="0.85">

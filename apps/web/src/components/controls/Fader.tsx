@@ -190,23 +190,26 @@ export default function Fader({
           position: "relative",
           width: isVertical ? 24 : trackSize,
           height: isVertical ? trackSize : 24,
-          background: "linear-gradient(to top, #1f2937, #374151)",
+          background: "linear-gradient(to bottom, #1a1a1a, #0f0f10)",
           borderRadius: 4,
+          border: "1px solid #242424",
           cursor: isOwnedByOther ? "not-allowed" : "pointer",
           touchAction: "none",
+          boxShadow: "inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03)",
           ...glowStyle,
         }}
       >
-        {/* Track fill */}
+        {/* Track fill indicator - thin line showing active range */}
         <div
           style={{
             position: "absolute",
             bottom: 0,
-            left: 0,
-            width: isVertical ? "100%" : `${localValue * 100}%`,
-            height: isVertical ? `${localValue * 100}%` : "100%",
-            background: "linear-gradient(to top, #3b82f6, #60a5fa)",
-            borderRadius: 4,
+            left: isVertical ? "50%" : 0,
+            transform: isVertical ? "translateX(-50%)" : "none",
+            width: isVertical ? 4 : `${localValue * 100}%`,
+            height: isVertical ? `${localValue * 100}%` : 4,
+            background: "#3b82f6",
+            borderRadius: 2,
             pointerEvents: "none",
           }}
         />
@@ -219,8 +222,8 @@ export default function Fader({
             left: isVertical ? "50%" : thumbPosition,
             top: isVertical ? thumbPosition : "50%",
             transform: isVertical ? "translate(-50%, -50%)" : "translate(-50%, -50%) rotate(90deg)",
-            width: isVertical ? 40 : 60,
-            height: isVertical ? 60 : 40,
+            width: isVertical ? 28 : 42,
+            height: isVertical ? 42 : 28,
             pointerEvents: "none",
             filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
           }}

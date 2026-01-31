@@ -10,9 +10,14 @@
 
 import { getAudioContext } from "./engine";
 import { getDeckInput, initMixerGraph } from "./mixerGraph";
+import { generateWaveform, WaveformData } from "./analysis/waveformGenerator";
+import { detectBPM } from "./analysis/bpmDetector";
 
 /** Deck play state */
 export type DeckPlayState = "stopped" | "playing" | "paused" | "cued";
+
+/** Analysis status */
+export type AnalysisStatus = "idle" | "analyzing" | "complete" | "error";
 
 /** Deck state */
 export interface DeckState {
@@ -34,6 +39,12 @@ export interface DeckState {
   gainNode: GainNode | null;
   /** Current buffer source (recreated on each play) */
   source: AudioBufferSourceNode | null;
+  /** Audio analysis data */
+  analysis: {
+    waveform: WaveformData | null;
+    bpm: number | null;
+    status: AnalysisStatus;
+  };
 }
 
 /** Track loading cache (avoid re-fetching) */
@@ -63,6 +74,11 @@ export class Deck {
       durationSec: 0,
       gainNode: null,
       source: null,
+      analysis: {
+        waveform: null,
+        bpm: null,
+        status: "idle",
+      },
     };
   }
 
@@ -162,8 +178,41 @@ export class Deck {
     this.state.playheadSec = 0;
     this.state.cuePointSec = 0;
     this.state.playState = "stopped";
-    
+
+    // Start audio analysis
+    this.analyzeAudio(buffer);
+
     this.notify();
+  }
+
+  /**
+   * Analyze audio buffer for waveform and BPM.
+   */
+  private async analyzeAudio(buffer: AudioBuffer): Promise<void> {
+    // Set analyzing status
+    this.state.analysis.status = "analyzing";
+    this.state.analysis.waveform = null;
+    this.state.analysis.bpm = null;
+    this.notify();
+
+    try {
+      // Generate waveform (synchronous, fast)
+      const waveform = generateWaveform(buffer, 480);
+      this.state.analysis.waveform = waveform;
+      this.notify();
+
+      // Detect BPM (async, slower)
+      const bpm = await detectBPM(buffer);
+      this.state.analysis.bpm = bpm;
+      this.state.analysis.status = "complete";
+      this.notify();
+
+      console.log(`[deck-${this.state.deckId}] Analysis complete: BPM=${bpm ?? "N/A"}`);
+    } catch (error) {
+      console.error(`[deck-${this.state.deckId}] Analysis failed:`, error);
+      this.state.analysis.status = "error";
+      this.notify();
+    }
   }
 
   /**
