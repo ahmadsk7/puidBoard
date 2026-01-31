@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import type { QueueItem, Member, ClientMutationEvent } from "@puid-board/shared";
 import QueueItemRow from "./QueueItemRow";
+import TrackUploader, { UploadResult } from "./TrackUploader";
 
 export type QueuePanelProps = {
   queue: QueueItem[];
@@ -24,20 +25,23 @@ export default function QueuePanel({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
-  /** Add a new track to the queue */
-  const handleAddTrack = useCallback(() => {
-    sendEvent({
-      type: "QUEUE_ADD",
-      roomId,
-      clientId,
-      clientSeq: nextSeq(),
-      payload: {
-        trackId: `track-${Date.now()}`,
-        title: `Track ${queue.length + 1}`,
-        durationSec: Math.floor(120 + Math.random() * 180), // 2-5 min random
-      },
-    });
-  }, [sendEvent, roomId, clientId, nextSeq, queue.length]);
+  /** Add a track to the queue after upload completes */
+  const handleUploadComplete = useCallback(
+    (result: UploadResult) => {
+      sendEvent({
+        type: "QUEUE_ADD",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: {
+          trackId: result.trackId,
+          title: result.title,
+          durationSec: result.durationSec,
+        },
+      });
+    },
+    [sendEvent, roomId, clientId, nextSeq]
+  );
 
   /** Remove a track from the queue */
   const handleRemove = useCallback(
@@ -164,22 +168,7 @@ export default function QueuePanel({
         <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>
           Queue ({queue.length})
         </h2>
-        <button
-          type="button"
-          onClick={handleAddTrack}
-          style={{
-            padding: "0.375rem 0.75rem",
-            fontSize: "0.75rem",
-            background: "#22c55e",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: "pointer",
-            fontWeight: 500,
-          }}
-        >
-          + Add
-        </button>
+        <TrackUploader onUploadComplete={handleUploadComplete} />
       </div>
 
       {/* Queue list */}

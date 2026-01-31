@@ -227,6 +227,20 @@ export class RealtimeClient {
       this.notifyStateListeners();
     });
 
+    // Handle cursor updates from other members
+    this.socket.on("CURSOR_UPDATE", (event: { roomId: string; clientId: string; cursor: { x: number; y: number; lastUpdated: number } }) => {
+      if (!this.state) return;
+      this.state = {
+        ...this.state,
+        members: this.state.members.map((m) =>
+          m.clientId === event.clientId
+            ? { ...m, cursor: event.cursor }
+            : m
+        ),
+      };
+      this.notifyStateListeners();
+    });
+
     this.socket.on("TIME_PONG", (event: TimePongEvent) => {
       const now = Date.now();
       const rtt = now - event.t0;
