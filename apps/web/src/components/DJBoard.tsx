@@ -12,6 +12,7 @@ import { Fader, Knob, EQControl, Crossfader } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
 import ClippingIndicator from "./ClippingIndicator";
+import FXStrip from "./FXStrip";
 import { useMixerSync } from "@/audio/useMixer";
 
 export type DJBoardProps = {
@@ -266,6 +267,17 @@ function MixerPanel({
         sendEvent={sendEvent}
         nextSeq={nextSeq}
         ownership={controlOwners["crossfader"]}
+        memberColors={memberColors}
+      />
+
+      {/* FX Strip */}
+      <FXStrip
+        fxState={mixer.fx}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        controlOwners={controlOwners}
         memberColors={memberColors}
       />
     </div>

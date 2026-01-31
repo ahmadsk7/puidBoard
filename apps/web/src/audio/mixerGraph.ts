@@ -18,6 +18,7 @@ import {
   bipolarToGain,
   clamp,
 } from "./params";
+import { initFXManager, applyFXState } from "./fx/manager";
 
 /** EQ frequency bands */
 const EQ_FREQUENCIES = {
@@ -185,12 +186,23 @@ export function initMixerGraph(): boolean {
   mixerGraph.crossfaderA.connect(mixerGraph.preMaster);
   mixerGraph.crossfaderB.connect(mixerGraph.preMaster);
 
-  // Connect pre-master → analyser → master gain
-  mixerGraph.preMaster.connect(mixerGraph.analyser);
+  // Initialize FX manager and insert into signal path
+  const fxNodes = initFXManager();
+  
+  if (fxNodes) {
+    const [fxInput, fxOutput] = fxNodes;
+    // Connect: pre-master → FX input → FX output → analyser → master
+    mixerGraph.preMaster.connect(fxInput);
+    fxOutput.connect(mixerGraph.analyser);
+  } else {
+    // No FX available, bypass directly
+    mixerGraph.preMaster.connect(mixerGraph.analyser);
+  }
+  
   mixerGraph.analyser.connect(masterGain);
 
   mixerGraph.initialized = true;
-  console.log("[mixer-graph] Initialized successfully");
+  console.log("[mixer-graph] Initialized successfully (with FX)");
 
   // Start clipping detection
   startClippingDetection();
@@ -286,11 +298,14 @@ export function applyMixerState(mixer: MixerState): void {
 
   // Update master volume
   updateMasterVolume(mixer.masterVolume);
+
+  // Update FX
+  applyFXState(mixer.fx);
 }
 
 /**
  * Update a single mixer parameter.
- * controlId format: "channelA.gain", "channelB.eq.low", "crossfader", "masterVolume"
+ * controlId format: "channelA.gain", "channelB.eq.low", "crossfader", "masterVolume", "fx.wetDry", "fx.param"
  */
 export function updateMixerParam(controlId: string, value: number): void {
   if (!mixerGraph.initialized) {
@@ -306,6 +321,17 @@ export function updateMixerParam(controlId: string, value: number): void {
 
   if (controlId === "masterVolume") {
     updateMasterVolume(value);
+    return;
+  }
+
+  // Handle FX controls
+  if (parts[0] === "fx") {
+    const { setFXWetDry, setFXParam } = require("./fx/manager");
+    if (parts[1] === "wetDry") {
+      setFXWetDry(value);
+    } else if (parts[1] === "param") {
+      setFXParam(value);
+    }
     return;
   }
 
