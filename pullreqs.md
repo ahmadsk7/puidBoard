@@ -86,7 +86,7 @@ They should only block each other on:
 * `.github/workflows/ci.yml`
 * `.env.example` (root + app-specific)
 
-## PR 0.2 — Canonical RoomState + Event schemas (Dev B)
+## PR 0.2 ✅ — Canonical RoomState + Event schemas (Dev B)
 
 **Objective:** lock the contract so both devs can build confidently.
 **Scope**
