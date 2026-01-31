@@ -21,6 +21,7 @@ import {
   clearMixerThrottle,
   releaseAllClientControls,
 } from "../handlers/controls.js";
+import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -64,7 +65,7 @@ export function registerHandlers(io: Server, socket: Socket): void {
 /**
  * Handle CREATE_ROOM event.
  */
-function handleCreateRoom(_io: Server, socket: Socket, data: unknown): void {
+function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
   const parsed = CreateRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[CREATE_ROOM] invalid payload socket=${socket.id}`);
@@ -106,6 +107,9 @@ function handleCreateRoom(_io: Server, socket: Socket, data: unknown): void {
   // Also send the client their ID
   socket.emit("CLIENT_ID", { clientId });
 
+  // Start sync tick timer for this room
+  startSyncTick(io, room.roomId);
+
   console.log(
     `[CREATE_ROOM] created roomId=${room.roomId} code=${room.roomCode} host=${clientId}`
   );
@@ -114,7 +118,7 @@ function handleCreateRoom(_io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle JOIN_ROOM event.
  */
-function handleJoinRoom(_io: Server, socket: Socket, data: unknown): void {
+function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
   const parsed = JoinRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[JOIN_ROOM] invalid payload socket=${socket.id}`);
@@ -184,6 +188,9 @@ function handleJoinRoom(_io: Server, socket: Socket, data: unknown): void {
     socket.to(room.roomId).emit("MEMBER_JOINED", memberJoined);
   }
 
+  // Ensure sync tick is running for this room (idempotent)
+  startSyncTick(io, room.roomId);
+
   console.log(
     `[JOIN_ROOM] joined roomId=${room.roomId} clientId=${clientId} name=${name}`
   );
@@ -248,6 +255,9 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
     };
 
     io.to(roomId).emit("MEMBER_LEFT", memberLeft);
+  } else {
+    // Room was deleted (last member left), stop sync tick
+    stopSyncTick(roomId);
   }
 
   // Confirm to the leaving client
@@ -332,6 +342,9 @@ function handleDisconnect(io: Server, socket: Socket, reason: string): void {
     };
 
     io.to(roomId).emit("MEMBER_LEFT", memberLeft);
+  } else {
+    // Room was deleted (last member disconnected), stop sync tick
+    stopSyncTick(roomId);
   }
 
   console.log(
