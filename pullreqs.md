@@ -65,7 +65,7 @@ They should only block each other on:
 
 # Phase 0 — Foundation (unblocks parallel work)
 
-## PR 0.1 — Monorepo scaffold + CI baseline (Dev B)
+## PR 0.1 ✅ — Monorepo scaffold + CI baseline (Dev B)
 
 **Objective:** runnable skeleton with strict types, lint, test, and shared package.
 **Scope**
