@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
-import CursorsLayer, { buildMemberColorMap, getGrabGlowStyle } from "@/components/CursorsLayer";
+import CursorsLayer from "@/components/CursorsLayer";
 import QueuePanel from "@/components/QueuePanel";
+import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 import { THROTTLE } from "@puid-board/shared";
@@ -54,24 +55,6 @@ function RoomContent({
     return () => observer.disconnect();
   }, []);
 
-  const memberColors = buildMemberColorMap(state.members);
-  const crossfaderGlow = getGrabGlowStyle(
-    "crossfader",
-    state.controlOwners,
-    memberColors,
-    clientId
-  );
-
-  const handleCrossfaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    sendEvent({
-      type: "MIXER_SET",
-      roomId: state.roomId,
-      clientId,
-      clientSeq: nextSeq(),
-      payload: { controlId: "crossfader", value: Number(e.target.value) },
-    });
-  };
-
   // Throttle cursor moves
   const lastCursorMove = useRef(0);
   const handleCursorMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -108,32 +91,16 @@ function RoomContent({
             overflow: "auto",
           }}
         >
-          <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1rem" }}>
-            Version: {state.version} · Members: {state.members.length}
-          </p>
+          {/* DJ Board */}
+          <DJBoard
+            state={state}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
+          />
 
-          <section style={{ marginBottom: "1.5rem" }}>
-            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Mixer</h2>
-            <label style={{ display: "block", marginBottom: "0.25rem", fontSize: "0.875rem" }}>
-              Crossfader: {(state.mixer.crossfader * 100).toFixed(0)}%
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.mixer.crossfader}
-              onChange={handleCrossfaderChange}
-              style={{
-                width: "100%",
-                maxWidth: 300,
-                borderRadius: 4,
-                ...(crossfaderGlow || {}),
-              }}
-            />
-          </section>
-
-          <section>
+          {/* Cursors section */}
+          <section style={{ marginTop: "1rem" }}>
             <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Cursors</h2>
             <div
               ref={cursorAreaRef}
