@@ -15,6 +15,8 @@ export type UseRealtimeRoomOptions = {
   name: string;
   /** Whether to create a new room instead of joining */
   create?: boolean;
+  /** Auto-create room if join fails (room not found) */
+  autoCreate?: boolean;
 };
 
 export type UseRealtimeRoomResult = {
@@ -34,7 +36,7 @@ export type UseRealtimeRoomResult = {
 export function useRealtimeRoom(
   options: UseRealtimeRoomOptions
 ): UseRealtimeRoomResult {
-  const { roomCode, name, create = false } = options;
+  const { roomCode, name, create = false, autoCreate = false } = options;
 
   const [state, setState] = useState<RoomState | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export function useRealtimeRoom(
   );
   const [client] = useState<RealtimeClient>(() => getRealtimeClient());
   const [hasJoined, setHasJoined] = useState(false);
+  const [hasTriedCreate, setHasTriedCreate] = useState(false);
 
   // Connect and join/create room on mount
   useEffect(() => {
@@ -72,6 +75,13 @@ export function useRealtimeRoom(
     const unsubLatency = client.onLatencyChange(setLatencyMs);
 
     const unsubError = client.onError((err) => {
+      // If room not found and autoCreate is enabled, create it
+      if (err.type === "ROOM_NOT_FOUND" && autoCreate && !hasTriedCreate) {
+        setHasTriedCreate(true);
+        client.createRoom(name);
+        return; // Don't show error, we're auto-creating
+      }
+      
       setError(err);
       // Clear error after 5 seconds
       setTimeout(() => setError(null), 5000);
@@ -102,7 +112,7 @@ export function useRealtimeRoom(
       unsubLatency();
       unsubError();
     };
-  }, [client, roomCode, name, create, hasJoined]);
+  }, [client, roomCode, name, create, autoCreate, hasJoined, hasTriedCreate]);
 
   const sendEvent = useCallback(
     (event: ClientMutationEvent) => {

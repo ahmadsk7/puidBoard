@@ -185,6 +185,7 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   const { state, clientId, latencyMs, status, error, sendEvent } = useRealtimeRoom({
     roomCode,
     name,
+    autoCreate: true, // Auto-create room if it doesn't exist
   });
 
   const seqRef = useRef(0);

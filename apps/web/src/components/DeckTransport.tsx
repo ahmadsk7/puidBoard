@@ -55,12 +55,21 @@ export default function DeckTransport({
     const localTrackId = deck.state.trackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
-      // Find the track URL - for now use a placeholder
-      // In production, this would fetch from the track API
-      const trackUrl = `/api/tracks/${serverTrackId}/stream`;
-      deck.loadTrack(serverTrackId, trackUrl).catch((err) => {
-        console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
-      });
+      // Fetch the track URL from the realtime server API
+      const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
+      
+      fetch(`${realtimeUrl}/api/tracks/${serverTrackId}/url`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Failed to get track URL: ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          // Load the track with the URL from the server
+          return deck.loadTrack(serverTrackId, data.url);
+        })
+        .catch((err) => {
+          console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
+        });
     }
   }, [audioEnabled, serverState.loadedTrackId, deck, deckId]);
 
