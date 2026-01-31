@@ -14,6 +14,7 @@ import {
   TimePongEvent,
 } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
+import { registerCursorHandlers, clearCursorThrottle } from "../handlers/cursor.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -43,6 +44,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
   socket.on("disconnect", (reason: string) => {
     handleDisconnect(io, socket, reason);
   });
+
+  // Register cursor handlers
+  registerCursorHandlers(io, socket);
 }
 
 /**
@@ -187,6 +191,9 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
     return;
   }
 
+  // Clean up cursor throttle tracking
+  clearCursorThrottle(socket.id);
+
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {
     return; // Client wasn't in a room
@@ -248,6 +255,9 @@ function handleTimePing(socket: Socket, data: unknown): void {
  */
 function handleDisconnect(io: Server, socket: Socket, reason: string): void {
   console.log(`[disconnect] socket=${socket.id} reason=${reason}`);
+
+  // Clean up cursor throttle tracking
+  clearCursorThrottle(socket.id);
 
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {
