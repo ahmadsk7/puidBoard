@@ -3,6 +3,6 @@ import { VERSION } from "@puid-board/shared";
 
 describe("realtime server", () => {
   it("imports shared package", () => {
-    expect(VERSION).toBe("0.0.1");
+    expect(VERSION).toBe("0.1.0");
   });
 });
