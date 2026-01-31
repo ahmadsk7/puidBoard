@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- jog-wheel-disc.svg -->
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Jog wheel disc">
+  <defs>
+    <radialGradient id="gOuter" cx="50%" cy="42%" r="70%">
+      <stop offset="0%" stop-color="#2a2a2a"/>
+      <stop offset="55%" stop-color="#151517"/>
+      <stop offset="100%" stop-color="#0b0b0c"/>
+    </radialGradient>
+
+    <radialGradient id="gInner" cx="50%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#1f1f20"/>
+      <stop offset="70%" stop-color="#101011"/>
+      <stop offset="100%" stop-color="#070708"/>
+    </radialGradient>
+
+    <linearGradient id="gRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5a5a5a" stop-opacity="0.35"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.55"/>
+    </linearGradient>
+
+    <filter id="fShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+
+    <filter id="fGlowCyan" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#00ff9f" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#00ff9f" flood-opacity="0.10"/>
+    </filter>
+
+    <pattern id="pGroove" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="5" cy="5" r="4.5" fill="none" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+    </pattern>
+
+    <path id="tick" d="M200 32 L200 46" stroke="#cfcfcf" stroke-opacity="0.28" stroke-width="2" stroke-linecap="round"/>
+
+    <style>
+      .lbl {{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-weight: 700; letter-spacing: 0.14em; fill: #9ca3af; font-size: 10px; }}
+    </style>
+  </defs>
+
+  <g filter="url(#fShadow)">
+    <circle cx="200" cy="200" r="184" fill="url(#gOuter)"/>
+    <circle cx="200" cy="200" r="184" fill="url(#gRim)" opacity="0.7"/>
+    <circle cx="200" cy="200" r="176" fill="none" stroke="#3a3a3a" stroke-width="2"/>
+
+    <circle cx="200" cy="200" r="166" fill="url(#gInner)"/>
+    <circle cx="200" cy="200" r="162" fill="url(#pGroove)" opacity="0.85"/>
+
+    <path d="M92 102a150 150 0 0 1 220 0" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="10" stroke-linecap="round"/>
+
+    <g>
+      <use href="#tick" transform="rotate(0 200 200)"/>
+      <use href="#tick" transform="rotate(15 200 200)"/>
+      <use href="#tick" transform="rotate(30 200 200)"/>
+      <use href="#tick" transform="rotate(45 200 200)"/>
+      <use href="#tick" transform="rotate(60 200 200)"/>
+      <use href="#tick" transform="rotate(75 200 200)"/>
+      <use href="#tick" transform="rotate(90 200 200)"/>
+      <use href="#tick" transform="rotate(105 200 200)"/>
+      <use href="#tick" transform="rotate(120 200 200)"/>
+      <use href="#tick" transform="rotate(135 200 200)"/>
+      <use href="#tick" transform="rotate(150 200 200)"/>
+      <use href="#tick" transform="rotate(165 200 200)"/>
+      <use href="#tick" transform="rotate(180 200 200)"/>
+      <use href="#tick" transform="rotate(195 200 200)"/>
+      <use href="#tick" transform="rotate(210 200 200)"/>
+      <use href="#tick" transform="rotate(225 200 200)"/>
+      <use href="#tick" transform="rotate(240 200 200)"/>
+      <use href="#tick" transform="rotate(255 200 200)"/>
+      <use href="#tick" transform="rotate(270 200 200)"/>
+      <use href="#tick" transform="rotate(285 200 200)"/>
+      <use href="#tick" transform="rotate(300 200 200)"/>
+      <use href="#tick" transform="rotate(315 200 200)"/>
+      <use href="#tick" transform="rotate(330 200 200)"/>
+      <use href="#tick" transform="rotate(345 200 200)"/>
+    </g>
+
+    <g opacity="0.55">
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(0 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(8 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(16 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(24 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(32 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(40 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(48 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(56 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(64 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(72 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(80 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(88 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(96 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(104 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(112 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(120 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(128 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(136 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(144 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(152 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(160 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(168 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(176 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(184 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(192 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(200 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(208 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(216 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(224 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(232 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(240 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(248 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(256 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(264 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(272 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(280 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(288 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(296 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(304 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(312 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(320 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(328 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(336 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(344 200 200)"/>
+      <path d="M200 34 L200 42" stroke="#cfcfcf" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round" transform="rotate(352 200 200)"/>
+    </g>
+
+    <circle cx="200" cy="200" r="70" fill="#0b0b0c" opacity="0.6" stroke="#3a3a3a" stroke-width="2"/>
+    <circle cx="200" cy="200" r="62" fill="none" stroke="#5a5a5a" stroke-width="1" opacity="0.35"/>
+
+    <g opacity="0.18" stroke="#9ca3af" stroke-width="1" fill="none">
+      <path d="M200 148v20M200 232v20M148 200h20M232 200h20"/>
+      <path d="M170 170l14 14M216 216l14 14M230 170l-14 14M184 216l-14 14"/>
+      <circle cx="200" cy="200" r="28"/>
+    </g>
+
+    <g filter="url(#fGlowCyan)">
+      <path d="M200 28 L200 52" stroke="#00ff9f" stroke-width="3" stroke-linecap="round" stroke-opacity="0.55"/>
+    </g>
+
+    <text x="200" y="214" text-anchor="middle" class="lbl" opacity="0.8">JOG</text>
+  </g>
+</svg>
