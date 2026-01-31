@@ -171,7 +171,7 @@ They should only block each other on:
 * `/apps/realtime/src/handlers/cursor.ts`
 * shared constants for throttle rate
 
-## PR 1.3 — Queue is source of truth (add/remove/reorder/edit) (Dev B)
+## PR 1.3 ✅ — Queue is source of truth (add/remove/reorder/edit) (Dev B)
 
 **Objective:** queue mutations are serialized, replayable, optimistic-friendly.
 **Scope**
