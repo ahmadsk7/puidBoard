@@ -6,9 +6,11 @@ import type {
   DeckState,
   ChannelState,
   ControlOwnership,
+  QueueItem,
 } from "@puid-board/shared";
 import { Fader, Knob, EQControl, Crossfader } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
+import DeckTransport from "./DeckTransport";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -21,6 +23,7 @@ export type DJBoardProps = {
 function DeckPanel({
   deck,
   deckLabel,
+  deckId,
   channel,
   channelPrefix,
   roomId,
@@ -30,9 +33,11 @@ function DeckPanel({
   controlOwners,
   memberColors,
   accentColor,
+  queue,
 }: {
   deck: DeckState;
   deckLabel: string;
+  deckId: "A" | "B";
   channel: ChannelState;
   channelPrefix: string;
   roomId: string;
@@ -42,6 +47,7 @@ function DeckPanel({
   controlOwners: Record<string, ControlOwnership>;
   memberColors: Record<string, string>;
   accentColor: string;
+  queue: QueueItem[];
 }) {
   const hasTrack = deck.loadedTrackId !== null;
 
@@ -125,6 +131,18 @@ function DeckPanel({
       >
         JOG
       </div>
+
+      {/* Transport controls */}
+      <DeckTransport
+        deckId={deckId}
+        serverState={deck}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        accentColor={accentColor}
+        queue={queue}
+      />
 
       {/* Channel controls */}
       <div
@@ -297,6 +315,7 @@ export default function DJBoard({
         <DeckPanel
           deck={state.deckA}
           deckLabel="A"
+          deckId="A"
           channel={state.mixer.channelA}
           channelPrefix="channelA"
           roomId={state.roomId}
@@ -306,6 +325,7 @@ export default function DJBoard({
           controlOwners={state.controlOwners}
           memberColors={memberColors}
           accentColor="#3b82f6"
+          queue={state.queue}
         />
 
         {/* Mixer */}
@@ -323,6 +343,7 @@ export default function DJBoard({
         <DeckPanel
           deck={state.deckB}
           deckLabel="B"
+          deckId="B"
           channel={state.mixer.channelB}
           channelPrefix="channelB"
           roomId={state.roomId}
@@ -332,6 +353,7 @@ export default function DJBoard({
           controlOwners={state.controlOwners}
           memberColors={memberColors}
           accentColor="#8b5cf6"
+          queue={state.queue}
         />
       </div>
     </div>
