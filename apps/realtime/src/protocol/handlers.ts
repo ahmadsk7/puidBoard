@@ -7,11 +7,9 @@ import {
   CreateRoomEventSchema,
   JoinRoomEventSchema,
   LeaveRoomEventSchema,
-  TimePingEventSchema,
   RoomSnapshotEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
-  TimePongEvent,
 } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 import { registerCursorHandlers, clearCursorThrottle } from "../handlers/cursor.js";
@@ -21,6 +19,8 @@ import {
   clearMixerThrottle,
   releaseAllClientControls,
 } from "../handlers/controls.js";
+import { registerTimeHandlers } from "../handlers/time.js";
+import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -41,15 +41,13 @@ export function registerHandlers(io: Server, socket: Socket): void {
     handleLeaveRoom(io, socket, data);
   });
 
-  // Handle time ping for latency measurement
-  socket.on("TIME_PING", (data: unknown) => {
-    handleTimePing(socket, data);
-  });
-
   // Handle disconnect
   socket.on("disconnect", (reason: string) => {
     handleDisconnect(io, socket, reason);
   });
+
+  // Register time sync handlers
+  registerTimeHandlers(socket);
 
   // Register cursor handlers
   registerCursorHandlers(io, socket);
@@ -92,6 +90,9 @@ function handleCreateRoom(_io: Server, socket: Socket, data: unknown): void {
 
   // Join the socket.io room for broadcasts
   socket.join(room.roomId);
+
+  // Start SYNC_TICK broadcasts for this room
+  startSyncTick(_io, room.roomId);
 
   // Send snapshot to the creator
   const snapshot: RoomSnapshotEvent = {
@@ -238,6 +239,11 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
     }
   }
 
+  // If room is now empty, stop SYNC_TICK
+  if (!room || room.members.length === 0) {
+    stopSyncTick(roomId);
+  }
+
   // Notify remaining members
   if (room && room.members.length > 0) {
     const memberLeft: MemberLeftEvent = {
@@ -254,34 +260,6 @@ function handleLeaveRoom(io: Server, socket: Socket, data: unknown): void {
   socket.emit("ROOM_LEFT", { roomId });
 
   console.log(`[LEAVE_ROOM] left roomId=${roomId} clientId=${clientId}`);
-}
-
-/**
- * Handle TIME_PING event for latency measurement.
- */
-function handleTimePing(socket: Socket, data: unknown): void {
-  const parsed = TimePingEventSchema.safeParse(data);
-  if (!parsed.success) {
-    return; // Silently ignore invalid pings
-  }
-
-  const { t0 } = parsed.data;
-  const serverTs = Date.now();
-
-  // Calculate approximate latency (one-way)
-  const latencyMs = Math.max(0, Math.round((serverTs - t0) / 2));
-
-  // Update stored latency
-  roomStore.updateLatency(socket.id, latencyMs);
-
-  // Send pong
-  const pong: TimePongEvent = {
-    type: "TIME_PONG",
-    t0,
-    serverTs,
-  };
-
-  socket.emit("TIME_PONG", pong);
 }
 
 /**
@@ -320,6 +298,11 @@ function handleDisconnect(io: Server, socket: Socket, reason: string): void {
         ownership: null,
       });
     }
+  }
+
+  // If room is now empty, stop SYNC_TICK
+  if (!room || room.members.length === 0) {
+    stopSyncTick(roomId);
   }
 
   // Notify remaining members
