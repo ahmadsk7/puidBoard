@@ -56,9 +56,11 @@ Based on `pullreqs.md`, verify that all blocking PRs have been merged. The depen
 - PR 6.2 - Depends on PR 6.1
 
 **To verify dependencies:**
-1. Run `git branch -r` and `gh pr list --state merged` to check what's been merged
-2. Look for branches/PRs matching the dependency PR numbers
-3. If dependencies are NOT met, STOP and report which PRs need to land first
+1. **Check pullreqs.md first** - look for the ✅ marker on dependency PR headings (e.g., `## PR 0.1 ✅`)
+2. As backup, run `git branch -r` and `gh pr list --state merged` to check what's been merged
+3. If dependencies are NOT met (no ✅ marker and not merged), STOP and report which PRs need to land first
+
+The ✅ marker in `pullreqs.md` is the **source of truth** for PR completion status.
 
 ## Step 3: Prepare the Branch
 
@@ -132,9 +134,29 @@ After implementation is complete:
    <for frontend PRs>
    ```
 
+## Step 6: Mark PR as Complete in pullreqs.md
+
+After the PR is created and pushed, update `pullreqs.md` to mark this PR as done:
+
+1. **Find the PR heading** in `pullreqs.md` (e.g., `## PR 0.1 — Monorepo scaffold`)
+2. **Add a checkmark** to indicate completion by changing the heading to include `✅`:
+   - Before: `## PR 0.1 — Monorepo scaffold + CI baseline (Dev B)`
+   - After: `## PR 0.1 ✅ — Monorepo scaffold + CI baseline (Dev B)`
+3. **Commit and push this change** to main so the other dev can see what's done:
+   ```bash
+   git checkout main
+   git pull origin main
+   git add pullreqs.md
+   git commit -m "Mark PR $ARGUMENTS as complete in pullreqs.md"
+   git push origin main
+   ```
+
+This serves as a shared record of progress that both Dev A and Dev B can reference.
+
 ## Important Notes
 
 - If this is PR 0.1 (monorepo scaffold), you'll be creating the initial project structure
 - For PRs that touch `/packages/shared`, ensure no circular dependencies
 - Always validate against the acceptance criteria before marking complete
 - If you encounter blockers, document them clearly
+- **Always mark completed PRs in pullreqs.md** so the other developer knows what's done
