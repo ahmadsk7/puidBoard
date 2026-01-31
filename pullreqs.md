@@ -397,7 +397,7 @@ They should only block each other on:
 
 # Phase 4 — Sync (the make-or-break)
 
-## PR 4.1 — Server clock sync + SYNC_TICK protocol (Dev B)
+## PR 4.1 ✅ — Server clock sync + SYNC_TICK protocol (Dev B)
 
 **Objective:** every client can compute a shared server-time basis.
 **Scope**
