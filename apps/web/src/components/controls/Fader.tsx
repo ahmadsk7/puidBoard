@@ -210,19 +210,19 @@ export default function Fader({
             pointerEvents: "none",
           }}
         />
-        {/* Thumb */}
-        <div
+        {/* Thumb with SVG */}
+        <img
+          src="/assets/dj-controls/faders/fader-handle.svg"
+          alt=""
           style={{
             position: "absolute",
             left: isVertical ? "50%" : thumbPosition,
             top: isVertical ? thumbPosition : "50%",
-            transform: "translate(-50%, -50%)",
-            width: isVertical ? 28 : 8,
-            height: isVertical ? 8 : 28,
-            background: "#fff",
-            borderRadius: 2,
-            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+            transform: isVertical ? "translate(-50%, -50%)" : "translate(-50%, -50%) rotate(90deg)",
+            width: isVertical ? 40 : 60,
+            height: isVertical ? 60 : 40,
             pointerEvents: "none",
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
           }}
         />
       </div>

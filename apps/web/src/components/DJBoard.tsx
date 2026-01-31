@@ -116,23 +116,36 @@ function DeckPanel({
         </div>
       </div>
 
-      {/* Jog wheel placeholder */}
+      {/* Jog wheel with SVG */}
       <div
         style={{
+          position: "relative",
           width: 120,
           height: 120,
-          borderRadius: "50%",
-          background: `linear-gradient(145deg, #374151, #1f2937)`,
-          border: `3px solid ${accentColor}40`,
           marginBottom: 12,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#6b7280",
-          fontSize: "0.75rem",
         }}
       >
-        JOG
+        <img
+          src="/assets/dj-controls/wheels/jog-wheel-disc.svg"
+          alt={`Deck ${deckLabel} jog wheel`}
+          style={{
+            width: "100%",
+            height: "100%",
+            filter: `drop-shadow(0 0 8px ${accentColor}40)`,
+          }}
+        />
+        <img
+          src="/assets/dj-controls/wheels/jog-wheel-center-cap.svg"
+          alt=""
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "30%",
+            height: "30%",
+          }}
+        />
       </div>
 
       {/* Transport controls */}
@@ -301,11 +314,12 @@ export default function DJBoard({
   return (
     <div
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         gap: 16,
         padding: "1rem",
-        background: "#111827",
+        background: "#0a0a0a",
         borderRadius: 12,
         fontFamily: "system-ui, sans-serif",
       }}

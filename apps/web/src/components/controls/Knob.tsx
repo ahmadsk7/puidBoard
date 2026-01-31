@@ -194,7 +194,7 @@ export default function Knob({
           ...glowStyle,
         }}
       >
-        {/* Inner circle */}
+        {/* Rotating knob base */}
         <div
           style={{
             position: "absolute",
@@ -204,24 +204,24 @@ export default function Knob({
             height: "80%",
             borderRadius: "50%",
             background: "linear-gradient(145deg, #4b5563, #374151)",
-            transform: `rotate(${rotation}deg)`,
             pointerEvents: "none",
           }}
-        >
-          {/* Indicator line */}
-          <div
-            style={{
-              position: "absolute",
-              top: "8%",
-              left: "50%",
-              width: 3,
-              height: "25%",
-              background: "#fff",
-              borderRadius: 2,
-              transform: "translateX(-50%)",
-            }}
-          />
-        </div>
+        />
+        {/* SVG Indicator - rotates with value */}
+        <img
+          src="/assets/dj-controls/knobs/knob-indicator.svg"
+          alt=""
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            width: "60%",
+            height: "60%",
+            transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+            transformOrigin: "center",
+            pointerEvents: "none",
+          }}
+        />
         {/* Bipolar center marker */}
         {bipolar && (
           <div
