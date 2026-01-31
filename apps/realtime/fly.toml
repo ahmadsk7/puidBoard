@@ -1,0 +1,38 @@
+# Fly.io configuration for puidboard-realtime
+# Deploy with: fly deploy --app puidboard-realtime
+
+app = "puidboard-realtime"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+# WebSocket-optimized settings
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false    # Keep running for WebSocket connections
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 2500
+    soft_limit = 2000
+
+# Health check
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+# Resources (start small, scale as needed)
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

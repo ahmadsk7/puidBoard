@@ -1,0 +1,27 @@
+# Dependencies (will be installed fresh)
+node_modules
+.pnpm-store
+
+# Build output (will be rebuilt)
+dist
+
+# Development files
+*.test.ts
+*.test.js
+.turbo
+.storage
+
+# Environment files (secrets set via fly secrets)
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
