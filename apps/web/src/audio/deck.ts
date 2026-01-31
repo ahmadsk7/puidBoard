@@ -8,7 +8,8 @@
  * - Connect to the mixer chain
  */
 
-import { getAudioContext, getMasterGain } from "./engine";
+import { getAudioContext } from "./engine";
+import { getDeckInput, initMixerGraph } from "./mixerGraph";
 
 /** Deck play state */
 export type DeckPlayState = "stopped" | "playing" | "paused" | "cued";
@@ -91,19 +92,29 @@ export class Deck {
   }
 
   /**
-   * Initialize gain node (connect to master).
+   * Initialize gain node (connect to mixer graph).
    */
   private ensureGainNode(): GainNode | null {
     const ctx = getAudioContext();
-    const master = getMasterGain();
     
-    if (!ctx || !master) {
+    if (!ctx) {
+      return null;
+    }
+
+    // Ensure mixer graph is initialized
+    initMixerGraph();
+
+    // Get the mixer input for this deck
+    const mixerInput = getDeckInput(this.state.deckId);
+    
+    if (!mixerInput) {
+      console.warn(`[deck-${this.state.deckId}] No mixer input available`);
       return null;
     }
 
     if (!this.state.gainNode) {
       this.state.gainNode = ctx.createGain();
-      this.state.gainNode.connect(master);
+      this.state.gainNode.connect(mixerInput);
     }
 
     return this.state.gainNode;

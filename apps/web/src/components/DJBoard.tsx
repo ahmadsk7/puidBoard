@@ -11,6 +11,8 @@ import type {
 import { Fader, Knob, EQControl, Crossfader } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
+import ClippingIndicator from "./ClippingIndicator";
+import { useMixerSync } from "@/audio/useMixer";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -229,8 +231,17 @@ function MixerPanel({
         gap: 16,
       }}
     >
-      <div style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600 }}>
-        MIXER
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600 }}>
+          MIXER
+        </span>
+        <ClippingIndicator compact />
       </div>
 
       {/* Master volume */}
@@ -271,6 +282,9 @@ export default function DJBoard({
   nextSeq,
 }: DJBoardProps) {
   const memberColors = buildMemberColorMap(state.members);
+
+  // Sync mixer state to audio graph for remote changes
+  useMixerSync(state.mixer);
 
   return (
     <div

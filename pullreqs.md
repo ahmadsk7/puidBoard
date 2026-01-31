@@ -357,7 +357,7 @@ They should only block each other on:
 * `/apps/web/src/audio/deck.ts`
 * `/apps/web/src/components/AutoplayGate.tsx`
 
-## PR 3.3 — Mixer routing + crossfader + EQ (Dev A)
+## PR 3.3 ✅ — Mixer routing + crossfader + EQ (Dev A)
 
 **Objective:** real mixing works (it’s the whole point).
 **Scope**
