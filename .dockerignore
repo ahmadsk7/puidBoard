@@ -1,0 +1,42 @@
+# Root dockerignore for monorepo builds
+# Dockerfile builds from root: docker build -f apps/realtime/Dockerfile .
+
+# Dependencies (installed fresh in container)
+**/node_modules
+.pnpm-store
+
+# Build outputs (rebuilt in container)
+**/dist
+**/.turbo
+**/.next
+
+# Test files
+**/*.test.ts
+**/*.test.js
+**/coverage
+
+# Development storage
+**/.storage
+
+# Environment files (secrets via platform)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Git
+.git
+**/.gitignore
+
+# Editor/IDE
+.vscode
+.idea
+**/*.swp
+**/*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (not needed in container)
+*.md
+!packages/shared/README.md
