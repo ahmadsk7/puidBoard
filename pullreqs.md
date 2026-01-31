@@ -442,7 +442,7 @@ They should only block each other on:
 * `/apps/web/src/audio/sync/drift.ts`
 * `/apps/web/src/audio/sync/clock.ts`
 
-## PR 4.3 — Server-authoritative deck actions (Dev B)
+## PR 4.3 ✅ — Server-authoritative deck actions (Dev B)
 
 **Objective:** prevent “ghost playheads” and order deck actions cleanly.
 **Scope**
