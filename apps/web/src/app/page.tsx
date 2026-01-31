@@ -4,15 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { VERSION } from "@puid-board/shared";
-import { generateRoomCode } from "@/components/TopBar";
 
 export default function Home() {
   const router = useRouter();
   const [joinCode, setJoinCode] = useState("");
 
   const handleCreateRoom = () => {
-    const code = generateRoomCode();
-    router.push(`/room/${encodeURIComponent(code)}`);
+    // Navigate to special "create" route which will create a new room
+    router.push(`/room/create`);
   };
 
   const handleJoinRoom = (e: React.FormEvent) => {

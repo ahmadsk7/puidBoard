@@ -179,14 +179,28 @@ function MockRoomContent() {
 
 /** Real room wrapper */
 function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
+
   // Generate a stable name for this session
   const [name] = useState(() => `User${Math.floor(Math.random() * 1000)}`);
 
+  // If roomCode is "create", we want to create a new room, otherwise join existing
+  const isCreating = roomCode.toLowerCase() === "create";
+
   const { state, clientId, latencyMs, status, error, sendEvent } = useRealtimeRoom({
-    roomCode,
+    roomCode: isCreating ? undefined : roomCode,
     name,
-    autoCreate: true, // Auto-create room if it doesn't exist
+    create: isCreating, // Create new room if code is "create"
+    autoCreate: false, // Don't auto-create for join attempts
   });
+
+  // Update URL with actual room code after room is created
+  // Use history.replaceState to avoid triggering a re-render/reconnect
+  useEffect(() => {
+    if (isCreating && state && state.roomCode && state.roomCode !== roomCode) {
+      // Use replaceState instead of router.replace to avoid component remount
+      window.history.replaceState({}, '', `/room/${state.roomCode}`);
+    }
+  }, [isCreating, state, roomCode]);
 
   const seqRef = useRef(0);
   const nextSeq = () => ++seqRef.current;
@@ -194,9 +208,9 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   if (status === "connecting") {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar roomCode={roomCode} latencyMs={0} autoplayEnabled={false} />
+        <TopBar roomCode={isCreating ? "Creating..." : roomCode} latencyMs={0} autoplayEnabled={false} />
         <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-          <p>Connecting to server...</p>
+          <p>{isCreating ? "Creating room..." : "Connecting to server..."}</p>
         </main>
       </div>
     );

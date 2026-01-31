@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { RoomState, ClientMutationEvent } from "@puid-board/shared";
 import {
   getRealtimeClient,
@@ -46,8 +46,22 @@ export function useRealtimeRoom(
     null
   );
   const [client] = useState<RealtimeClient>(() => getRealtimeClient());
-  const [hasJoined, setHasJoined] = useState(false);
-  const [hasTriedCreate, setHasTriedCreate] = useState(false);
+
+  // Use refs to track join state to prevent duplicate joins
+  const hasJoinedRef = useRef(false);
+  const hasTriedCreateRef = useRef(false);
+  // Track the room code we've joined to detect navigation changes
+  const joinedRoomCodeRef = useRef<string | null>(null);
+
+  // Reset join state when options change (navigation to different room)
+  useEffect(() => {
+    const targetRoom = create ? "create" : roomCode;
+    if (joinedRoomCodeRef.current !== targetRoom) {
+      hasJoinedRef.current = false;
+      hasTriedCreateRef.current = false;
+      joinedRoomCodeRef.current = null;
+    }
+  }, [create, roomCode]);
 
   // Connect and join/create room on mount
   useEffect(() => {
@@ -61,9 +75,10 @@ export function useRealtimeRoom(
     const unsubStatus = client.onStatusChange((newStatus) => {
       setStatus(newStatus);
 
-      // Join or create room when connected (if not already done)
-      if (newStatus === "connected" && !hasJoined) {
-        setHasJoined(true);
+      // Join or create room when connected (if not already done for this room)
+      if (newStatus === "connected" && !hasJoinedRef.current) {
+        hasJoinedRef.current = true;
+        joinedRoomCodeRef.current = create ? "create" : roomCode || null;
         if (create) {
           client.createRoom(name);
         } else if (roomCode) {
@@ -76,12 +91,12 @@ export function useRealtimeRoom(
 
     const unsubError = client.onError((err) => {
       // If room not found and autoCreate is enabled, create it
-      if (err.type === "ROOM_NOT_FOUND" && autoCreate && !hasTriedCreate) {
-        setHasTriedCreate(true);
+      if (err.type === "ROOM_NOT_FOUND" && autoCreate && !hasTriedCreateRef.current) {
+        hasTriedCreateRef.current = true;
         client.createRoom(name);
         return; // Don't show error, we're auto-creating
       }
-      
+
       setError(err);
       // Clear error after 5 seconds
       setTimeout(() => setError(null), 5000);
@@ -90,9 +105,10 @@ export function useRealtimeRoom(
     // Connect if not already connected
     if (client.getStatus() === "disconnected") {
       client.connect();
-    } else if (client.getStatus() === "connected" && !hasJoined) {
+    } else if (client.getStatus() === "connected" && !hasJoinedRef.current) {
       // Already connected, join/create immediately
-      setHasJoined(true);
+      hasJoinedRef.current = true;
+      joinedRoomCodeRef.current = create ? "create" : roomCode || null;
       if (create) {
         client.createRoom(name);
       } else if (roomCode) {
@@ -112,7 +128,7 @@ export function useRealtimeRoom(
       unsubLatency();
       unsubError();
     };
-  }, [client, roomCode, name, create, autoCreate, hasJoined, hasTriedCreate]);
+  }, [client, roomCode, name, create, autoCreate]);
 
   const sendEvent = useCallback(
     (event: ClientMutationEvent) => {
@@ -123,7 +139,8 @@ export function useRealtimeRoom(
 
   const leaveRoom = useCallback(() => {
     client.leaveRoom();
-    setHasJoined(false);
+    hasJoinedRef.current = false;
+    joinedRoomCodeRef.current = null;
   }, [client]);
 
   return {
