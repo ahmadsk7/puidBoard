@@ -13,14 +13,16 @@ describe("mockRoom", () => {
   describe("createInitialRoomState", () => {
     it("creates valid room state with one host member", () => {
       const state = createInitialRoomState(roomId, roomCode, clientId, "Dev A");
+      const member = state.members[0];
       expect(state.roomId).toBe(roomId);
       expect(state.roomCode).toBe(roomCode);
       expect(state.version).toBe(0);
       expect(state.hostId).toBe(clientId);
       expect(state.members).toHaveLength(1);
-      expect(state.members[0].clientId).toBe(clientId);
-      expect(state.members[0].name).toBe("Dev A");
-      expect(state.members[0].isHost).toBe(true);
+      expect(member).toBeDefined();
+      expect(member!.clientId).toBe(clientId);
+      expect(member!.name).toBe("Dev A");
+      expect(member!.isHost).toBe(true);
       expect(state.queue).toHaveLength(0);
       expect(state.deckA.playState).toBe("stopped");
       expect(state.deckB.playState).toBe("stopped");
@@ -48,7 +50,9 @@ describe("mockRoom", () => {
         "ev-1"
       );
       expect(next.version).toBe(state.version + 1);
-      expect(next.members[0].cursor).toEqual({
+      const member = next.members[0];
+      expect(member).toBeDefined();
+      expect(member!.cursor).toEqual({
         x: 0.5,
         y: 0.25,
         lastUpdated: expect.any(Number),
@@ -74,10 +78,12 @@ describe("mockRoom", () => {
       );
       expect(next.version).toBe(state.version + 1);
       expect(next.queue).toHaveLength(1);
-      expect(next.queue[0].trackId).toBe("track-1");
-      expect(next.queue[0].title).toBe("Test Track");
-      expect(next.queue[0].durationSec).toBe(120);
-      expect(next.queue[0].status).toBe("queued");
+      const item = next.queue[0];
+      expect(item).toBeDefined();
+      expect(item!.trackId).toBe("track-1");
+      expect(item!.title).toBe("Test Track");
+      expect(item!.durationSec).toBe(120);
+      expect(item!.status).toBe("queued");
     });
 
     it("applies MIXER_SET crossfader", () => {
@@ -127,9 +133,12 @@ describe("mockRoom", () => {
       expect(listener).not.toHaveBeenCalled();
       vi.advanceTimersByTime(100);
       expect(listener).toHaveBeenCalled();
-      const lastState = listener.mock.calls[listener.mock.calls.length - 1][0];
-      expect(lastState.queue).toHaveLength(1);
-      expect(lastState.queue[0].title).toBe("Track 1");
+      const lastCall = listener.mock.calls[listener.mock.calls.length - 1];
+      const lastState = lastCall?.[0];
+      expect(lastState).toBeDefined();
+      expect(lastState!.queue).toHaveLength(1);
+      expect(lastState!.queue[0]).toBeDefined();
+      expect(lastState!.queue[0]!.title).toBe("Track 1");
     });
 
     it("calls ack listener with accepted: true for valid event", () => {

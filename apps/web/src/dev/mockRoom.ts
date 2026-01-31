@@ -11,13 +11,12 @@ import {
   validateClientMutationEvent,
   isValidControlId,
   isValidControlValue,
-  getControlBounds,
   queueItemExists,
   isValidReorderIndex,
   canPlayDeck,
   isValidSeekPosition,
 } from "@puid-board/shared";
-import type { ClientId, RoomId, DeckId } from "@puid-board/shared";
+import type { ClientId, RoomId } from "@puid-board/shared";
 
 const MOCK_LATENCY_MS = 50;
 const MOCK_CLIENT_ID = "mock-client-1";
@@ -60,7 +59,7 @@ export function applyMutation(
   state: RoomState,
   event: ClientMutationEvent,
   serverTs: number,
-  eventId: string
+  _eventId: string
 ): RoomState {
   const nextVersion = state.version + 1;
   const base = {
@@ -83,10 +82,13 @@ export function applyMutation(
     case "CURSOR_MOVE": {
       const idx = base.members.findIndex((m) => m.clientId === event.clientId);
       if (idx >= 0) {
-        base.members[idx] = {
-          ...base.members[idx],
-          cursor: { x: event.payload.x, y: event.payload.y, lastUpdated: serverTs },
-        };
+        const member = base.members[idx];
+        if (member) {
+          base.members[idx] = {
+            ...member,
+            cursor: { x: event.payload.x, y: event.payload.y, lastUpdated: serverTs },
+          };
+        }
       }
       return base;
     }
@@ -197,6 +199,7 @@ export function applyMutation(
       const idx = arr.findIndex((q) => q.id === queueItemId);
       if (idx < 0) return state;
       const [item] = arr.splice(idx, 1);
+      if (!item) return base;
       base.queue = [...arr.slice(0, newIndex), item, ...arr.slice(newIndex)];
       return base;
     }
@@ -205,7 +208,12 @@ export function applyMutation(
       const { queueItemId, updates } = event.payload;
       const i = base.queue.findIndex((q) => q.id === queueItemId);
       if (i < 0) return state;
-      base.queue[i] = { ...base.queue[i], ...updates };
+      const existing = base.queue[i];
+      if (!existing) return base;
+      base.queue[i] = {
+        ...existing,
+        title: updates.title !== undefined ? updates.title : existing.title,
+      };
       return base;
     }
 
