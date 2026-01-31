@@ -279,7 +279,7 @@ They should only block each other on:
 * `/apps/web/src/components/QueuePanel.tsx`
 * `/apps/web/src/components/QueueItemRow.tsx`
 
-## PR 2.4 — DJ board UI: decks + mixer controls (no audio yet) (Dev A)
+## PR 2.4 ✅ — DJ board UI: decks + mixer controls (no audio yet) (Dev A)
 
 **Objective:** the “hand feel” of the rig is good before audio complexity.
 **Scope**
