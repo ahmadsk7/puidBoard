@@ -142,14 +142,6 @@ function DeckControls({
         position: "absolute",
         left: position.x,
         top: position.y,
-        width: position.width,
-        height: position.height,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 8,
-        boxSizing: "border-box",
       }}
     >
       <DeckTransport

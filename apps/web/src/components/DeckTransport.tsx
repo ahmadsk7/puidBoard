@@ -4,8 +4,7 @@ import { useCallback, useEffect } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
 import { useDeck } from "@/audio/useDeck";
 import { useAudioEnabled } from "./AutoplayGate";
-import { initAudioEngine } from "@/audio/engine";
-import { DeckStatusDisplay } from "./displays";
+import { DeckControlPanel } from "./displays";
 
 export type DeckTransportProps = {
   /** Deck ID (A or B) */
@@ -27,7 +26,7 @@ export type DeckTransportProps = {
 };
 
 /**
- * Deck transport controls (play/pause/cue + status display).
+ * Deck transport controls - integrated LCD panel with play/pause/cue controls
  */
 export default function DeckTransport({
   deckId,
@@ -37,7 +36,6 @@ export default function DeckTransport({
   sendEvent,
   nextSeq,
   accentColor,
-  queue,
 }: DeckTransportProps) {
   const audioEnabled = useAudioEnabled();
   const deck = useDeck(deckId);
@@ -45,14 +43,14 @@ export default function DeckTransport({
   // Sync with server state - load track when server says to
   useEffect(() => {
     if (!audioEnabled) return;
-    
+
     const serverTrackId = serverState.loadedTrackId;
     const localTrackId = deck.state.trackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
       // Fetch the track URL from the realtime server API
       const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
-      
+
       fetch(`${realtimeUrl}/api/tracks/${serverTrackId}/url`)
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to get track URL: ${res.status}`);
@@ -68,7 +66,7 @@ export default function DeckTransport({
     }
   }, [audioEnabled, serverState.loadedTrackId, deck, deckId]);
 
-  // Sync play state with server (simplified - full sync requires PR 4.2)
+  // Sync play state with server
   useEffect(() => {
     if (!audioEnabled || !deck.isLoaded) return;
 
@@ -120,192 +118,27 @@ export default function DeckTransport({
     deck.cue();
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
-  // Load first track from queue (demo)
-  const handleLoadFromQueue = useCallback(() => {
-    const firstQueued = queue.find((item) => 
-      item.id !== serverState.loadedQueueItemId
-    );
-    
-    if (firstQueued) {
-      sendEvent({
-        type: "DECK_LOAD",
-        roomId,
-        clientId,
-        clientSeq: nextSeq(),
-        payload: {
-          deckId,
-          trackId: firstQueued.trackId,
-          queueItemId: firstQueued.id,
-        },
-      });
-    }
-  }, [queue, serverState.loadedQueueItemId, sendEvent, roomId, clientId, nextSeq, deckId]);
+  // Sync handler (placeholder for future BPM sync functionality)
+  const handleSync = useCallback(() => {
+    // TODO: Implement BPM sync between decks
+    console.log(`[DeckTransport-${deckId}] Sync not yet implemented`);
+  }, [deckId]);
 
   const hasTrack = deck.isLoaded || serverState.loadedTrackId !== null;
   const isPlaying = deck.isPlaying;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 8,
-        width: "100%",
-      }}
-    >
-      {/* Deck Status LCD Display */}
-      <DeckStatusDisplay
-        bpm={deck.bpm}
-        playState={serverState.playState}
-        hasTrack={hasTrack}
-        accentColor={accentColor}
-      />
-
-      {/* Transport controls */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginTop: 4,
-        }}
-      >
-        {/* Cue button */}
-        <button
-          type="button"
-          onClick={handleCue}
-          disabled={!hasTrack || !audioEnabled}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 4,
-            border: "none",
-            background: serverState.playState === "cued" ? "#1a1a1a" : "#1f1f1f",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.5,
-            padding: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <img
-            src="/assets/dj-controls/buttons/cue-icon.svg"
-            alt="Cue"
-            style={{
-              width: "100%",
-              height: "100%",
-              filter: serverState.playState === "cued" ? "brightness(1.2)" : "brightness(0.8)",
-            }}
-          />
-        </button>
-
-        {/* Play/Pause button */}
-        <button
-          type="button"
-          onClick={isPlaying ? handlePause : handlePlay}
-          disabled={!hasTrack || !audioEnabled}
-          style={{
-            width: 48,
-            height: 36,
-            borderRadius: 4,
-            border: "none",
-            background: "#1f1f1f",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.5,
-            padding: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <img
-            src={isPlaying ? "/assets/dj-controls/buttons/pause-icon.svg" : "/assets/dj-controls/buttons/play-icon.svg"}
-            alt={isPlaying ? "Pause" : "Play"}
-            style={{
-              width: "100%",
-              height: "100%",
-            }}
-          />
-        </button>
-
-        {/* Sync button */}
-        <button
-          type="button"
-          disabled={!hasTrack || !audioEnabled}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 4,
-            border: "none",
-            background: "#1f1f1f",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.5,
-            padding: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          title="Sync BPM"
-        >
-          <img
-            src="/assets/dj-controls/buttons/sync-icon.svg"
-            alt="Sync"
-            style={{
-              width: "100%",
-              height: "100%",
-            }}
-          />
-        </button>
-
-        {/* Load button */}
-        <button
-          type="button"
-          onClick={handleLoadFromQueue}
-          disabled={queue.length === 0 || !audioEnabled}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 4,
-            border: "none",
-            background: "#3b82f6",
-            color: "#fff",
-            fontSize: "0.625rem",
-            fontWeight: 600,
-            cursor: queue.length > 0 && audioEnabled ? "pointer" : "not-allowed",
-            opacity: queue.length > 0 && audioEnabled ? 1 : 0.5,
-          }}
-          title="Load track from queue"
-        >
-          LOAD
-        </button>
-      </div>
-
-      {/* Audio disabled - clickable to enable */}
-      {!audioEnabled && (
-        <button
-          type="button"
-          onClick={async () => {
-            try {
-              await initAudioEngine();
-            } catch (err) {
-              console.error("Failed to enable audio:", err);
-            }
-          }}
-          style={{
-            fontSize: "0.625rem",
-            color: "#f59e0b",
-            background: "rgba(245, 158, 11, 0.1)",
-            border: "1px solid #f59e0b",
-            borderRadius: 4,
-            padding: "4px 8px",
-            cursor: "pointer",
-            textAlign: "center",
-          }}
-        >
-          Click to enable audio
-        </button>
-      )}
-    </div>
+    <DeckControlPanel
+      bpm={deck.bpm}
+      playState={serverState.playState}
+      hasTrack={hasTrack}
+      accentColor={accentColor}
+      onPlay={handlePlay}
+      onPause={handlePause}
+      onCue={handleCue}
+      onSync={handleSync}
+      isPlaying={isPlaying}
+      audioEnabled={audioEnabled}
+    />
   );
 }
