@@ -241,7 +241,7 @@ They should only block each other on:
 * `/apps/web/src/app/room/[code]/page.tsx`
 * `/apps/web/src/components/TopBar.tsx`
 
-## PR 2.2 — Realtime client integration + cursor rendering (Dev A)
+## PR 2.2 ✅ — Realtime client integration + cursor rendering (Dev A)
 
 **Objective:** connect to server, render members + cursors cleanly.
 **Scope**
