@@ -473,8 +473,8 @@ export function getCoalescedPointerData(
     });
   }
 
-  const last = points[points.length - 1];
-  const first = lastPosition || points[0];
+  const last = points[points.length - 1] || { x: event.clientX, y: event.clientY, pressure: event.pressure };
+  const first = lastPosition || points[0] || last;
 
   return {
     x: last.x,

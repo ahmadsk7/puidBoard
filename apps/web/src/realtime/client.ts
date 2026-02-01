@@ -551,44 +551,59 @@ export class RealtimeClient {
     });
 
     // Mixer value updates
+    // Server sends: { type: "MIXER_VALUE", roomId, controlId, value, clientId }
     this.socket.on("MIXER_VALUE", (event: {
       roomId: string;
-      payload: { controlId: string; value: number };
+      controlId: string;
+      value: number;
+      clientId: string;
     }) => {
-      if (!this.state) return;
+      try {
+        if (!this.state) return;
 
-      const { controlId, value } = event.payload;
-      const mixer = { ...this.state.mixer };
+        // Defensive check - server sends controlId directly, not in payload
+        const controlId = event.controlId;
+        const value = event.value;
 
-      // Apply value to appropriate mixer control
-      if (controlId === "crossfader") mixer.crossfader = value;
-      else if (controlId === "masterVolume") mixer.masterVolume = value;
-      else if (controlId.startsWith("channelA.")) {
-        mixer.channelA = { ...mixer.channelA };
-        if (controlId === "channelA.fader") mixer.channelA.fader = value;
-        else if (controlId === "channelA.gain") mixer.channelA.gain = value;
-        else if (controlId === "channelA.filter") mixer.channelA.filter = value;
-        else if (controlId.startsWith("channelA.eq.")) {
-          mixer.channelA.eq = { ...mixer.channelA.eq };
-          if (controlId === "channelA.eq.low") mixer.channelA.eq.low = value;
-          else if (controlId === "channelA.eq.mid") mixer.channelA.eq.mid = value;
-          else if (controlId === "channelA.eq.high") mixer.channelA.eq.high = value;
+        if (typeof controlId !== "string" || typeof value !== "number") {
+          console.warn("[RealtimeClient] MIXER_VALUE: invalid event format", event);
+          return;
         }
-      } else if (controlId.startsWith("channelB.")) {
-        mixer.channelB = { ...mixer.channelB };
-        if (controlId === "channelB.fader") mixer.channelB.fader = value;
-        else if (controlId === "channelB.gain") mixer.channelB.gain = value;
-        else if (controlId === "channelB.filter") mixer.channelB.filter = value;
-        else if (controlId.startsWith("channelB.eq.")) {
-          mixer.channelB.eq = { ...mixer.channelB.eq };
-          if (controlId === "channelB.eq.low") mixer.channelB.eq.low = value;
-          else if (controlId === "channelB.eq.mid") mixer.channelB.eq.mid = value;
-          else if (controlId === "channelB.eq.high") mixer.channelB.eq.high = value;
+
+        const mixer = { ...this.state.mixer };
+
+        // Apply value to appropriate mixer control
+        if (controlId === "crossfader") mixer.crossfader = value;
+        else if (controlId === "masterVolume") mixer.masterVolume = value;
+        else if (controlId.startsWith("channelA.")) {
+          mixer.channelA = { ...mixer.channelA };
+          if (controlId === "channelA.fader") mixer.channelA.fader = value;
+          else if (controlId === "channelA.gain") mixer.channelA.gain = value;
+          else if (controlId === "channelA.filter") mixer.channelA.filter = value;
+          else if (controlId.startsWith("channelA.eq.")) {
+            mixer.channelA.eq = { ...mixer.channelA.eq };
+            if (controlId === "channelA.eq.low") mixer.channelA.eq.low = value;
+            else if (controlId === "channelA.eq.mid") mixer.channelA.eq.mid = value;
+            else if (controlId === "channelA.eq.high") mixer.channelA.eq.high = value;
+          }
+        } else if (controlId.startsWith("channelB.")) {
+          mixer.channelB = { ...mixer.channelB };
+          if (controlId === "channelB.fader") mixer.channelB.fader = value;
+          else if (controlId === "channelB.gain") mixer.channelB.gain = value;
+          else if (controlId === "channelB.filter") mixer.channelB.filter = value;
+          else if (controlId.startsWith("channelB.eq.")) {
+            mixer.channelB.eq = { ...mixer.channelB.eq };
+            if (controlId === "channelB.eq.low") mixer.channelB.eq.low = value;
+            else if (controlId === "channelB.eq.mid") mixer.channelB.eq.mid = value;
+            else if (controlId === "channelB.eq.high") mixer.channelB.eq.high = value;
+          }
         }
+
+        this.state = { ...this.state, mixer };
+        this.notifyStateListeners();
+      } catch (error) {
+        console.error("[RealtimeClient] MIXER_VALUE handler error:", error);
       }
-
-      this.state = { ...this.state, mixer };
-      this.notifyStateListeners();
     });
 
     // Control ownership updates

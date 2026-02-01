@@ -25,9 +25,10 @@ export type DJBoardProps = {
   nextSeq: () => number;
 };
 
-// FIXED BOARD DIMENSIONS - Extended to include queue panel
-const BOARD_WIDTH = 1920;
+// FIXED BOARD DIMENSIONS - Mixer only (queue is separate)
+const BOARD_WIDTH = 1600;
 const BOARD_HEIGHT = 600;
+const QUEUE_WIDTH = 340;
 
 // EXACT COORDINATES FROM SVG SOURCE (viewBox units)
 // All measurements extracted directly from mixer-panel-background.svg
@@ -506,8 +507,8 @@ export default function DJBoard({
 }: DJBoardProps) {
   const memberColors = buildMemberColorMap(state.members);
 
-  // Calculate responsive scale - board fills viewport responsively
-  const scale = useBoardScale(BOARD_WIDTH, BOARD_HEIGHT, 0.95);
+  // Calculate responsive scale - board + queue together fill viewport
+  const scale = useBoardScale(BOARD_WIDTH + QUEUE_WIDTH, BOARD_HEIGHT, 0.90);
 
   // Sync mixer state to audio graph
   useMixerSync(state.mixer);
@@ -522,34 +523,42 @@ export default function DJBoard({
         justifyContent: "center",
         background: "transparent",
         boxSizing: "border-box",
+        gap: 0,
       }}
     >
-      {/* Fixed-size board container - scales to fit viewport */}
+      {/* Container for both board and queue - scales together */}
       <div
         style={{
-          position: "relative",
-          width: BOARD_WIDTH,
-          height: BOARD_HEIGHT,
+          display: "flex",
+          gap: 0,
           transform: `scale(${scale})`,
           transformOrigin: "center center",
-          overflow: "visible",
         }}
       >
-        {/* SVG Background - The Source of Truth (mixer only) */}
-        <img
-          src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
-          alt="DJ Controller"
+        {/* DJ Board (mixer) */}
+        <div
           style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: 1600,
+            position: "relative",
+            width: BOARD_WIDTH,
             height: BOARD_HEIGHT,
-            pointerEvents: "none",
-            userSelect: "none",
-            zIndex: 0,
+            overflow: "visible",
           }}
-        />
+        >
+          {/* SVG Background - The Source of Truth */}
+          <img
+            src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
+            alt="DJ Controller"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: BOARD_WIDTH,
+              height: BOARD_HEIGHT,
+              pointerEvents: "none",
+              userSelect: "none",
+              zIndex: 0,
+            }}
+          />
 
         {/* === DECK A (Left Side) === */}
         <DeckDisplay
@@ -636,17 +645,31 @@ export default function DJBoard({
           accentColor="#8b5cf6"
         />
 
-        {/* NOTE: Decorative screws are rendered in the SVG background */}
+          {/* NOTE: Decorative screws are rendered in the SVG background */}
 
-        {/* Queue Panel - Integrated into board */}
+          {/* Version badge */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 8,
+              right: 16,
+              fontSize: "0.5rem",
+              color: "#4b5563",
+              fontFamily: "monospace",
+              zIndex: 1000,
+            }}
+          >
+            v{state.version}
+          </div>
+        </div>
+
+        {/* Queue Panel - Separate lane */}
         <div
           style={{
-            position: "absolute",
-            right: 0,
-            top: 0,
-            width: 320,
-            height: "100%",
-            zIndex: 100,
+            width: QUEUE_WIDTH,
+            height: BOARD_HEIGHT,
+            display: "flex",
+            flexDirection: "column",
           }}
         >
           <QueuePanel
@@ -657,21 +680,6 @@ export default function DJBoard({
             sendEvent={sendEvent}
             nextSeq={nextSeq}
           />
-        </div>
-
-        {/* Version badge */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 8,
-            right: 336,
-            fontSize: "0.5rem",
-            color: "#4b5563",
-            fontFamily: "monospace",
-            zIndex: 1000,
-          }}
-        >
-          v{state.version}
         </div>
       </div>
     </div>
