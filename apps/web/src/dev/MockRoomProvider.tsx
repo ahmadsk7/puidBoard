@@ -48,11 +48,19 @@ export function MockRoomProvider({
   const [state, setState] = useState<RoomState>(() => room.getState());
 
   useEffect(() => {
-    return room.subscribe(setState);
+    return room.subscribe((newState) => {
+      console.log("[MockRoomProvider] State update received:", {
+        version: newState.version,
+        fxType: newState.mixer.fx.type,
+        fxEnabled: newState.mixer.fx.enabled,
+      });
+      setState(newState);
+    });
   }, [room]);
 
   const sendEvent = useCallback(
     (event: ClientMutationEvent) => {
+      console.log("[MockRoomProvider] sendEvent called:", event.type, event.type === "FX_SET" || event.type === "FX_TOGGLE" ? JSON.stringify(event.payload) : "");
       room.sendEvent(event);
     },
     [room]

@@ -219,7 +219,11 @@ export function applyMutation(
 
     case "FX_SET": {
       const { param, value } = event.payload;
-      if (param === "type") base.mixer.fx.type = value as "echo" | "reverb" | "filter" | "none";
+      console.log(`[MockRoom.applyMutation] FX_SET: param=${param}, value=${value}, current type=${base.mixer.fx.type}`);
+      if (param === "type") {
+        base.mixer.fx.type = value as "echo" | "reverb" | "filter" | "none";
+        console.log(`[MockRoom.applyMutation] FX type set to: ${base.mixer.fx.type}`);
+      }
       else if (param === "wetDry") base.mixer.fx.wetDry = value as number;
       else if (param === "param") base.mixer.fx.param = value as number;
       return base;
@@ -331,12 +335,15 @@ export class MockRoom {
 
   /** Send a client mutation; validate, apply after latency, then ack and notify. */
   sendEvent(event: ClientMutationEvent): void {
+    console.log(`[MockRoom] sendEvent called:`, event.type, event.type === "FX_SET" || event.type === "FX_TOGGLE" ? JSON.stringify(event.payload) : "");
+
     const result = validateClientMutationEvent(event);
     const clientSeq = event.clientSeq;
     const eventId = `mock-${++this.eventIdCounter}`;
     const serverTs = Date.now();
 
     if (!result.success) {
+      console.error(`[MockRoom] Event validation failed:`, result.error);
       setTimeout(() => {
         this.ackListeners.forEach((l) =>
           l({ clientSeq, eventId, accepted: false, error: result.error })
@@ -345,11 +352,25 @@ export class MockRoom {
       return;
     }
 
+    console.log(`[MockRoom] Event validated successfully, applying after ${MOCK_LATENCY_MS}ms delay`);
+
     setTimeout(() => {
+      const prevFxState = this.state.mixer.fx;
       this.state = applyMutation(this.state, result.data, serverTs, eventId);
+      const newFxState = this.state.mixer.fx;
+
+      if (event.type === "FX_SET" || event.type === "FX_TOGGLE") {
+        console.log(`[MockRoom] FX state change:`, {
+          before: prevFxState,
+          after: newFxState,
+          changed: JSON.stringify(prevFxState) !== JSON.stringify(newFxState)
+        });
+      }
+
       this.ackListeners.forEach((l) =>
         l({ clientSeq, eventId, accepted: true })
       );
+      console.log(`[MockRoom] Notifying ${this.listeners.size} listeners of state update`);
       this.listeners.forEach((l) => l(this.state));
     }, MOCK_LATENCY_MS);
   }

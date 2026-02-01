@@ -51,6 +51,10 @@ interface FaderState {
  * - touch-action: none for no browser interference
  * - LED updates batched in RAF
  */
+// Thumb dimensions for precise positioning
+const THUMB_HEIGHT = 42;
+const THUMB_WIDTH = 28;
+
 const Fader = memo(function Fader({
   controlId,
   value,
@@ -89,16 +93,22 @@ const Fader = memo(function Fader({
   const LED_COUNT = 10;
 
   // Update DOM directly (bypass React for performance)
+  // FIXED: Use pixel-based positioning for exact 1:1 mouse tracking
   const updateThumbPosition = useCallback((normalizedValue: number) => {
     if (thumbRef.current) {
       if (isVertical) {
         // Vertical: bottom = 0, top = 1
-        const percent = (1 - normalizedValue) * 100;
-        thumbRef.current.style.transform = `translate3d(-50%, calc(${percent}% - 50%), 0)`;
+        // Calculate pixel position accounting for thumb height
+        const availableTravel = trackSize - THUMB_HEIGHT;
+        const topOffset = (1 - normalizedValue) * availableTravel;
+        thumbRef.current.style.top = `${topOffset}px`;
+        thumbRef.current.style.transform = `translate3d(-50%, 0, 0)`;
       } else {
         // Horizontal
-        const percent = normalizedValue * 100;
-        thumbRef.current.style.transform = `translate3d(calc(${percent}% - 50%), -50%, 0) rotate(90deg)`;
+        const availableTravel = trackSize - THUMB_WIDTH;
+        const leftOffset = normalizedValue * availableTravel;
+        thumbRef.current.style.left = `${leftOffset}px`;
+        thumbRef.current.style.transform = `translate3d(0, -50%, 0) rotate(90deg)`;
       }
     }
 
@@ -123,7 +133,7 @@ const Fader = memo(function Fader({
         }
       }
     }
-  }, [isVertical]);
+  }, [isVertical, trackSize]);
 
   // RAF animation callback
   const animationCallback = useCallback((deltaTime: number): boolean | void => {
@@ -224,6 +234,7 @@ const Fader = memo(function Fader({
   }, [controlId, roomId, clientId, sendEvent, nextSeq]);
 
   // Calculate value from pointer position - LINEAR 1:1 mapping
+  // FIXED: Account for thumb dimensions to map pointer to available travel range
   const calculateValue = useCallback((clientX: number, clientY: number): number => {
     const track = trackRef.current;
     if (!track) return stateRef.current.local;
@@ -233,9 +244,17 @@ const Fader = memo(function Fader({
 
     if (isVertical) {
       // Vertical: top = 1, bottom = 0 (inverted)
-      ratio = 1 - (clientY - rect.top) / rect.height;
+      // Account for thumb height: pointer maps to center of thumb
+      const thumbHalfHeight = THUMB_HEIGHT / 2;
+      const availableTravel = rect.height - THUMB_HEIGHT;
+      const relativeY = clientY - rect.top - thumbHalfHeight;
+      ratio = 1 - (relativeY / availableTravel);
     } else {
-      ratio = (clientX - rect.left) / rect.width;
+      // Horizontal: left = 0, right = 1
+      const thumbHalfWidth = THUMB_WIDTH / 2;
+      const availableTravel = rect.width - THUMB_WIDTH;
+      const relativeX = clientX - rect.left - thumbHalfWidth;
+      ratio = relativeX / availableTravel;
     }
 
     return clamp(ratio, 0, 1);
@@ -375,23 +394,43 @@ const Fader = memo(function Fader({
 
   const thumbStyle = useMemo<React.CSSProperties>(() => {
     const initialValue = stateRef.current.visual;
-    const transform = isVertical
-      ? `translate3d(-50%, calc(${(1 - initialValue) * 100}% - 50%), 0)`
-      : `translate3d(calc(${initialValue * 100}% - 50%), -50%, 0) rotate(90deg)`;
 
-    return {
-      position: "absolute",
-      left: isVertical ? "50%" : 0,
-      top: isVertical ? 0 : "50%",
-      transform,
-      width: isVertical ? 28 : 42,
-      height: isVertical ? 42 : 28,
-      pointerEvents: "none",
-      filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
-      willChange: "transform",
-      backfaceVisibility: "hidden",
-    };
-  }, [isVertical]);
+    if (isVertical) {
+      // Calculate initial pixel position
+      const availableTravel = trackSize - THUMB_HEIGHT;
+      const topOffset = (1 - initialValue) * availableTravel;
+
+      return {
+        position: "absolute",
+        left: "50%",
+        top: topOffset,
+        transform: "translate3d(-50%, 0, 0)",
+        width: THUMB_WIDTH,
+        height: THUMB_HEIGHT,
+        pointerEvents: "none",
+        filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        willChange: "transform, top",
+        backfaceVisibility: "hidden",
+      };
+    } else {
+      // Horizontal
+      const availableTravel = trackSize - THUMB_WIDTH;
+      const leftOffset = initialValue * availableTravel;
+
+      return {
+        position: "absolute",
+        left: leftOffset,
+        top: "50%",
+        transform: "translate3d(0, -50%, 0) rotate(90deg)",
+        width: THUMB_HEIGHT, // Swapped for horizontal
+        height: THUMB_WIDTH,
+        pointerEvents: "none",
+        filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        willChange: "transform, left",
+        backfaceVisibility: "hidden",
+      };
+    }
+  }, [isVertical, trackSize]);
 
   // Generate LED elements
   const ledElements = useMemo(() => {

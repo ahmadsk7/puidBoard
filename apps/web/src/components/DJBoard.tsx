@@ -593,6 +593,9 @@ function playbackRateToFader(rate: number): number {
 /**
  * Tempo fader component for deck playback rate control.
  * Sends DECK_TEMPO_SET events and controls local audio playback rate.
+ *
+ * FIXED: Correct thumb positioning using pixel-based top offset instead of
+ * percentage-based translateY (which was relative to thumb height, not track).
  */
 const TempoFader = memo(function TempoFader({
   deckId,
@@ -626,15 +629,22 @@ const TempoFader = memo(function TempoFader({
   const isOwnedByOther = ownership && ownership.clientId !== clientId;
   const ownerColor = ownership && memberColors[ownership.clientId];
 
-  // Update thumb position directly
+  // Thumb height for offset calculation
+  const THUMB_HEIGHT = 16;
+
+  // Update thumb position directly using pixel-based top offset
+  // This ensures the thumb follows the mouse exactly
   const updateThumbPosition = useCallback((faderValue: number) => {
     if (thumbRef.current) {
       const clampedValue = Math.max(0, Math.min(1, faderValue));
-      // Vertical fader: bottom = 0 (slower), top = 1 (faster)
-      const percent = (1 - clampedValue) * 100;
-      thumbRef.current.style.transform = `translateX(-50%) translateY(${percent}%)`;
+      // Vertical fader: top = 1 (faster, +8%), bottom = 0 (slower, -8%)
+      // Calculate pixel offset from top: 0% at top (value=1), 100% at bottom (value=0)
+      const trackHeight = position.height;
+      const availableTravel = trackHeight - THUMB_HEIGHT;
+      const topOffset = (1 - clampedValue) * availableTravel;
+      thumbRef.current.style.top = `${topOffset}px`;
     }
-  }, []);
+  }, [position.height]);
 
   // Sync with server state when not dragging
   useEffect(() => {
@@ -691,17 +701,24 @@ const TempoFader = memo(function TempoFader({
   }, [controlId, roomId, clientId, sendEvent, nextSeq]);
 
   // Calculate fader value from pointer position
+  // Uses the track's bounding rect to map clientY to 0-1 range
   const calculateValue = useCallback((clientY: number): number => {
     const track = trackRef.current;
     if (!track) return localValueRef.current;
 
     const rect = track.getBoundingClientRect();
+    // Account for thumb height to allow full travel
+    const availableTravel = rect.height - THUMB_HEIGHT;
+    const thumbCenter = THUMB_HEIGHT / 2;
+
+    // Calculate position relative to available travel zone
+    const relativeY = clientY - rect.top - thumbCenter;
     // Vertical: top = 1 (faster), bottom = 0 (slower)
-    const ratio = 1 - (clientY - rect.top) / rect.height;
+    const ratio = 1 - (relativeY / availableTravel);
     return Math.max(0, Math.min(1, ratio));
   }, []);
 
-  // Handle pointer down
+  // Handle pointer down - start drag
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isOwnedByOther) return;
 
@@ -709,13 +726,14 @@ const TempoFader = memo(function TempoFader({
     e.stopPropagation();
     isDraggingRef.current = true;
 
+    // Calculate value and update immediately
     const faderValue = calculateValue(e.clientY);
     localValueRef.current = faderValue;
     updateThumbPosition(faderValue);
 
     const playbackRate = faderToPlaybackRate(faderValue);
 
-    // Apply locally immediately
+    // Apply locally immediately for zero-latency response
     const deck = getDeck(deckId);
     if (deck) {
       deck.setPlaybackRate(playbackRate);
@@ -724,11 +742,13 @@ const TempoFader = memo(function TempoFader({
     sendGrab();
     sendTempoEvent(playbackRate);
 
+    // Capture pointer for drag tracking even outside element
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }, [isOwnedByOther, calculateValue, updateThumbPosition, deckId, sendGrab, sendTempoEvent]);
 
-  // Handle pointer move
+  // Handle pointer move - continue drag
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Only move if we're dragging (pointer is held down)
     if (!isDraggingRef.current) return;
 
     const faderValue = calculateValue(e.clientY);
@@ -746,7 +766,7 @@ const TempoFader = memo(function TempoFader({
     sendTempoEvent(playbackRate);
   }, [calculateValue, updateThumbPosition, deckId, sendTempoEvent]);
 
-  // Handle pointer up
+  // Handle pointer up - end drag
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (!isDraggingRef.current) return;
 
@@ -764,6 +784,11 @@ const TempoFader = memo(function TempoFader({
   const currentRate = faderToPlaybackRate(localValueRef.current);
   const tempoPercent = ((currentRate - 1.0) * 100).toFixed(1);
   const tempoDisplay = currentRate >= 1.0 ? `+${tempoPercent}%` : `${tempoPercent}%`;
+
+  // Calculate initial thumb position in pixels
+  const initialFaderValue = playbackRateToFader(serverPlaybackRate);
+  const availableTravel = position.height - THUMB_HEIGHT;
+  const initialTopOffset = (1 - initialFaderValue) * availableTravel;
 
   return (
     <div
@@ -834,19 +859,20 @@ const TempoFader = memo(function TempoFader({
             background: "#3b82f6",
             borderRadius: 1,
             opacity: 0.5,
+            transform: "translateY(-50%)",
           }}
         />
 
-        {/* Thumb */}
+        {/* Thumb - positioned using top offset in pixels */}
         <div
           ref={thumbRef}
           style={{
             position: "absolute",
             left: "50%",
-            top: 0,
-            transform: `translateX(-50%) translateY(${(1 - playbackRateToFader(serverPlaybackRate)) * 100}%)`,
+            top: initialTopOffset,
+            transform: "translateX(-50%)",
             width: 28,
-            height: 16,
+            height: THUMB_HEIGHT,
             background: "linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 50%, #1a1a1a 100%)",
             borderRadius: 3,
             border: "1px solid #3a3a3a",
@@ -944,6 +970,11 @@ export default function DJBoard({
 
   // Sync mixer state to audio graph
   useMixerSync(state.mixer);
+
+  // Debug: log FX state when it changes
+  useEffect(() => {
+    console.log("[DJBoard] FX state received:", state.mixer.fx);
+  }, [state.mixer.fx]);
 
   return (
     <div

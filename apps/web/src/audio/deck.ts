@@ -747,6 +747,10 @@ export class Deck {
   /**
    * Apply temporary pitch bend (nudge) for beat matching.
    * This temporarily adjusts the playback rate without modifying the base tempo.
+   * The nudge is relative to the current tempo fader setting, not to 1.0.
+   *
+   * IMPORTANT: This does NOT modify state.playbackRate, so BPM display stays stable.
+   * Only the audio source's playbackRate is temporarily modified.
    *
    * @param bendAmount - Amount to bend (-1 to 1, where 1 = +8% speed, -1 = -8% speed)
    */
@@ -762,9 +766,10 @@ export class Deck {
     // Clamp bend amount to reasonable range
     const clampedBend = Math.max(-1, Math.min(1, bendAmount));
 
-    // Calculate temporary rate: 1.0 +/- 8% based on bend amount
+    // Calculate temporary rate: base rate +/- 8% based on bend amount
+    // Use state.playbackRate as base to respect tempo fader position
     const bendRange = 0.08; // 8% max bend
-    const tempRate = 1.0 + (clampedBend * bendRange);
+    const tempRate = this.state.playbackRate + (clampedBend * bendRange);
 
     // Apply without ramp for immediate effect (nudging needs to be instant)
     const ctx = getAudioContext();

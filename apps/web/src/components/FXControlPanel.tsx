@@ -56,9 +56,13 @@ export default function FXControlPanel({
   }, []);
 
   // Handle FX type change
+  // When selecting a type (ECHO/REVERB/FILTER), automatically enable the FX
+  // When selecting OFF, disable the FX as well
   const handleTypeChange = useCallback(
     (type: FxType) => {
       console.log("[FXControlPanel] Type change clicked:", type, "current type:", fxState.type);
+
+      // Send FX_SET to change the type
       console.log("[FXControlPanel] Sending FX_SET event with type:", type);
       sendEvent({
         type: "FX_SET",
@@ -70,8 +74,23 @@ export default function FXControlPanel({
           value: type,
         },
       });
+
+      // Auto-enable when selecting an effect, auto-disable when selecting "none"
+      const shouldEnable = type !== "none";
+      if (shouldEnable !== fxState.enabled) {
+        console.log("[FXControlPanel] Auto-toggling enabled:", shouldEnable);
+        sendEvent({
+          type: "FX_TOGGLE",
+          roomId,
+          clientId,
+          clientSeq: nextSeq(),
+          payload: {
+            enabled: shouldEnable,
+          },
+        });
+      }
     },
-    [sendEvent, roomId, clientId, nextSeq, fxState.type]
+    [sendEvent, roomId, clientId, nextSeq, fxState.type, fxState.enabled]
   );
 
   // Handle toggle
@@ -91,6 +110,9 @@ export default function FXControlPanel({
 
   const isActive = fxState.type !== "none" && fxState.enabled;
   const fxLabel = fxState.type === "none" ? "OFF" : fxState.type.toUpperCase();
+
+  // Debug: log current fxState on every render
+  console.log("[FXControlPanel] Render - fxState:", fxState);
 
   // SVG-aligned positions (relative to container at x=688, y=346)
   // Slider holes: left at x=730 w=18, right at x=852 w=18, both at y=384 h=84
@@ -233,7 +255,7 @@ export default function FXControlPanel({
             borderRadius: "3px",
             padding: "2px 4px",
             textAlign: "center",
-            border: isActive ? "1px solid #3b82f6" : "1px solid #1a1a1a",
+            border: isActive ? "1px solid #3b82f6" : fxState.type !== "none" && !fxState.enabled ? "1px solid #ef4444" : "1px solid #1a1a1a",
             marginBottom: "1px",
           }}
         >
@@ -242,11 +264,11 @@ export default function FXControlPanel({
               fontSize: "9px",
               fontWeight: 700,
               fontFamily: "monospace",
-              color: isActive ? "#60a5fa" : "#6b7280",
+              color: isActive ? "#60a5fa" : fxState.type !== "none" && !fxState.enabled ? "#ef4444" : "#6b7280",
               letterSpacing: "0.02em",
             }}
           >
-            {fxState.enabled ? fxLabel : "BYPASS"}
+            {fxState.type === "none" ? "OFF" : fxState.enabled ? fxLabel : `${fxLabel} [BYP]`}
           </div>
         </div>
 
@@ -288,38 +310,35 @@ export default function FXControlPanel({
           ))}
         </div>
 
-        {/* ON/OFF Toggle - Full width */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log("[FXControlPanel] ON/OFF toggle clicked - fxType=", fxState.type, "enabled=", fxState.enabled);
-            if (fxState.type !== "none") {
+        {/* BYPASS Toggle - Only show when an effect is selected */}
+        {fxState.type !== "none" && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log("[FXControlPanel] BYPASS toggle clicked - fxType=", fxState.type, "enabled=", fxState.enabled);
               console.log("[FXControlPanel] Executing toggle action");
               handleToggle();
-            } else {
-              console.log("[FXControlPanel] Toggle blocked - no FX type selected");
-            }
-          }}
-          style={{
-            padding: "2px 4px",
-            fontSize: "0.45rem",
-            fontWeight: 700,
-            background: fxState.enabled ? "#22c55e" : "#1a1a1a",
-            color: fxState.enabled ? "#fff" : "#6b7280",
-            border: "1px solid #2a2a2a",
-            borderRadius: "2px",
-            cursor: fxState.type === "none" ? "not-allowed" : "pointer",
-            opacity: fxState.type === "none" ? 0.4 : 1,
-            letterSpacing: "0.03em",
-            transition: "all 0.1s",
-            pointerEvents: "auto",
-          }}
-          title={fxState.type === "none" ? "Select an FX type first" : fxState.enabled ? "Turn OFF" : "Turn ON"}
-        >
-          {fxState.enabled ? "ON" : "OFF"}
-        </button>
+            }}
+            style={{
+              padding: "2px 4px",
+              fontSize: "0.45rem",
+              fontWeight: 700,
+              background: fxState.enabled ? "#22c55e" : "#ef4444",
+              color: "#fff",
+              border: "1px solid #2a2a2a",
+              borderRadius: "2px",
+              cursor: "pointer",
+              letterSpacing: "0.03em",
+              transition: "all 0.1s",
+              pointerEvents: "auto",
+            }}
+            title={fxState.enabled ? "Click to BYPASS effect" : "Click to ENABLE effect"}
+          >
+            {fxState.enabled ? "ACTIVE" : "BYPASS"}
+          </button>
+        )}
 
         {/* Parameter Info - Only show when active */}
         {fxState.type !== "none" && paramInfo && (

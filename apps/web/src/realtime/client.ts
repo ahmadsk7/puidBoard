@@ -635,6 +635,63 @@ export class RealtimeClient {
       }
     });
 
+    // FX_SET - update FX parameters
+    this.socket.on("FX_SET", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      payload: {
+        param: "type" | "wetDry" | "param";
+        value: string | number;
+      };
+    }) => {
+      try {
+        if (!this.state) return;
+        console.log("[RealtimeClient] FX_SET received:", event.payload);
+
+        const mixer = { ...this.state.mixer };
+        mixer.fx = { ...mixer.fx };
+
+        const { param, value } = event.payload;
+        if (param === "type") {
+          mixer.fx.type = value as "echo" | "reverb" | "filter" | "none";
+        } else if (param === "wetDry") {
+          mixer.fx.wetDry = value as number;
+        } else if (param === "param") {
+          mixer.fx.param = value as number;
+        }
+
+        this.state = { ...this.state, mixer };
+        this.notifyStateListeners();
+      } catch (error) {
+        console.error("[RealtimeClient] FX_SET handler error:", error);
+      }
+    });
+
+    // FX_TOGGLE - toggle FX enabled state
+    this.socket.on("FX_TOGGLE", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      payload: {
+        enabled: boolean;
+      };
+    }) => {
+      try {
+        if (!this.state) return;
+        console.log("[RealtimeClient] FX_TOGGLE received:", event.payload);
+
+        const mixer = { ...this.state.mixer };
+        mixer.fx = { ...mixer.fx };
+        mixer.fx.enabled = event.payload.enabled;
+
+        this.state = { ...this.state, mixer };
+        this.notifyStateListeners();
+      } catch (error) {
+        console.error("[RealtimeClient] FX_TOGGLE handler error:", error);
+      }
+    });
+
     // Control ownership updates
     // Server sends: { type: "CONTROL_OWNERSHIP", roomId, controlId, ownership }
     this.socket.on("CONTROL_OWNERSHIP", (event: {

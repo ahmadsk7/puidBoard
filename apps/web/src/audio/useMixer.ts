@@ -21,19 +21,33 @@ export function useMixerSync(mixerState: MixerState | null) {
   const lastJsonRef = useRef<string>("");
 
   useEffect(() => {
-    if (!mixerState) return;
-    if (!isAutoplayAllowed()) return;
+    if (!mixerState) {
+      console.log("[useMixerSync] No mixer state provided");
+      return;
+    }
+    if (!isAutoplayAllowed()) {
+      console.log("[useMixerSync] Autoplay not allowed yet");
+      return;
+    }
 
     // Initialize mixer graph if needed
     if (!isMixerGraphInitialized()) {
+      console.log("[useMixerSync] Initializing mixer graph");
       initMixerGraph();
     }
 
     // Apply state when it changes (compare JSON for deep equality)
     const json = JSON.stringify(mixerState);
     if (json !== lastJsonRef.current) {
+      console.log("[useMixerSync] Mixer state changed, applying:", {
+        fxType: mixerState.fx.type,
+        fxEnabled: mixerState.fx.enabled,
+        fxWetDry: mixerState.fx.wetDry
+      });
       applyMixerState(mixerState);
       lastJsonRef.current = json;
+    } else {
+      console.log("[useMixerSync] Mixer state unchanged (JSON match)");
     }
   }, [mixerState]);
 }

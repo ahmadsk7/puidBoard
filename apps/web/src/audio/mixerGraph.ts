@@ -283,8 +283,16 @@ function updateMasterVolume(volume: number): void {
  * Apply full mixer state to audio graph.
  */
 export function applyMixerState(mixer: MixerState): void {
+  console.log("[mixerGraph] applyMixerState called:", {
+    fxType: mixer.fx.type,
+    fxEnabled: mixer.fx.enabled,
+    initialized: mixerGraph.initialized,
+  });
+
   if (!mixerGraph.initialized) {
+    console.log("[mixerGraph] Not initialized, attempting to init...");
     if (!initMixerGraph()) {
+      console.warn("[mixerGraph] Failed to initialize mixer graph");
       return;
     }
   }
@@ -304,6 +312,7 @@ export function applyMixerState(mixer: MixerState): void {
   updateMasterVolume(mixer.masterVolume);
 
   // Update FX
+  console.log("[mixerGraph] About to call applyFXState with:", mixer.fx);
   applyFXState(mixer.fx);
 }
 
