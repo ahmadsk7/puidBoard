@@ -18,6 +18,10 @@ RUN pnpm install --frozen-lockfile --prod
 FROM base AS builder
 WORKDIR /app
 
+# Accept build arguments for Next.js public env vars
+ARG NEXT_PUBLIC_REALTIME_URL=https://puidboard-realtime.fly.dev
+ENV NEXT_PUBLIC_REALTIME_URL=${NEXT_PUBLIC_REALTIME_URL}
+
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
