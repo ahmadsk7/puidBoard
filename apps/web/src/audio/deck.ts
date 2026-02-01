@@ -208,7 +208,8 @@ export class Deck {
     this.currentAnalysisId++;
     const analysisId = this.currentAnalysisId;
 
-    console.log(`[deck-${this.state.deckId}] Starting analysis #${analysisId}`);
+    console.log(`[deck-${this.state.deckId}] ========== STARTING AUDIO ANALYSIS #${analysisId} ==========`);
+    console.log(`[deck-${this.state.deckId}] Buffer info: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}`);
 
     // Set analyzing status
     this.state.analysis = {
@@ -237,7 +238,11 @@ export class Deck {
 
       // Detect BPM (async, slower)
       console.log(`[deck-${this.state.deckId}] Starting BPM detection for analysis #${analysisId}...`);
+      console.log(`[deck-${this.state.deckId}] About to call detectBPM()...`);
+
       const bpm = await detectBPM(buffer);
+
+      console.log(`[deck-${this.state.deckId}] detectBPM() returned: ${bpm} (type: ${typeof bpm})`);
 
       // Check if this analysis was cancelled while BPM detection was running
       if (this.currentAnalysisId !== analysisId) {
@@ -245,14 +250,16 @@ export class Deck {
         return;
       }
 
+      console.log(`[deck-${this.state.deckId}] Setting analysis state with BPM=${bpm}`);
       this.state.analysis = {
         ...this.state.analysis,
         bpm,
         status: "complete",
       };
+      console.log(`[deck-${this.state.deckId}] State updated. analysis.bpm is now: ${this.state.analysis.bpm}`);
       this.notify();
 
-      console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} complete: BPM=${bpm ?? "N/A"}`);
+      console.log(`[deck-${this.state.deckId}] ========== ANALYSIS #${analysisId} COMPLETE: BPM=${bpm ?? "N/A"} ==========`);
     } catch (error) {
       // Check if cancelled before setting error
       if (this.currentAnalysisId !== analysisId) {

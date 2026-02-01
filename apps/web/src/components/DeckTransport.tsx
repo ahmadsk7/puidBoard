@@ -115,17 +115,18 @@ export default function DeckTransport({
 
     const serverRate = serverState.playbackRate;
     const lastSyncedRate = lastSyncedServerRateRef.current;
+    const localRate = deck.playbackRate;
 
     // Only sync if the SERVER rate has changed since our last sync
     // This ignores local rate changes and only responds to server updates
     const serverRateChanged = Math.abs(serverRate - lastSyncedRate) > 0.001;
 
     if (serverRateChanged) {
-      console.log(`[DeckTransport-${deckId}] Syncing playbackRate from server: ${lastSyncedRate.toFixed(3)} -> ${serverRate.toFixed(3)}`);
+      console.log(`[DeckTransport-${deckId}] Server rate changed: ${lastSyncedRate.toFixed(3)} -> ${serverRate.toFixed(3)} (local: ${localRate.toFixed(3)})`);
       lastSyncedServerRateRef.current = serverRate;
       setPlaybackRate(serverRate);
     }
-  }, [serverState.playbackRate, isLoaded, setPlaybackRate, deckId]);
+  }, [serverState.playbackRate, isLoaded, setPlaybackRate, deckId, deck.playbackRate]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(async () => {

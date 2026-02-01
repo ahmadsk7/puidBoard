@@ -6,8 +6,17 @@
  */
 export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
   try {
-    console.log('[BPM Detector] Starting detection...');
+    console.log('[BPM Detector] ========== STARTING BPM DETECTION ==========');
     console.log(`[BPM Detector] Buffer: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}, channels=${buffer.numberOfChannels}`);
+    console.log(`[BPM Detector] Total samples: ${buffer.length}`);
+
+    // Sanity check - ensure buffer has audio data
+    const rawChannelData = buffer.getChannelData(0);
+    let maxSample = 0;
+    for (let i = 0; i < Math.min(rawChannelData.length, 10000); i++) {
+      maxSample = Math.max(maxSample, Math.abs(rawChannelData[i] ?? 0));
+    }
+    console.log(`[BPM Detector] Sample check - max amplitude in first 10k samples: ${maxSample.toFixed(4)}`);
 
     // Use first 30 seconds for analysis (sufficient for BPM detection)
     const analysisDuration = Math.min(30, buffer.duration);
@@ -60,6 +69,7 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
               console.log(`[BPM Detector] Corrected ${bpm.toFixed(1)} → ${rounded} BPM (octave correction)`);
             }
             console.log(`[BPM Detector] ✓ Detection successful: ${rounded} BPM (threshold: ${(thresholdPercent * 100).toFixed(0)}%)`);
+            console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (SUCCESS) ==========');
             return rounded;
           }
         }
@@ -68,10 +78,12 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
       }
     }
 
-    console.warn('[BPM Detector] ✗ All detection attempts failed');
+    console.warn('[BPM Detector] ✗ All detection attempts failed - returning null');
+    console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (FAILED) ==========');
     return null;
   } catch (error) {
-    console.warn('[BPM Detector] Detection failed with error:', error);
+    console.error('[BPM Detector] Detection failed with error:', error);
+    console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (ERROR) ==========');
     return null;
   }
 }

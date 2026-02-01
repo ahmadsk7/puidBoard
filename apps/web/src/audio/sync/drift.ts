@@ -26,9 +26,9 @@ const MIN_PLAYBACK_RATE = 0.95;
 const MAX_PLAYBACK_RATE = 1.05;
 
 /** Rate adjustment amounts */
-const RATE_CATCH_UP = 1.02; // Speed up when behind
-const RATE_SLOW_DOWN = 0.98; // Slow down when ahead
 const RATE_NORMAL = 1.0;
+// NOTE: RATE_CATCH_UP and RATE_SLOW_DOWN removed - drift correction now uses
+// relative adjustments from userBaseRate (+/- 0.02) instead of fixed rates
 
 /** Cooldown between corrections (ms) */
 const CORRECTION_COOLDOWN_MS = 500;
@@ -69,6 +69,8 @@ interface DeckDriftState {
   driftHistory: number[];
   /** Is currently in a correction phase */
   isCorreecting: boolean;
+  /** User-set base playback rate (from tempo fader) - drift correction is RELATIVE to this */
+  userBaseRate: number;
 }
 
 /** Drift state for both decks */
@@ -86,6 +88,7 @@ function createDefaultDriftState(): DeckDriftState {
     rateAdjustEndsAt: null,
     driftHistory: [],
     isCorreecting: false,
+    userBaseRate: RATE_NORMAL,
   };
 }
 
@@ -185,19 +188,19 @@ export function calculateDriftCorrection(
       state.rateAdjustEndsAt = null;
       state.rateAdjustStartedAt = null;
 
-      // If drift is now small, reset to normal rate
+      // If drift is now small, return to user's base rate (not necessarily 1.0)
       if (Math.abs(smoothedDriftMs) < DRIFT_IGNORE_MS) {
-        state.currentRate = RATE_NORMAL;
+        state.currentRate = state.userBaseRate;
         state.isCorreecting = false;
         state.lastCorrectionAt = now;
 
         console.log(
-          `[drift-${deckId}] Rate adjustment complete, drift resolved: ${smoothedDriftMs.toFixed(1)}ms`
+          `[drift-${deckId}] Rate adjustment complete, drift resolved: ${smoothedDriftMs.toFixed(1)}ms, returning to userBaseRate=${state.userBaseRate.toFixed(3)}`
         );
 
         return {
           type: "rate_adjust",
-          playbackRate: RATE_NORMAL,
+          playbackRate: state.userBaseRate,
           driftMs: smoothedDriftMs,
           applied: true,
         };
@@ -221,13 +224,13 @@ export function calculateDriftCorrection(
 
   // Ignore very small drifts
   if (absDriftMs < DRIFT_IGNORE_MS) {
-    // If we were correcting and now drift is small, reset to normal
-    if (state.currentRate !== RATE_NORMAL) {
-      state.currentRate = RATE_NORMAL;
+    // If we were correcting and now drift is small, return to user's base rate
+    if (state.currentRate !== state.userBaseRate) {
+      state.currentRate = state.userBaseRate;
       state.isCorreecting = false;
       return {
         type: "rate_adjust",
-        playbackRate: RATE_NORMAL,
+        playbackRate: state.userBaseRate,
         driftMs: smoothedDriftMs,
         applied: true,
       };
@@ -235,7 +238,7 @@ export function calculateDriftCorrection(
 
     return {
       type: "none",
-      playbackRate: RATE_NORMAL,
+      playbackRate: state.userBaseRate,
       driftMs: smoothedDriftMs,
       applied: false,
       reason: "drift_negligible",
@@ -246,17 +249,17 @@ export function calculateDriftCorrection(
   if (absDriftMs > DRIFT_SNAP_MS) {
     const snapToSec = expectedPlayheadSec;
     state.lastCorrectionAt = now;
-    state.currentRate = RATE_NORMAL;
+    state.currentRate = state.userBaseRate; // Return to user's base rate after snap
     state.isCorreecting = false;
     state.driftHistory = []; // Reset history after snap
 
     console.log(
-      `[drift-${deckId}] SNAP correction: drift=${smoothedDriftMs.toFixed(1)}ms, snapping to ${snapToSec.toFixed(2)}s`
+      `[drift-${deckId}] SNAP correction: drift=${smoothedDriftMs.toFixed(1)}ms, snapping to ${snapToSec.toFixed(2)}s, userBaseRate=${state.userBaseRate.toFixed(3)}`
     );
 
     const correction: DriftCorrection = {
       type: "snap",
-      playbackRate: RATE_NORMAL,
+      playbackRate: state.userBaseRate,
       snapToSec,
       driftMs: smoothedDriftMs,
       applied: true,
@@ -267,9 +270,12 @@ export function calculateDriftCorrection(
   }
 
   // Medium drift - rate adjustment
+  // FIXED: Apply correction RELATIVE to user's base rate, not to 1.0
   if (absDriftMs >= DRIFT_IGNORE_MS) {
-    // Determine rate direction
-    const newRate = smoothedDriftMs > 0 ? RATE_SLOW_DOWN : RATE_CATCH_UP;
+    // Determine rate direction - adjust relative to user's tempo setting
+    const baseRate = state.userBaseRate;
+    const rateAdjustment = smoothedDriftMs > 0 ? -0.02 : 0.02; // Slow down if ahead, speed up if behind
+    const newRate = baseRate + rateAdjustment;
 
     // Clamp rate to bounds
     const clampedRate = Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, newRate));
@@ -281,7 +287,7 @@ export function calculateDriftCorrection(
     state.isCorreecting = true;
 
     console.log(
-      `[drift-${deckId}] Rate correction: drift=${smoothedDriftMs.toFixed(1)}ms, rate=${clampedRate.toFixed(3)}`
+      `[drift-${deckId}] Rate correction: drift=${smoothedDriftMs.toFixed(1)}ms, baseRate=${baseRate.toFixed(3)}, adjustedRate=${clampedRate.toFixed(3)}`
     );
 
     const correction: DriftCorrection = {
@@ -342,4 +348,31 @@ export function resetToNormalRate(deckId: DeckId): void {
   state.rateAdjustStartedAt = null;
   state.rateAdjustEndsAt = null;
   state.isCorreecting = false;
+}
+
+/**
+ * Set the user's base playback rate (from tempo fader).
+ * Drift correction will be calculated relative to this rate, not 1.0.
+ * This allows users to change tempo without drift correction fighting back.
+ */
+export function setUserBaseRate(deckId: DeckId, rate: number): void {
+  const state = deckDriftState[deckId];
+  const oldRate = state.userBaseRate;
+  state.userBaseRate = rate;
+
+  // When user changes tempo, reset drift correction state to prevent fighting
+  state.driftHistory = [];
+  state.isCorreecting = false;
+  state.rateAdjustStartedAt = null;
+  state.rateAdjustEndsAt = null;
+  state.currentRate = rate;
+
+  console.log(`[drift-${deckId}] User base rate updated: ${oldRate.toFixed(3)} -> ${rate.toFixed(3)}`);
+}
+
+/**
+ * Get the user's base playback rate for a deck.
+ */
+export function getUserBaseRate(deckId: DeckId): number {
+  return deckDriftState[deckId].userBaseRate;
 }

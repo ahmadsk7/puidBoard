@@ -16,6 +16,7 @@ import DeckTransport from "./DeckTransport";
 import FXControlPanel from "./FXControlPanel";
 import { useMixerSync } from "@/audio/useMixer";
 import { useDeck, getDeck } from "@/audio/useDeck";
+import { setUserBaseRate } from "@/audio/sync/drift";
 import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
 import QueuePanel from "./QueuePanel";
@@ -653,6 +654,10 @@ const TempoFader = memo(function TempoFader({
       localValueRef.current = faderValue;
       updateThumbPosition(faderValue);
 
+      // Update drift correction's user base rate when receiving server updates
+      // This ensures drift correction knows about tempo changes from other clients
+      setUserBaseRate(deckId, serverPlaybackRate);
+
       // Also sync local audio playback rate
       const deck = getDeck(deckId);
       if (deck) {
@@ -733,6 +738,10 @@ const TempoFader = memo(function TempoFader({
 
     const playbackRate = faderToPlaybackRate(faderValue);
 
+    // CRITICAL: Update drift correction's user base rate
+    // This prevents drift correction from fighting against user tempo changes
+    setUserBaseRate(deckId, playbackRate);
+
     // Apply locally immediately for zero-latency response
     const deck = getDeck(deckId);
     if (deck) {
@@ -756,6 +765,10 @@ const TempoFader = memo(function TempoFader({
     updateThumbPosition(faderValue);
 
     const playbackRate = faderToPlaybackRate(faderValue);
+
+    // CRITICAL: Update drift correction's user base rate
+    // This prevents drift correction from fighting against user tempo changes
+    setUserBaseRate(deckId, playbackRate);
 
     // Apply locally immediately
     const deck = getDeck(deckId);

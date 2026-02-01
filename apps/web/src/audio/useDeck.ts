@@ -27,15 +27,34 @@ export function useDeck(deckId: "A" | "B") {
     const deck = deckRef.current;
     console.log(`[useDeck-${deckId}] Subscribing to deck state changes`);
 
+    // Track previous state for change detection (reduce log spam)
+    let lastBpm: number | null = null;
+    let lastStatus: string = "idle";
+    let lastTrackId: string | null = null;
+
     // Subscribe to state changes
     const unsubscribe = deck.subscribe((newState) => {
-      console.log(`[useDeck-${deckId}] State update - BPM: ${newState.analysis.bpm}, status: ${newState.analysis.status}, trackId: ${newState.trackId}`);
+      // Only log when significant values change (not on every playhead update)
+      const bpmChanged = newState.analysis.bpm !== lastBpm;
+      const statusChanged = newState.analysis.status !== lastStatus;
+      const trackChanged = newState.trackId !== lastTrackId;
+
+      if (bpmChanged || statusChanged || trackChanged) {
+        console.log(`[useDeck-${deckId}] State update - BPM: ${newState.analysis.bpm}, status: ${newState.analysis.status}, trackId: ${newState.trackId}`);
+        lastBpm = newState.analysis.bpm;
+        lastStatus = newState.analysis.status;
+        lastTrackId = newState.trackId;
+      }
+
       setState(newState);
     });
 
     // Initial state
     const initialState = deck.getState();
     console.log(`[useDeck-${deckId}] Initial state - BPM: ${initialState.analysis.bpm}, status: ${initialState.analysis.status}`);
+    lastBpm = initialState.analysis.bpm;
+    lastStatus = initialState.analysis.status;
+    lastTrackId = initialState.trackId;
     setState(initialState);
 
     return () => {
@@ -101,10 +120,8 @@ export function useDeck(deckId: "A" | "B") {
     ? Math.round(originalBpm * state.playbackRate)
     : null;
 
-  // Debug log BPM calculation
-  if (originalBpm !== null) {
-    console.log(`[useDeck-${deckId}] BPM calculation: ${originalBpm} × ${state.playbackRate.toFixed(3)} = ${currentBpm}`);
-  }
+  // NOTE: Removed excessive logging that fired on every render
+  // BPM calculation logging is now only in deck.ts when analysis completes
 
   return {
     state,
