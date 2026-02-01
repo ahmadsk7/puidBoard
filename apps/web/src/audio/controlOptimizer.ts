@@ -1,14 +1,25 @@
 /**
  * Professional-grade control optimization system for DJ components
  *
- * Provides ultra-low-latency visual feedback with smooth interpolation,
- * designed for professional DJ equipment feel (Native Instruments/Pioneer quality).
+ * Architecture follows Native Instruments, Pioneer DJ, and Serato patterns:
+ *
+ * Control Pipeline:
+ * pointer -> local state (immediate, no lag)
+ *         -> RAF render (smooth visual only)
+ *         -> network events @ 20-30hz (throttled)
+ *
+ * CRITICAL RULES:
+ * 1. LINEAR 1:1 mapping - NO easing curves (feels fake on instruments)
+ * 2. Local = never interpolate - immediate response
+ * 3. Remote = interpolate - smooth other users' movements
+ * 4. Event-based networking - send deltas with timestamps
  *
  * Performance targets:
- * - <5ms input latency (visual feedback)
+ * - <5ms local input latency (visual feedback)
  * - 60fps constant during interaction
  * - <1% CPU usage when idle
- * - Smooth interpolation between values (no stepping)
+ * - Zero jank on pointer move
+ * - Feels like real DJ hardware
  */
 
 import { useRef, useCallback, useEffect, useMemo } from "react";
@@ -21,17 +32,22 @@ import { useRef, useCallback, useEffect, useMemo } from "react";
 const TARGET_FPS = 60;
 const FRAME_TIME = 1000 / TARGET_FPS;
 
-/** Interpolation smoothing factors (higher = faster response) */
+/**
+ * Smoothing factors
+ * IMPORTANT: Local controls use INSTANT (1.0) for raw 1:1 mapping
+ * Only remote users get interpolation smoothing
+ */
 export const SMOOTHING = {
-  /** Ultra-fast: immediate visual feedback for knobs/faders */
-  INSTANT: 0.85,
-  /** Fast: responsive but smooth */
+  /** For local user - NO smoothing, raw 1:1 input */
+  INSTANT: 1.0,
+  /** For remote user interpolation - fast but smooth */
+  REMOTE_FAST: 0.25,
+  /** For remote user interpolation - balanced */
+  REMOTE_MEDIUM: 0.15,
+  /** Legacy compatibility values */
   FAST: 0.65,
-  /** Medium: balanced feel for most controls */
   MEDIUM: 0.45,
-  /** Slow: smooth momentum decay */
   SLOW: 0.25,
-  /** Very slow: gentle settling */
   GENTLE: 0.12,
 } as const;
 
@@ -49,15 +65,50 @@ export const PHYSICS = {
   MAX_VELOCITY: 50,
 } as const;
 
-/** Network throttle timing (ms) */
+/** Network throttle timing (ms) - optimized for 20-30hz */
 export const NETWORK_THROTTLE = {
-  /** Fast updates for real-time controls */
-  FAST: 16,
-  /** Normal update rate */
-  NORMAL: 33,
+  /** Fast updates for real-time controls (~30hz) */
+  FAST: 33,
+  /** Normal update rate (~20hz) */
+  NORMAL: 50,
   /** Slow updates for less critical data */
   SLOW: 100,
 } as const;
+
+// ============================================================================
+// CONTROL EVENT STRUCTURE (for network sync)
+// ============================================================================
+
+/**
+ * Control event with timestamp and delta for network sync
+ */
+export interface ControlMoveEvent {
+  type: "CONTROL_MOVE";
+  controlId: string;
+  timestamp: number;       // performance.now() for precision
+  value: number;           // Absolute value
+  delta?: number;          // For relative controls (jog wheel)
+  isLocalUser: boolean;    // Whether this is from the local user
+}
+
+/**
+ * Create a control move event with high-res timestamp
+ */
+export function createControlEvent(
+  controlId: string,
+  value: number,
+  delta?: number,
+  isLocalUser: boolean = true
+): ControlMoveEvent {
+  return {
+    type: "CONTROL_MOVE",
+    controlId,
+    timestamp: performance.now(),
+    value,
+    delta,
+    isLocalUser,
+  };
+}
 
 // ============================================================================
 // EASING FUNCTIONS
