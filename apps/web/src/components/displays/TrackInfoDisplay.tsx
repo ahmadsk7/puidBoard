@@ -4,18 +4,16 @@ import { DeckPlayState } from "../../audio/deck";
 export type TrackInfoDisplayProps = {
   deckId: "A" | "B";
   title: string | null;
-  bpm: number | null;
   playState: DeckPlayState;
   accentColor: string;
 };
 
 /**
- * Track Info Display - shows deck badge, track title, BPM, and status LED
+ * Track Info Display - shows deck badge, track title, and status LED
  */
 export function TrackInfoDisplay({
   deckId,
   title,
-  bpm,
   playState,
   accentColor,
 }: TrackInfoDisplayProps) {
@@ -29,14 +27,12 @@ export function TrackInfoDisplay({
       ? "#f59e0b" // Orange (loaded)
       : "#ef4444"; // Red (empty)
 
-  // Truncate title to ~30 characters
+  // Truncate title to ~40 characters (more space without BPM)
   const displayTitle = title
-    ? title.length > 30
-      ? `${title.slice(0, 30)}...`
+    ? title.length > 40
+      ? `${title.slice(0, 40)}...`
       : title
     : "No Track Loaded";
-
-  const displayBPM = bpm !== null ? `${bpm} BPM` : "---";
 
   return (
     <div
@@ -80,21 +76,6 @@ export function TrackInfoDisplay({
         }}
       >
         {displayTitle}
-      </div>
-
-      {/* BPM */}
-      <div
-        style={{
-          fontSize: "14px",
-          fontWeight: 700,
-          fontFamily: "monospace",
-          color: bpm !== null ? accentColor : "#6b7280",
-          flexShrink: 0,
-          minWidth: "70px",
-          textAlign: "right",
-        }}
-      >
-        {displayBPM}
       </div>
 
       {/* Status LED */}

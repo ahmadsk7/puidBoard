@@ -145,7 +145,6 @@ function DeckDisplay({
         <TrackInfoDisplay
           deckId={deckId}
           title={loadedItem?.title ?? null}
-          bpm={localDeck.bpm}
           playState={deck.playState}
           accentColor={accentColor}
         />

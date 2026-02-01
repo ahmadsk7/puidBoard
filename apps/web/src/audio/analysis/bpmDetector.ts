@@ -24,30 +24,36 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
     const envelope = calculateEnergyEnvelope(filtered, buffer.sampleRate);
     console.log(`[BPM Detector] Calculated energy envelope: ${envelope.length} frames`);
 
-    // Find peaks in envelope (onsets)
-    const peaks = findPeaks(envelope);
-    console.log(`[BPM Detector] Found ${peaks.length} peaks`);
+    // Try multiple thresholds (from strictest to most lenient)
+    const thresholds = [0.2, 0.15, 0.1, 0.05];
 
-    if (peaks.length < 2) {
-      console.warn('[BPM Detector] Not enough peaks found (minimum 2 required)');
-      return null; // Not enough peaks to detect tempo
+    for (const thresholdPercent of thresholds) {
+      console.log(`[BPM Detector] Attempting detection with ${(thresholdPercent * 100).toFixed(0)}% threshold...`);
+
+      // Find peaks in envelope (onsets)
+      const peaks = findPeaksWithThreshold(envelope, thresholdPercent);
+      console.log(`[BPM Detector] Found ${peaks.length} peaks with ${(thresholdPercent * 100).toFixed(0)}% threshold`);
+
+      if (peaks.length >= 2) {
+        // Use autocorrelation to find dominant period
+        const bpm = detectBPMFromPeaks(peaks);
+        console.log(`[BPM Detector] Calculated BPM: ${bpm}`);
+
+        // Constrain to reasonable BPM range
+        if (bpm && bpm >= 60 && bpm <= 180) {
+          const rounded = Math.round(bpm);
+          console.log(`[BPM Detector] ✓ Detection successful: ${rounded} BPM (threshold: ${(thresholdPercent * 100).toFixed(0)}%)`);
+          return rounded;
+        } else {
+          console.log(`[BPM Detector] BPM ${bpm} outside valid range (60-180), trying next threshold...`);
+        }
+      }
     }
 
-    // Use autocorrelation to find dominant period
-    const bpm = detectBPMFromPeaks(peaks);
-    console.log(`[BPM Detector] Calculated BPM: ${bpm}`);
-
-    // Constrain to reasonable BPM range
-    if (bpm && bpm >= 60 && bpm <= 180) {
-      const rounded = Math.round(bpm);
-      console.log(`[BPM Detector] Detection successful: ${rounded} BPM`);
-      return rounded;
-    }
-
-    console.warn(`[BPM Detector] BPM ${bpm} outside valid range (60-180)`);
+    console.warn('[BPM Detector] ✗ All detection attempts failed');
     return null;
   } catch (error) {
-    console.warn('[BPM Detector] Detection failed:', error);
+    console.warn('[BPM Detector] Detection failed with error:', error);
     return null;
   }
 }
@@ -113,11 +119,12 @@ function calculateEnergyEnvelope(data: Float32Array, sampleRate: number): Float3
 }
 
 /**
- * Find peaks in the energy envelope (onset detection)
+ * Find peaks with a specific threshold percentage
  */
-function findPeaks(envelope: Float32Array): number[] {
+function findPeaksWithThreshold(envelope: Float32Array, thresholdPercent: number): number[] {
   const peaks: number[] = [];
-  const threshold = calculateDynamicThreshold(envelope);
+  const max = Math.max(...envelope);
+  const threshold = max * thresholdPercent;
   const minPeakDistance = 5; // Minimum frames between peaks
 
   for (let i = 1; i < envelope.length - 1; i++) {
@@ -141,15 +148,6 @@ function findPeaks(envelope: Float32Array): number[] {
   return peaks;
 }
 
-/**
- * Calculate dynamic threshold as percentage of max energy
- */
-function calculateDynamicThreshold(envelope: Float32Array): number {
-  const max = Math.max(...envelope);
-  const threshold = max * 0.2; // 20% of max energy (lowered from 30% for better detection)
-  console.log(`[BPM Detector] Dynamic threshold: ${threshold.toFixed(6)} (max energy: ${max.toFixed(6)})`);
-  return threshold;
-}
 
 /**
  * Detect BPM from peak intervals using autocorrelation
