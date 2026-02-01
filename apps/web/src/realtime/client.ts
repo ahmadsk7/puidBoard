@@ -607,23 +607,29 @@ export class RealtimeClient {
     });
 
     // Control ownership updates
+    // Server sends: { type: "CONTROL_OWNERSHIP", roomId, controlId, ownership }
     this.socket.on("CONTROL_OWNERSHIP", (event: {
       roomId: string;
-      payload: { controlId: string; owner: { clientId: string; acquiredAt: number; lastMovedAt: number } | null };
+      controlId: string;
+      ownership: { clientId: string; acquiredAt: number; lastMovedAt: number } | null;
     }) => {
-      if (!this.state) return;
+      try {
+        if (!this.state) return;
 
-      const { controlId, owner } = event.payload;
-      const controlOwners = { ...this.state.controlOwners };
+        const { controlId, ownership } = event;
+        const controlOwners = { ...this.state.controlOwners };
 
-      if (owner) {
-        controlOwners[controlId] = owner;
-      } else {
-        delete controlOwners[controlId];
+        if (ownership) {
+          controlOwners[controlId] = ownership;
+        } else {
+          delete controlOwners[controlId];
+        }
+
+        this.state = { ...this.state, controlOwners };
+        this.notifyStateListeners();
+      } catch (error) {
+        console.error("[RealtimeClient] CONTROL_OWNERSHIP handler error:", error);
       }
-
-      this.state = { ...this.state, controlOwners };
-      this.notifyStateListeners();
     });
 
     this.socket.on("ROOM_LEFT", () => {
