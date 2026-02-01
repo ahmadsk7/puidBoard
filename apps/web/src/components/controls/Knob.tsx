@@ -252,7 +252,11 @@ const Knob = memo(function Knob({
     let totalDeltaY = 0;
     if (data.points.length > 1) {
       for (let i = 1; i < data.points.length; i++) {
-        totalDeltaY += data.points[i - 1].y - data.points[i].y;
+        const curr = data.points[i];
+        const prev = data.points[i - 1];
+        if (curr && prev) {
+          totalDeltaY += prev.y - curr.y;
+        }
       }
     } else {
       totalDeltaY = state.startY - data.y;
