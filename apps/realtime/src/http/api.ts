@@ -315,11 +315,12 @@ async function handleServeFile(
     };
     const contentType = mimeTypes[ext || ""] || "application/octet-stream";
 
+    // CORS is handled at the server level for file endpoints
+    // The main server.ts adds the Access-Control-Allow-Origin header
     res.writeHead(200, {
       "Content-Type": contentType,
       "Content-Length": buffer.length,
       "Cache-Control": "public, max-age=31536000", // 1 year
-      "Access-Control-Allow-Origin": "*",
     });
 
     if (headOnly) {

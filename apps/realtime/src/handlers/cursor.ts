@@ -1,6 +1,10 @@
 /**
  * Cursor event handler for CURSOR_MOVE events.
  * Handles throttling, state updates, and broadcast to room members.
+ *
+ * Security features:
+ * - Server-side throttling (already implemented)
+ * - Cursor position bounds validation
  */
 
 import { Server, Socket } from "socket.io";
@@ -11,6 +15,7 @@ import {
   THROTTLE,
 } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
+import { validateCursorPosition } from "../security/index.js";
 
 /** Track last cursor update time per client for throttling */
 const lastCursorUpdate: Map<string, number> = new Map();
@@ -57,6 +62,13 @@ export function handleCursorMove(
     return;
   }
   lastCursorUpdate.set(socket.id, now);
+
+  // Validate cursor position is within reasonable bounds
+  const cursorValidation = validateCursorPosition(payload.x, payload.y);
+  if (!cursorValidation.valid) {
+    // Silently drop invalid cursor positions (high frequency event)
+    return;
+  }
 
   // Update cursor in room state
   const cursor = updateCursorInRoom(roomId, clientId, payload, now);

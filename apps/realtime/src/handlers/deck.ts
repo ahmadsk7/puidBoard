@@ -10,6 +10,10 @@
  *
  * All deck actions are serialized through the server to ensure
  * deterministic, consistent state across all clients.
+ *
+ * Security features:
+ * - Combined rate limiting for all deck actions (100/minute)
+ * - Bounds validation for seek positions and cue points
  */
 
 import type { Server, Socket } from "socket.io";
@@ -29,6 +33,13 @@ import {
 } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 import { sendAcceptedAck, sendRejectedAck } from "../protocol/ack.js";
+import {
+  rateLimiter,
+  validateSeekPosition,
+  validateCuePosition,
+  logRateLimitViolation,
+  logValidationFailure,
+} from "../security/index.js";
 
 /**
  * Get deck from room by deck ID.
@@ -61,6 +72,14 @@ export function handleDeckLoad(
   if (!client || !client.roomId) {
     console.log(`[DECK_LOAD] unauthorized socket=${socket.id}`);
     sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_LOAD");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_LOAD", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
     return;
   }
 
@@ -159,6 +178,14 @@ export function handleDeckPlay(
     return;
   }
 
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_PLAY");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_PLAY", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
   const room = roomStore.getRoom(client.roomId);
   if (!room) {
     sendRejectedAck(socket, event.clientSeq, "", "Room not found");
@@ -242,6 +269,14 @@ export function handleDeckPause(
   if (!client || !client.roomId) {
     console.log(`[DECK_PAUSE] unauthorized socket=${socket.id}`);
     sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_PAUSE");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_PAUSE", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
     return;
   }
 
@@ -336,6 +371,14 @@ export function handleDeckCue(
     return;
   }
 
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_CUE");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_CUE", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
   const room = roomStore.getRoom(client.roomId);
   if (!room) {
     sendRejectedAck(socket, event.clientSeq, "", "Room not found");
@@ -359,11 +402,10 @@ export function handleDeckCue(
   // Set new cue point if provided
   if (cuePointSec !== undefined) {
     // Validate cue point is within track duration
-    if (deck.durationSec !== null && cuePointSec > deck.durationSec) {
-      console.log(
-        `[DECK_CUE] cue point beyond duration cue=${cuePointSec} duration=${deck.durationSec}`
-      );
-      sendRejectedAck(socket, event.clientSeq, "", "Cue point beyond track duration");
+    const cueValidation = validateCuePosition(cuePointSec, deck);
+    if (!cueValidation.valid) {
+      logValidationFailure("DECK_CUE", socket.id, cueValidation.error, cueValidation.code);
+      sendRejectedAck(socket, event.clientSeq, "", cueValidation.error);
       return;
     }
     deck.cuePointSec = cuePointSec;
@@ -434,6 +476,14 @@ export function handleDeckSeek(
     return;
   }
 
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_SEEK");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_SEEK", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
   const room = roomStore.getRoom(client.roomId);
   if (!room) {
     sendRejectedAck(socket, event.clientSeq, "", "Room not found");
@@ -455,11 +505,10 @@ export function handleDeckSeek(
   }
 
   // Validate seek position is within track duration
-  if (deck.durationSec !== null && positionSec > deck.durationSec) {
-    console.log(
-      `[DECK_SEEK] seek beyond duration pos=${positionSec} duration=${deck.durationSec}`
-    );
-    sendRejectedAck(socket, event.clientSeq, "", "Seek position beyond track duration");
+  const seekValidation = validateSeekPosition(positionSec, deck);
+  if (!seekValidation.valid) {
+    logValidationFailure("DECK_SEEK", socket.id, seekValidation.error, seekValidation.code);
+    sendRejectedAck(socket, event.clientSeq, "", seekValidation.error);
     return;
   }
 

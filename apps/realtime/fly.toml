@@ -7,9 +7,13 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+# Non-secret environment variables
+# Secrets (CORS_ORIGINS, REDIS_URL, SUPABASE_*) should be set with: fly secrets set KEY=value
 [env]
   PORT = "3001"
   NODE_ENV = "production"
+  # Note: Set CORS_ORIGINS as a secret for security:
+  # fly secrets set CORS_ORIGINS="https://puidboard.com,https://www.puidboard.com"
 
 # WebSocket-optimized settings
 [http_service]

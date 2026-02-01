@@ -9,7 +9,7 @@ const decks: { A: Deck | null; B: Deck | null } = { A: null, B: null };
 /**
  * Get or create a deck instance.
  */
-function getDeck(deckId: "A" | "B"): Deck {
+export function getDeck(deckId: "A" | "B"): Deck {
   if (!decks[deckId]) {
     decks[deckId] = new Deck(deckId);
   }

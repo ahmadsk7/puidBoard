@@ -24,6 +24,7 @@ import { registerDeckHandlers } from "../handlers/deck.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
 import { getPersistence } from "../rooms/persistence.js";
 import { idempotencyStore } from "./idempotency.js";
+import { rateLimiter } from "../security/index.js";
 
 /**
  * Register all protocol handlers on a socket.
@@ -258,10 +259,15 @@ async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promi
   // Clean up mixer throttle tracking
   clearMixerThrottle(socket.id);
 
-  // Get client info before leaving to release controls
+  // Get client info before leaving to release controls and clear rate limits
   const client = roomStore.getClient(socket.id);
   const clientIdForCleanup = client?.clientId;
   const roomIdForCleanup = client?.roomId;
+
+  // Clean up rate limit tracking
+  if (clientIdForCleanup) {
+    rateLimiter.clearClient(clientIdForCleanup);
+  }
 
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {
@@ -330,10 +336,15 @@ async function handleDisconnect(io: Server, socket: Socket, reason: string): Pro
   // Clean up mixer throttle tracking
   clearMixerThrottle(socket.id);
 
-  // Get client info before leaving to release controls
+  // Get client info before leaving to release controls and clear rate limits
   const client = roomStore.getClient(socket.id);
   const clientIdForCleanup = client?.clientId;
   const roomIdForCleanup = client?.roomId;
+
+  // Clean up rate limit tracking
+  if (clientIdForCleanup) {
+    rateLimiter.clearClient(clientIdForCleanup);
+  }
 
   const result = roomStore.leaveRoom(socket.id);
   if (!result) {

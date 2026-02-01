@@ -39,6 +39,8 @@ export interface DeckState {
   gainNode: GainNode | null;
   /** Current buffer source (recreated on each play) */
   source: AudioBufferSourceNode | null;
+  /** Current playback rate (1.0 = normal) */
+  playbackRate: number;
   /** Audio analysis data */
   analysis: {
     waveform: WaveformData | null;
@@ -74,6 +76,7 @@ export class Deck {
       durationSec: 0,
       gainNode: null,
       source: null,
+      playbackRate: 1.0,
       analysis: {
         waveform: null,
         bpm: null,
@@ -217,16 +220,26 @@ export class Deck {
 
   /**
    * Get current playhead position in seconds.
+   * Accounts for playback rate when calculating elapsed time.
    */
   getCurrentPlayhead(): number {
     if (this.state.playState === "playing" && this.state.startTime !== null) {
       const ctx = getAudioContext();
       if (ctx) {
         const elapsed = ctx.currentTime - this.state.startTime;
-        return Math.min(this.state.startOffset + elapsed, this.state.durationSec);
+        // Playback rate affects how much audio time passes per real time
+        const adjustedElapsed = elapsed * this.state.playbackRate;
+        return Math.min(this.state.startOffset + adjustedElapsed, this.state.durationSec);
       }
     }
     return this.state.playheadSec;
+  }
+
+  /**
+   * Get the current playback rate.
+   */
+  getPlaybackRate(): number {
+    return this.state.playbackRate;
   }
 
   /**
@@ -235,7 +248,7 @@ export class Deck {
   play(): void {
     const ctx = getAudioContext();
     const gainNode = this.ensureGainNode();
-    
+
     if (!ctx || !gainNode || !this.state.buffer) {
       console.warn(`[deck-${this.state.deckId}] Cannot play: no audio context or buffer`);
       return;
@@ -247,6 +260,7 @@ export class Deck {
     // Create new buffer source
     const source = ctx.createBufferSource();
     source.buffer = this.state.buffer;
+    source.playbackRate.value = this.state.playbackRate;
     source.connect(gainNode);
 
     // Handle track end
@@ -255,6 +269,7 @@ export class Deck {
         this.state.playState = "stopped";
         this.state.playheadSec = 0;
         this.state.source = null;
+        this.state.playbackRate = 1.0; // Reset rate on track end
         this.stopPlayheadUpdate();
         this.notify();
       }
@@ -271,7 +286,7 @@ export class Deck {
 
     // Start playhead update loop
     this.startPlayheadUpdate();
-    
+
     this.notify();
     console.log(`[deck-${this.state.deckId}] Playing from ${offset.toFixed(2)}s`);
   }
@@ -332,16 +347,228 @@ export class Deck {
    */
   seek(positionSec: number): void {
     const wasPlaying = this.state.playState === "playing";
-    
+    const currentRate = this.state.playbackRate;
+
     this.stopSource();
     this.state.playheadSec = Math.max(0, Math.min(positionSec, this.state.durationSec));
-    
+
     if (wasPlaying) {
-      this.play();
+      // Preserve playback rate when resuming
+      this.playWithRate(currentRate);
     } else {
       this.state.playState = "paused";
       this.notify();
     }
+  }
+
+  /**
+   * Set the playback rate with a smooth transition.
+   *
+   * @param rate - Target playback rate (0.5 to 2.0, 1.0 = normal)
+   * @param rampTimeMs - Time to ramp to the new rate (default 100ms)
+   */
+  setPlaybackRate(rate: number, rampTimeMs: number = 100): void {
+    const ctx = getAudioContext();
+    if (!ctx || !this.state.source) {
+      // No source playing, just update state for next play
+      this.state.playbackRate = rate;
+      return;
+    }
+
+    // Clamp rate to reasonable bounds
+    const clampedRate = Math.max(0.5, Math.min(2.0, rate));
+
+    // Update state immediately
+    const previousRate = this.state.playbackRate;
+    this.state.playbackRate = clampedRate;
+
+    // If we're playing, we need to:
+    // 1. Calculate current playhead based on old rate
+    // 2. Update startTime and startOffset to maintain position
+    // 3. Apply new rate to source
+    if (this.state.playState === "playing" && this.state.startTime !== null) {
+      // Calculate current position with old rate
+      const elapsed = ctx.currentTime - this.state.startTime;
+      const adjustedElapsed = elapsed * previousRate;
+      const currentPosition = this.state.startOffset + adjustedElapsed;
+
+      // Update timing references for new rate
+      this.state.startTime = ctx.currentTime;
+      this.state.startOffset = currentPosition;
+      this.state.playheadSec = currentPosition;
+
+      // Apply rate change with smooth ramp
+      const rampTimeSec = rampTimeMs / 1000;
+      this.state.source.playbackRate.setTargetAtTime(
+        clampedRate,
+        ctx.currentTime,
+        rampTimeSec / 3 // Time constant (reaches ~95% in rampTimeSec)
+      );
+    }
+
+    this.notify();
+  }
+
+  /**
+   * Play from current position with a specific playback rate.
+   * Used internally to preserve rate after seek.
+   */
+  private playWithRate(rate: number): void {
+    const ctx = getAudioContext();
+    const gainNode = this.ensureGainNode();
+
+    if (!ctx || !gainNode || !this.state.buffer) {
+      console.warn(`[deck-${this.state.deckId}] Cannot play: no audio context or buffer`);
+      return;
+    }
+
+    // Stop existing source if any
+    this.stopSource();
+
+    // Create new buffer source
+    const source = ctx.createBufferSource();
+    source.buffer = this.state.buffer;
+    source.playbackRate.value = rate;
+    source.connect(gainNode);
+
+    // Handle track end
+    source.onended = () => {
+      if (this.state.playState === "playing") {
+        this.state.playState = "stopped";
+        this.state.playheadSec = 0;
+        this.state.source = null;
+        this.state.playbackRate = 1.0; // Reset rate on track end
+        this.stopPlayheadUpdate();
+        this.notify();
+      }
+    };
+
+    // Start from current playhead
+    const offset = this.state.playheadSec;
+    source.start(0, offset);
+
+    this.state.source = source;
+    this.state.startTime = ctx.currentTime;
+    this.state.startOffset = offset;
+    this.state.playState = "playing";
+    this.state.playbackRate = rate;
+
+    // Start playhead update loop
+    this.startPlayheadUpdate();
+
+    this.notify();
+  }
+
+  /**
+   * Seek to a position with a short crossfade for smooth correction.
+   * Used for drift snap corrections to avoid audible artifacts.
+   *
+   * @param positionSec - Target position in seconds
+   * @param crossfadeMs - Crossfade duration (default 50ms)
+   */
+  seekSmooth(positionSec: number, crossfadeMs: number = 50): void {
+    if (this.state.playState !== "playing") {
+      // If not playing, just do a normal seek
+      this.seek(positionSec);
+      return;
+    }
+
+    const ctx = getAudioContext();
+    const gainNode = this.ensureGainNode();
+
+    if (!ctx || !gainNode || !this.state.buffer) {
+      return;
+    }
+
+    const currentRate = this.state.playbackRate;
+    const crossfadeSec = crossfadeMs / 1000;
+    const targetPosition = Math.max(0, Math.min(positionSec, this.state.durationSec));
+
+    // Create a temporary gain node for crossfade
+    const oldSource = this.state.source;
+    const fadeOutGain = ctx.createGain();
+    fadeOutGain.gain.value = 1;
+    fadeOutGain.connect(gainNode);
+
+    // Create new source at target position
+    const newSource = ctx.createBufferSource();
+    newSource.buffer = this.state.buffer;
+    newSource.playbackRate.value = currentRate;
+
+    const fadeInGain = ctx.createGain();
+    fadeInGain.gain.value = 0;
+    newSource.connect(fadeInGain);
+    fadeInGain.connect(gainNode);
+
+    // Reconnect old source through fade out gain
+    if (oldSource) {
+      try {
+        oldSource.disconnect();
+        oldSource.connect(fadeOutGain);
+      } catch {
+        // Source may already be disconnected
+      }
+    }
+
+    // Start new source
+    newSource.start(0, targetPosition);
+
+    // Crossfade
+    const now = ctx.currentTime;
+    fadeOutGain.gain.setValueAtTime(1, now);
+    fadeOutGain.gain.linearRampToValueAtTime(0, now + crossfadeSec);
+    fadeInGain.gain.setValueAtTime(0, now);
+    fadeInGain.gain.linearRampToValueAtTime(1, now + crossfadeSec);
+
+    // Handle track end for new source
+    newSource.onended = () => {
+      if (this.state.playState === "playing") {
+        this.state.playState = "stopped";
+        this.state.playheadSec = 0;
+        this.state.source = null;
+        this.state.playbackRate = 1.0;
+        this.stopPlayheadUpdate();
+        this.notify();
+      }
+    };
+
+    // Cleanup old source after crossfade
+    setTimeout(() => {
+      if (oldSource) {
+        try {
+          oldSource.stop();
+          oldSource.disconnect();
+        } catch {
+          // Ignore
+        }
+      }
+      fadeOutGain.disconnect();
+
+      // Reconnect new source directly to gain node
+      try {
+        newSource.disconnect();
+        newSource.connect(gainNode);
+        fadeInGain.disconnect();
+      } catch {
+        // Ignore
+      }
+    }, crossfadeMs + 10);
+
+    // Update state
+    this.state.source = newSource;
+    this.state.startTime = ctx.currentTime;
+    this.state.startOffset = targetPosition;
+    this.state.playheadSec = targetPosition;
+
+    console.log(`[deck-${this.state.deckId}] Smooth seek to ${targetPosition.toFixed(2)}s`);
+    this.notify();
+  }
+
+  /**
+   * Reset playback rate to normal (1.0).
+   */
+  resetPlaybackRate(): void {
+    this.setPlaybackRate(1.0);
   }
 
   /**

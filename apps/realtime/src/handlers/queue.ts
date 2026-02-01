@@ -1,6 +1,11 @@
 /**
  * Queue event handlers for QUEUE_ADD, QUEUE_REMOVE, QUEUE_REORDER, QUEUE_EDIT.
  * Implements the authoritative queue as source of truth with acks for optimistic UI.
+ *
+ * Security features:
+ * - Rate limiting for all queue operations
+ * - Validation of queue indices
+ * - Permission checks for host-only actions
  */
 
 import { Server, Socket } from "socket.io";
@@ -21,6 +26,10 @@ import {
   sendRejectedAck,
   generateEventId,
 } from "../protocol/ack.js";
+import {
+  rateLimiter,
+  logRateLimitViolation,
+} from "../security/index.js";
 
 /**
  * Generate a unique queue item ID.
@@ -49,6 +58,14 @@ export function handleQueueAdd(
   const client = roomStore.getClient(socket.id);
   if (!client || client.roomId !== roomId || client.clientId !== clientId) {
     console.log(`[QUEUE_ADD] unauthorized socket=${socket.id}`);
+    return;
+  }
+
+  // Rate limit check
+  const rateResult = rateLimiter.checkAndRecord(clientId, "QUEUE_ADD");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("QUEUE_ADD", clientId, roomId, rateResult.error);
+    sendRejectedAck(socket, clientSeq, generateEventId(), rateResult.error);
     return;
   }
 
@@ -129,6 +146,14 @@ export function handleQueueRemove(
   const client = roomStore.getClient(socket.id);
   if (!client || client.roomId !== roomId || client.clientId !== clientId) {
     console.log(`[QUEUE_REMOVE] unauthorized socket=${socket.id}`);
+    return;
+  }
+
+  // Rate limit check
+  const rateResult = rateLimiter.checkAndRecord(clientId, "QUEUE_REMOVE");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("QUEUE_REMOVE", clientId, roomId, rateResult.error);
+    sendRejectedAck(socket, clientSeq, generateEventId(), rateResult.error);
     return;
   }
 
@@ -219,6 +244,14 @@ export function handleQueueReorder(
     return;
   }
 
+  // Rate limit check
+  const rateResult = rateLimiter.checkAndRecord(clientId, "QUEUE_REORDER");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("QUEUE_REORDER", clientId, roomId, rateResult.error);
+    sendRejectedAck(socket, clientSeq, generateEventId(), rateResult.error);
+    return;
+  }
+
   const room = roomStore.getRoom(roomId);
   if (!room) {
     sendRejectedAck(socket, clientSeq, generateEventId(), "Room not found");
@@ -302,6 +335,14 @@ export function handleQueueEdit(
   const client = roomStore.getClient(socket.id);
   if (!client || client.roomId !== roomId || client.clientId !== clientId) {
     console.log(`[QUEUE_EDIT] unauthorized socket=${socket.id}`);
+    return;
+  }
+
+  // Rate limit check
+  const rateResult = rateLimiter.checkAndRecord(clientId, "QUEUE_EDIT");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("QUEUE_EDIT", clientId, roomId, rateResult.error);
+    sendRejectedAck(socket, clientSeq, generateEventId(), rateResult.error);
     return;
   }
 

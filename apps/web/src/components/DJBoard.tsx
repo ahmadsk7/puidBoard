@@ -16,6 +16,7 @@ import { useMixerSync } from "@/audio/useMixer";
 import { useDeck } from "@/audio/useDeck";
 import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
+import QueuePanel from "./QueuePanel";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -24,8 +25,8 @@ export type DJBoardProps = {
   nextSeq: () => number;
 };
 
-// FIXED BOARD DIMENSIONS - Source of truth from SVG viewBox
-const BOARD_WIDTH = 1600;
+// FIXED BOARD DIMENSIONS - Extended to include queue panel
+const BOARD_WIDTH = 1920;
 const BOARD_HEIGHT = 600;
 
 // EXACT COORDINATES FROM SVG SOURCE (viewBox units)
@@ -505,8 +506,8 @@ export default function DJBoard({
 }: DJBoardProps) {
   const memberColors = buildMemberColorMap(state.members);
 
-  // Calculate responsive scale (board takes 55% of viewport)
-  const scale = useBoardScale(BOARD_WIDTH, BOARD_HEIGHT, 0.55);
+  // Calculate responsive scale - board fills viewport responsively
+  const scale = useBoardScale(BOARD_WIDTH, BOARD_HEIGHT, 0.95);
 
   // Sync mixer state to audio graph
   useMixerSync(state.mixer);
@@ -519,8 +520,7 @@ export default function DJBoard({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#0a0a0a",
-        padding: "20px",
+        background: "transparent",
         boxSizing: "border-box",
       }}
     >
@@ -533,11 +533,9 @@ export default function DJBoard({
           transform: `scale(${scale})`,
           transformOrigin: "center center",
           overflow: "visible",
-          boxShadow:
-            "0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255,255,255,0.05), inset 0 2px 20px rgba(0,0,0,0.4)",
         }}
       >
-        {/* SVG Background - The Source of Truth */}
+        {/* SVG Background - The Source of Truth (mixer only) */}
         <img
           src="/assets/dj-controls/backgrounds/mixer-panel-background.svg"
           alt="DJ Controller"
@@ -545,7 +543,7 @@ export default function DJBoard({
             position: "absolute",
             top: 0,
             left: 0,
-            width: BOARD_WIDTH,
+            width: 1600,
             height: BOARD_HEIGHT,
             pointerEvents: "none",
             userSelect: "none",
@@ -640,12 +638,33 @@ export default function DJBoard({
 
         {/* NOTE: Decorative screws are rendered in the SVG background */}
 
+        {/* Queue Panel - Integrated into board */}
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            width: 320,
+            height: "100%",
+            zIndex: 100,
+          }}
+        >
+          <QueuePanel
+            queue={state.queue}
+            members={state.members}
+            roomId={state.roomId}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
+          />
+        </div>
+
         {/* Version badge */}
         <div
           style={{
             position: "absolute",
             bottom: 8,
-            right: 16,
+            right: 336,
             fontSize: "0.5rem",
             color: "#4b5563",
             fontFamily: "monospace",

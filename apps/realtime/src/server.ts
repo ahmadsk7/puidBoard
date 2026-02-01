@@ -1,3 +1,13 @@
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+
+// Load environment variables from .env.local
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const envPath = resolve(__dirname, "../.env.local");
+dotenv.config({ path: envPath });
+
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { VERSION } from "@puid-board/shared";
@@ -7,9 +17,14 @@ import { handleTrackApiRequest } from "./http/api.js";
 import { initPersistence, getPersistence } from "./rooms/persistence.js";
 
 const PORT = process.env.PORT ?? 3001;
-const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [
-  "http://localhost:3000",
-];
+
+// Parse CORS origins from environment variable
+// Supports comma-separated list: "http://localhost:3000,https://puidboard.com"
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+  : ["http://localhost:3000"];
+
+console.log(`[realtime] CORS origins: ${CORS_ORIGINS.join(", ")}`);
 
 const httpServer = createServer(async (req, res) => {
   // Add CORS headers for all HTTP requests

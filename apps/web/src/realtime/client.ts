@@ -12,7 +12,15 @@ import type {
   MemberLeftEvent,
   TimePongEvent,
   Member,
+  DeckId,
 } from "@puid-board/shared";
+import {
+  processPong,
+  calculateDriftCorrection,
+  resetDriftState,
+  resetClockSync,
+} from "../audio/sync";
+import { getDeck } from "../audio/useDeck";
 
 const REALTIME_URL =
   process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
@@ -119,6 +127,11 @@ export class RealtimeClient {
     this.pendingRejoin = null;
     this.setStatus("disconnected");
     this.notifyStateListeners();
+
+    // Reset sync state on disconnect
+    resetClockSync();
+    resetDriftState("A");
+    resetDriftState("B");
   }
 
   /** Create a new room */
@@ -276,6 +289,9 @@ export class RealtimeClient {
       const rtt = now - event.t0;
       this.latencyMs = Math.round(rtt / 2);
       this.notifyLatencyListeners();
+
+      // Process pong for clock synchronization
+      processPong(event.t0, event.serverTs);
     });
 
     // Queue event handlers - update local state when server broadcasts queue changes
@@ -526,6 +542,11 @@ export class RealtimeClient {
           playheadSec: deckB.playheadSec,
         },
       };
+
+      // Apply drift correction for each deck
+      this.applyDriftCorrection("A", deckA);
+      this.applyDriftCorrection("B", deckB);
+
       this.notifyStateListeners();
     });
 
@@ -600,6 +621,66 @@ export class RealtimeClient {
       console.log("[RealtimeClient] error:", error);
       this.emitError(error);
     });
+  }
+
+  /**
+   * Apply drift correction for a deck based on server sync tick data.
+   */
+  private applyDriftCorrection(
+    deckId: DeckId,
+    serverDeckState: {
+      loadedTrackId: string | null;
+      playState: string;
+      serverStartTime: number | null;
+      playheadSec: number;
+    }
+  ): void {
+    // Only correct if the deck is playing
+    if (serverDeckState.playState !== "playing" || !serverDeckState.serverStartTime) {
+      return;
+    }
+
+    try {
+      const deck = getDeck(deckId);
+      const localState = deck.getState();
+
+      // Only correct if local deck is also playing
+      if (localState.playState !== "playing") {
+        return;
+      }
+
+      // Get current local playhead
+      const localPlayhead = deck.getCurrentPlayhead();
+
+      // Calculate drift correction
+      const correction = calculateDriftCorrection(
+        deckId,
+        localPlayhead,
+        serverDeckState.serverStartTime,
+        serverDeckState.playheadSec,
+        true // isPlaying
+      );
+
+      // Apply correction if needed
+      if (correction.applied) {
+        if (correction.type === "snap" && correction.snapToSec !== undefined) {
+          // Large drift - snap to position with crossfade
+          deck.seekSmooth(correction.snapToSec, 50);
+          console.log(
+            `[sync-${deckId}] Snap correction applied: drift=${correction.driftMs.toFixed(1)}ms -> ${correction.snapToSec.toFixed(2)}s`
+          );
+        } else if (correction.type === "rate_adjust") {
+          // Small drift - adjust playback rate
+          deck.setPlaybackRate(correction.playbackRate, 100);
+          console.log(
+            `[sync-${deckId}] Rate correction applied: drift=${correction.driftMs.toFixed(1)}ms, rate=${correction.playbackRate.toFixed(3)}`
+          );
+        }
+      }
+    } catch (error) {
+      // Deck may not be initialized yet, ignore
+      console.debug(`[sync-${deckId}] Could not apply drift correction:`, error);
+    }
   }
 
   private startPing(): void {

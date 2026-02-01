@@ -151,8 +151,9 @@ export default function QueuePanel({
   return (
     <aside
       style={{
-        width: 300,
-        background: "#0a0a0a",
+        width: "100%",
+        height: "100%",
+        background: "transparent",
         display: "flex",
         flexDirection: "column",
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",

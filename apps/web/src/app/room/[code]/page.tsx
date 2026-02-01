@@ -5,7 +5,6 @@ import { useRef, useState } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
-import QueuePanel from "@/components/QueuePanel";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
@@ -40,38 +39,25 @@ function RoomContent({
         latencyMs={latencyMs}
         autoplayEnabled={autoplayEnabled}
       />
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Main content area - centered DJ board */}
-        <main
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            padding: "24px",
-            fontFamily: "system-ui, sans-serif",
-            overflow: "auto",
-            background: "linear-gradient(180deg, #0a0a0b 0%, #111113 100%)",
-          }}
-        >
-          <DJBoard
-            state={state}
-            clientId={clientId}
-            sendEvent={sendEvent}
-            nextSeq={nextSeq}
-          />
-        </main>
-
-        {/* Queue panel (right sidebar) */}
-        <QueuePanel
-          queue={state.queue}
-          members={state.members}
-          roomId={state.roomId}
+      {/* Main content area - full width DJ board with integrated queue */}
+      <main
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "system-ui, sans-serif",
+          overflow: "hidden",
+          background: "linear-gradient(180deg, #0a0a0b 0%, #111113 100%)",
+        }}
+      >
+        <DJBoard
+          state={state}
           clientId={clientId}
           sendEvent={sendEvent}
           nextSeq={nextSeq}
         />
-      </div>
+      </main>
     </div>
   );
 }
