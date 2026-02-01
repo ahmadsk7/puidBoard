@@ -234,6 +234,51 @@ describe("@puid-board/shared", () => {
       };
       expect(ClientMutationEventSchema.safeParse(event).success).toBe(false);
     });
+
+    it("validates FX_SET event with type param", () => {
+      const event = {
+        ...baseMeta,
+        type: "FX_SET",
+        payload: { param: "type", value: "echo" },
+      };
+      expect(ClientMutationEventSchema.safeParse(event).success).toBe(true);
+    });
+
+    it("validates FX_SET event with wetDry param", () => {
+      const event = {
+        ...baseMeta,
+        type: "FX_SET",
+        payload: { param: "wetDry", value: 0.5 },
+      };
+      expect(ClientMutationEventSchema.safeParse(event).success).toBe(true);
+    });
+
+    it("validates FX_TOGGLE event", () => {
+      const event = {
+        ...baseMeta,
+        type: "FX_TOGGLE",
+        payload: { enabled: true },
+      };
+      expect(ClientMutationEventSchema.safeParse(event).success).toBe(true);
+    });
+
+    it("rejects FX_SET with invalid param", () => {
+      const event = {
+        ...baseMeta,
+        type: "FX_SET",
+        payload: { param: "invalid", value: 0.5 },
+      };
+      expect(ClientMutationEventSchema.safeParse(event).success).toBe(false);
+    });
+
+    it("rejects FX_SET with invalid FX type value", () => {
+      const event = {
+        ...baseMeta,
+        type: "FX_SET",
+        payload: { param: "type", value: "invalid_fx_type" },
+      };
+      expect(ClientMutationEventSchema.safeParse(event).success).toBe(false);
+    });
   });
 
   describe("validators", () => {

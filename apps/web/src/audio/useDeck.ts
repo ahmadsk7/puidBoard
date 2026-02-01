@@ -101,6 +101,11 @@ export function useDeck(deckId: "A" | "B") {
     ? Math.round(originalBpm * state.playbackRate)
     : null;
 
+  // Debug log BPM calculation
+  if (originalBpm !== null) {
+    console.log(`[useDeck-${deckId}] BPM calculation: ${originalBpm} × ${state.playbackRate.toFixed(3)} = ${currentBpm}`);
+  }
+
   return {
     state,
     loadTrack,

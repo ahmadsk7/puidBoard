@@ -576,13 +576,9 @@ export function handleDeckTempoSet(
     return;
   }
 
-  // Rate limit check (shared limit for all deck actions)
-  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_TEMPO_SET");
-  if (!rateResult.allowed) {
-    logRateLimitViolation("DECK_TEMPO_SET", client.clientId, client.roomId, rateResult.error);
-    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
-    return;
-  }
+  // NOTE: DECK_TEMPO_SET is a continuous control (like MIXER_SET)
+  // It uses client-side throttling (16ms) instead of server-side rate limiting
+  // This allows smooth tempo fader operation without hitting rate limits
 
   const room = roomStore.getRoom(client.roomId);
   if (!room) {

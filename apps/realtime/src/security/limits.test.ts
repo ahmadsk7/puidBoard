@@ -84,8 +84,10 @@ describe("Rate Limiter", () => {
       const blockedCue = rateLimiter.checkAndRecord(testClientId, "DECK_CUE");
       expect(blockedCue.allowed).toBe(false);
 
-      const blockedTempo = rateLimiter.checkAndRecord(testClientId, "DECK_TEMPO_SET");
-      expect(blockedTempo.allowed).toBe(false);
+      // DECK_TEMPO_SET is NOT rate limited (it's a continuous control like MIXER_SET)
+      // so it should still be allowed when DECK_ACTIONS limit is hit
+      const allowedTempo = rateLimiter.checkAndRecord(testClientId, "DECK_TEMPO_SET");
+      expect(allowedTempo.allowed).toBe(true);
 
       // DECK_SEEK has its own separate limit (600/min for scratching), so it should still be allowed
       const allowedSeek = rateLimiter.checkAndRecord(testClientId, "DECK_SEEK");
@@ -163,12 +165,12 @@ describe("isRateLimitedEventType", () => {
     expect(isRateLimitedEventType("DECK_PAUSE")).toBe(true);
     expect(isRateLimitedEventType("DECK_SEEK")).toBe(true);
     expect(isRateLimitedEventType("DECK_CUE")).toBe(true);
-    expect(isRateLimitedEventType("DECK_TEMPO_SET")).toBe(true);
   });
 
   it("should return false for non-rate-limited events", () => {
     expect(isRateLimitedEventType("CURSOR_MOVE")).toBe(false);
     expect(isRateLimitedEventType("MIXER_SET")).toBe(false);
+    expect(isRateLimitedEventType("DECK_TEMPO_SET")).toBe(false); // Continuous control
     expect(isRateLimitedEventType("UNKNOWN")).toBe(false);
   });
 });

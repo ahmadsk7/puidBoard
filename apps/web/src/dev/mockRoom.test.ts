@@ -102,6 +102,70 @@ describe("mockRoom", () => {
       expect(next.version).toBe(state.version + 1);
       expect(next.mixer.crossfader).toBe(0.75);
     });
+
+    it("applies FX_SET to change FX type", () => {
+      // Initial state should have FX type "none"
+      expect(state.mixer.fx.type).toBe("none");
+
+      const next = applyMutation(
+        state,
+        {
+          type: "FX_SET",
+          roomId,
+          clientId,
+          clientSeq: 1,
+          payload: { param: "type", value: "echo" },
+        },
+        Date.now(),
+        "ev-1"
+      );
+
+      expect(next.version).toBe(state.version + 1);
+      expect(next.mixer.fx.type).toBe("echo");
+      // Original state should not be mutated
+      expect(state.mixer.fx.type).toBe("none");
+    });
+
+    it("applies FX_SET to change wetDry", () => {
+      const next = applyMutation(
+        state,
+        {
+          type: "FX_SET",
+          roomId,
+          clientId,
+          clientSeq: 1,
+          payload: { param: "wetDry", value: 0.75 },
+        },
+        Date.now(),
+        "ev-1"
+      );
+
+      expect(next.version).toBe(state.version + 1);
+      expect(next.mixer.fx.wetDry).toBe(0.75);
+    });
+
+    it("applies FX_TOGGLE to enable/disable FX", () => {
+      // Initial state should have FX disabled
+      expect(state.mixer.fx.enabled).toBe(false);
+
+      const next = applyMutation(
+        state,
+        {
+          type: "FX_TOGGLE",
+          roomId,
+          clientId,
+          clientSeq: 1,
+          payload: { enabled: true },
+        },
+        Date.now(),
+        "ev-1"
+      );
+
+      expect(next.version).toBe(state.version + 1);
+      expect(next.mixer.fx.enabled).toBe(true);
+      // Original state should not be mutated
+      expect(state.mixer.fx.enabled).toBe(false);
+    });
   });
 
   describe("MockRoom", () => {

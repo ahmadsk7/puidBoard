@@ -21,6 +21,7 @@ import {
 } from "../handlers/controls.js";
 import { registerTimeHandlers } from "../handlers/time.js";
 import { registerDeckHandlers } from "../handlers/deck.js";
+import { registerFxHandlers } from "../handlers/fx.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
 import { getPersistence } from "../rooms/persistence.js";
 import { idempotencyStore } from "./idempotency.js";
@@ -64,6 +65,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register deck handlers
   registerDeckHandlers(io, socket);
+
+  // Register FX handlers
+  registerFxHandlers(io, socket);
 }
 
 /**

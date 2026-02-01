@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
 import { useDeck, syncDeckBPM } from "@/audio/useDeck";
 import { DeckControlPanel } from "./displays";
@@ -103,19 +103,29 @@ export default function DeckTransport({
     }
   }, [serverState.playheadSec, isLoaded, isPlaying, playhead, seek]);
 
-  // Sync playback rate with server (for DECK_TEMPO_SET events from other clients)
+  // Track the last server playback rate we synced to
+  // This prevents overriding local tempo changes while waiting for server confirmation
+  const lastSyncedServerRateRef = useRef(serverState.playbackRate);
+
+  // Sync playback rate with server (for DECK_TEMPO_SET events from OTHER clients)
+  // FIXED: Only sync when SERVER rate actually changes, not when local rate changes
+  // This prevents the race condition where local tempo changes get overwritten
   useEffect(() => {
     if (!isLoaded) return;
 
-    // Only sync if server rate differs from local rate
-    const localRate = deck.playbackRate;
     const serverRate = serverState.playbackRate;
-    const rateDiff = Math.abs(serverRate - localRate);
+    const lastSyncedRate = lastSyncedServerRateRef.current;
 
-    if (rateDiff > 0.001) {
+    // Only sync if the SERVER rate has changed since our last sync
+    // This ignores local rate changes and only responds to server updates
+    const serverRateChanged = Math.abs(serverRate - lastSyncedRate) > 0.001;
+
+    if (serverRateChanged) {
+      console.log(`[DeckTransport-${deckId}] Syncing playbackRate from server: ${lastSyncedRate.toFixed(3)} -> ${serverRate.toFixed(3)}`);
+      lastSyncedServerRateRef.current = serverRate;
       setPlaybackRate(serverRate);
     }
-  }, [serverState.playbackRate, isLoaded, deck.playbackRate, setPlaybackRate]);
+  }, [serverState.playbackRate, isLoaded, setPlaybackRate, deckId]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(async () => {
