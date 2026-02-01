@@ -1,6 +1,18 @@
 /**
  * Drift Detection and Correction
  *
+ * DRIFT CORRECTION DISABLED
+ *
+ * Drift correction was interfering with manual tempo changes.
+ * When user set tempo to +8%, drift would force it back down.
+ *
+ * Drift correction should only be used for:
+ * - Explicit multiplayer sync (sync button)
+ * - Beat-grid alignment (future feature)
+ *
+ * It should NEVER run automatically in the background.
+ *
+ * Original description (when enabled):
  * Monitors the difference between local audio playhead and expected position
  * based on server time, and applies corrections to keep playback synchronized.
  *
@@ -15,6 +27,14 @@
  */
 
 import type { DeckId } from "@puid-board/shared";
+
+/**
+ * DRIFT CORRECTION DISABLED
+ *
+ * Set to false to completely disable automatic drift correction.
+ * This prevents drift correction from interfering with user tempo changes.
+ */
+const DRIFT_CORRECTION_ENABLED = false;
 import { calculateExpectedPlayhead, isClockReliable } from "./clock";
 
 /** Drift thresholds in milliseconds */
@@ -130,6 +150,19 @@ export function calculateDriftCorrection(
   startPlayheadSec: number,
   isPlaying: boolean
 ): DriftCorrection {
+  // DRIFT CORRECTION DISABLED - see comments at top of file
+  // This prevents drift correction from interfering with user tempo changes.
+  // When enabled, drift correction would override user-set tempo values.
+  if (!DRIFT_CORRECTION_ENABLED) {
+    return {
+      type: "none",
+      playbackRate: deckDriftState[deckId].userBaseRate,
+      driftMs: 0,
+      applied: false,
+      reason: "drift_correction_disabled",
+    };
+  }
+
   const state = deckDriftState[deckId];
   const now = Date.now();
 
