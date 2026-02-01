@@ -197,8 +197,9 @@ export function getCoalescedPointerData(
     });
   }
 
-  const last = points[points.length - 1];
-  const first = lastPosition || points[0];
+  // Safe access with fallbacks
+  const last = points[points.length - 1] ?? { x: event.clientX, y: event.clientY, pressure: event.pressure };
+  const first = lastPosition || points[0] || last;
 
   // Calculate total delta from all coalesced points
   let totalDeltaX = 0;
@@ -213,9 +214,10 @@ export function getCoalescedPointerData(
         totalDeltaY += curr.y - prev.y;
       }
     }
-    if (lastPosition && points[0]) {
-      totalDeltaX += points[0].x - lastPosition.x;
-      totalDeltaY += points[0].y - lastPosition.y;
+    const firstPoint = points[0];
+    if (lastPosition && firstPoint) {
+      totalDeltaX += firstPoint.x - lastPosition.x;
+      totalDeltaY += firstPoint.y - lastPosition.y;
     }
   } else {
     totalDeltaX = last.x - first.x;
@@ -280,6 +282,8 @@ export function predictValue(
   for (let i = 1; i < predictor.samples.length; i++) {
     const prev = predictor.samples[i - 1];
     const curr = predictor.samples[i];
+    if (!prev || !curr) continue;
+
     const dt = curr.time - prev.time;
 
     if (dt > 0 && dt < 100) {
