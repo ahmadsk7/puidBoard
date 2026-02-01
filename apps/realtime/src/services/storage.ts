@@ -104,10 +104,12 @@ class StorageService {
 
   /**
    * Get CDN URL for a storage key.
+   * For Supabase, this creates a signed URL (async).
+   * For local storage, this returns a sync URL.
    */
-  getUrl(storageKey: string): string {
+  async getUrl(storageKey: string): Promise<string> {
     if (this.useSupabase) {
-      return supabaseStorage.getUrl(storageKey);
+      return await supabaseStorage.getSignedUrlForDownload(storageKey);
     }
     return `${CDN_BASE_URL}/${storageKey}`;
   }

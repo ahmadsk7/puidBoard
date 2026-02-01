@@ -80,9 +80,10 @@ class TrackService {
     // Check for deduplication
     const existingTrack = await trackStore.findByHash(uploadResult.fileHash);
     if (existingTrack) {
+      const url = await storageService.getUrl(existingTrack.storageKey);
       return {
         trackId: existingTrack.id,
-        url: storageService.getUrl(existingTrack.storageKey),
+        url,
         deduplication: true,
       };
     }
@@ -99,9 +100,10 @@ class TrackService {
       storageKey: uploadResult.storageKey,
     });
 
+    const url = await storageService.getUrl(track.storageKey);
     return {
       trackId: track.id,
-      url: storageService.getUrl(track.storageKey),
+      url,
       deduplication: false,
     };
   }
@@ -121,7 +123,7 @@ class TrackService {
     if (!track) {
       return null;
     }
-    return storageService.getUrl(track.storageKey);
+    return await storageService.getUrl(track.storageKey);
   }
 
   /**

@@ -76,7 +76,31 @@ class SupabaseStorageService {
   }
 
   /**
-   * Get public URL for a storage key
+   * Get URL for a storage key.
+   * Uses signed URL for reliable access (works regardless of bucket public/private setting).
+   * URL expires in 7 days - long enough for any DJ session.
+   */
+  async getSignedUrlForDownload(storageKey: string): Promise<string> {
+    if (!this.client || !this.isConfigured) {
+      throw new Error("Supabase storage not configured");
+    }
+
+    // Use signed URL for reliable access (7 days expiry = 604800 seconds)
+    const { data, error } = await this.client.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(storageKey, 604800);
+
+    if (error) {
+      console.error("[storage] Failed to create signed URL:", error);
+      throw new Error(`Failed to create download URL: ${error.message}`);
+    }
+
+    return data.signedUrl;
+  }
+
+  /**
+   * Get public URL for a storage key (legacy - may not work if bucket isn't public).
+   * @deprecated Use getSignedUrlForDownload instead for reliable access.
    */
   getUrl(storageKey: string): string {
     if (!this.client || !this.isConfigured) {
