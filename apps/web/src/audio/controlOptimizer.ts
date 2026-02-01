@@ -47,7 +47,10 @@ export function combineTransforms(...transforms: string[]): string {
   return transforms.join(' ');
 }
 
-export function getCoalescedPointerData(nativeEvent: PointerEvent): CoalescedPointerData {
+export function getCoalescedPointerData(
+  nativeEvent: PointerEvent,
+  _lastPosition?: { x: number; y: number } | null
+): CoalescedPointerData {
   const coalesced = 'getCoalescedEvents' in nativeEvent
     ? (nativeEvent as any).getCoalescedEvents()
     : [nativeEvent];
