@@ -473,8 +473,8 @@ export function getCoalescedPointerData(
     });
   }
 
-  const last = points[points.length - 1] || { x: event.clientX, y: event.clientY, pressure: event.pressure };
-  const first = lastPosition || points[0] || last;
+  const last = points[points.length - 1] ?? { x: event.clientX, y: event.clientY, pressure: event.pressure };
+  const first = lastPosition ?? points[0] ?? last;
 
   return {
     x: last.x,
@@ -482,8 +482,8 @@ export function getCoalescedPointerData(
     deltaX: last.x - first.x,
     deltaY: last.y - first.y,
     pressure: last.pressure,
-    tiltX: event.tiltX || 0,
-    tiltY: event.tiltY || 0,
+    tiltX: event.tiltX ?? 0,
+    tiltY: event.tiltY ?? 0,
     points,
     timestamp: event.timeStamp,
   };
@@ -541,6 +541,8 @@ export function predictValue(
   for (let i = 1; i < predictor.samples.length; i++) {
     const prev = predictor.samples[i - 1];
     const curr = predictor.samples[i];
+    if (!prev || !curr) continue;
+
     const dt = curr.time - prev.time;
 
     if (dt > 0) {
