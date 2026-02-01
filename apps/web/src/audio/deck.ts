@@ -226,6 +226,11 @@ export class Deck {
       // Check if this analysis was cancelled
       if (this.currentAnalysisId !== analysisId) {
         console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (waveform stage)`);
+        // FIXED: Update status to idle when cancelled (if no newer analysis is running)
+        if (this.state.analysis.status === "analyzing") {
+          this.state.analysis = { ...this.state.analysis, status: "idle" };
+          this.notify();
+        }
         return;
       }
 
@@ -238,7 +243,6 @@ export class Deck {
 
       // Detect BPM (async, slower)
       console.log(`[deck-${this.state.deckId}] Starting BPM detection for analysis #${analysisId}...`);
-      console.log(`[deck-${this.state.deckId}] About to call detectBPM()...`);
 
       const bpm = await detectBPM(buffer);
 
@@ -247,6 +251,7 @@ export class Deck {
       // Check if this analysis was cancelled while BPM detection was running
       if (this.currentAnalysisId !== analysisId) {
         console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (BPM stage), got BPM=${bpm}`);
+        // Don't update status here - a newer analysis is in progress
         return;
       }
 

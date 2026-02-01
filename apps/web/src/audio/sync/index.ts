@@ -20,14 +20,19 @@ export {
 } from "./clock";
 
 export {
-  // Drift correction
-  calculateDriftCorrection,
+  // Drift measurement (simplified API)
+  measureDrift,
+  recordSnapCorrection,
   getDeckDriftState,
-  getCurrentPlaybackRate,
   resetDriftState,
   resetAllDriftState,
+  subscribeToDriftMeasurement,
+  type DriftMeasurement,
+  type CorrectionType,
+  // Deprecated exports for backwards compatibility
+  calculateDriftCorrection,
+  getCurrentPlaybackRate,
   resetToNormalRate,
   subscribeToDriftCorrection,
   type DriftCorrection,
-  type CorrectionType,
 } from "./drift";

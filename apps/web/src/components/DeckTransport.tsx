@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
-import { useDeck, syncDeckBPM } from "@/audio/useDeck";
+import { useDeck, syncDeckBPM, getDeck } from "@/audio/useDeck";
 import { DeckControlPanel } from "./displays";
 import { initAudioEngine } from "@/audio/engine";
 
@@ -88,20 +88,32 @@ export default function DeckTransport({
   }, [serverState.playState, isLoaded, isPlaying, play, pause, stop]);
 
   // Sync playhead position with server (for DECK_SEEK events from other clients)
-  const playhead = deck.playhead;
   const { seek, setPlaybackRate } = deck;
+  // Track the last server playhead we synced to (for SEEK events)
+  const lastSyncedPlayheadRef = useRef(serverState.playheadSec);
 
   useEffect(() => {
     if (!isLoaded) return;
 
-    // Check if server playhead differs significantly from local playhead
-    const playheadDiff = Math.abs(serverState.playheadSec - playhead);
-    const shouldSync = playheadDiff > 0.5;
+    // Detect if this is a SEEK event from another client
+    // (server playhead jumped significantly from the last known server playhead)
+    const serverPlayheadJumped = Math.abs(serverState.playheadSec - lastSyncedPlayheadRef.current) > 0.3;
 
-    if (shouldSync && !isPlaying) {
-      seek(serverState.playheadSec);
+    if (serverPlayheadJumped) {
+      console.log(`[DeckTransport-${deckId}] Server playhead jumped: ${lastSyncedPlayheadRef.current.toFixed(2)}s -> ${serverState.playheadSec.toFixed(2)}s`);
+      lastSyncedPlayheadRef.current = serverState.playheadSec;
+
+      // IMPROVED: Sync during playback too, not just when paused
+      // Use seekSmooth for playing tracks to avoid audio glitches
+      if (isPlaying) {
+        // Get the deck instance and use seekSmooth for smooth playback correction
+        const deckInstance = getDeck(deckId);
+        deckInstance.seekSmooth(serverState.playheadSec, 50);
+      } else {
+        seek(serverState.playheadSec);
+      }
     }
-  }, [serverState.playheadSec, isLoaded, isPlaying, playhead, seek]);
+  }, [serverState.playheadSec, isLoaded, isPlaying, seek, deckId]);
 
   // Track the last server playback rate we synced to
   // This prevents overriding local tempo changes while waiting for server confirmation
@@ -191,17 +203,18 @@ export default function DeckTransport({
         payload: { deckId, playbackRate: 1.0 },
       });
     } else {
-      const success = syncDeckBPM(deckId);
-      if (success) {
+      // FIXED: Use the returned rate from syncDeckBPM to avoid race condition
+      const result = syncDeckBPM(deckId);
+      if (result.success && result.newRate !== undefined) {
         setIsSynced(true);
-        // Send the new playback rate to server
-        const newRate = deck.playbackRate;
+        // Use the rate returned by syncDeckBPM, not deck.playbackRate
+        // This avoids the race condition where state hasn't updated yet
         sendEvent({
           type: "DECK_TEMPO_SET",
           roomId,
           clientId,
           clientSeq: nextSeq(),
-          payload: { deckId, playbackRate: newRate },
+          payload: { deckId, playbackRate: result.newRate },
         });
       }
     }
@@ -221,6 +234,7 @@ export default function DeckTransport({
       onSync={handleSync}
       isSynced={isSynced}
       isPlaying={isPlaying}
+      playbackRate={deck.playbackRate}
     />
   );
 }

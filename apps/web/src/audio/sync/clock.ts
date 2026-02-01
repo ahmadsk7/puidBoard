@@ -13,10 +13,11 @@
 import { getAudioContext } from "../engine";
 
 /** Number of ping samples to keep for averaging */
-const SAMPLE_COUNT = 5;
+const SAMPLE_COUNT = 7;
 
 /** Minimum samples before we consider the offset reliable */
-const MIN_RELIABLE_SAMPLES = 3;
+// INCREASED: 5 samples provides better clock sync accuracy
+const MIN_RELIABLE_SAMPLES = 5;
 
 /** Maximum age of a sample before discarding (ms) */
 const MAX_SAMPLE_AGE_MS = 60_000;
@@ -218,15 +219,18 @@ export function getAudioTimeReference(): { audioNow: number; dateNow: number } |
  *
  * @param serverStartTime - When playback started (server timestamp)
  * @param startPlayheadSec - Playhead position when playback started
+ * @param playbackRate - Current playback rate (default 1.0)
  * @returns Expected current playhead in seconds
  */
 export function calculateExpectedPlayhead(
   serverStartTime: number,
-  startPlayheadSec: number
+  startPlayheadSec: number,
+  playbackRate: number = 1.0
 ): number {
   const serverNow = getServerTime();
   const elapsedMs = serverNow - serverStartTime;
-  return startPlayheadSec + elapsedMs / 1000;
+  // FIXED: Multiply by playbackRate to account for tempo changes
+  return startPlayheadSec + (elapsedMs / 1000) * playbackRate;
 }
 
 /**

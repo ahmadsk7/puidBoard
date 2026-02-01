@@ -285,6 +285,8 @@ export const SyncTickDeckStateSchema = z.object({
   playState: z.enum(["stopped", "playing", "paused", "cued"]),
   serverStartTime: z.number().nullable(),
   playheadSec: z.number().nonnegative(),
+  /** Playback rate for accurate sync calculations (1.0 = normal) */
+  playbackRate: z.number().min(0.5).max(2.0),
 });
 export type SyncTickDeckState = z.infer<typeof SyncTickDeckStateSchema>;
 

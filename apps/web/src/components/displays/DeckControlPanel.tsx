@@ -12,6 +12,8 @@ export type DeckControlPanelProps = {
   onSync?: () => void;
   isSynced?: boolean;
   isPlaying: boolean;
+  /** Current playback rate (1.0 = normal, 1.08 = +8%) */
+  playbackRate?: number;
 };
 
 /**
@@ -29,7 +31,13 @@ export function DeckControlPanel({
   onSync,
   isSynced = false,
   isPlaying,
+  playbackRate = 1.0,
 }: DeckControlPanelProps) {
+  // Calculate pitch percentage from playback rate
+  const pitchPercent = (playbackRate - 1.0) * 100;
+  const pitchSign = pitchPercent >= 0 ? "+" : "";
+  const pitchDisplay = `${pitchSign}${pitchPercent.toFixed(1)}%`;
+  const pitchColor = Math.abs(pitchPercent) > 0.1 ? "#f59e0b" : "#6b7280";
 
   // Status text based on play state
   const statusText =
@@ -150,11 +158,11 @@ export function DeckControlPanel({
             fontSize: "9px",
             fontWeight: 600,
             fontFamily: "monospace",
-            color: "#6b7280",
+            color: pitchColor,
             textAlign: "center",
           }}
         >
-          PITCH: +0.0%
+          PITCH: {pitchDisplay}
         </div>
       </div>
 

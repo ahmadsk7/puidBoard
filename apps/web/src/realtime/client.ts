@@ -16,7 +16,8 @@ import type {
 } from "@puid-board/shared";
 import {
   processPong,
-  calculateDriftCorrection,
+  measureDrift,
+  recordSnapCorrection,
   resetDriftState,
   resetClockSync,
 } from "../audio/sync";
@@ -732,6 +733,7 @@ export class RealtimeClient {
 
   /**
    * Apply drift correction for a deck based on server sync tick data.
+   * Uses the simplified drift measurement API - only snap corrections, no rate changes.
    */
   private applyDriftCorrection(
     deckId: DeckId,
@@ -740,9 +742,10 @@ export class RealtimeClient {
       playState: string;
       serverStartTime: number | null;
       playheadSec: number;
+      playbackRate?: number;
     }
   ): void {
-    // Only correct if the deck is playing
+    // Only measure drift if the deck is playing
     if (serverDeckState.playState !== "playing" || !serverDeckState.serverStartTime) {
       return;
     }
@@ -751,7 +754,7 @@ export class RealtimeClient {
       const deck = getDeck(deckId);
       const localState = deck.getState();
 
-      // Only correct if local deck is also playing
+      // Only measure drift if local deck is also playing
       if (localState.playState !== "playing") {
         return;
       }
@@ -759,30 +762,25 @@ export class RealtimeClient {
       // Get current local playhead
       const localPlayhead = deck.getCurrentPlayhead();
 
-      // Calculate drift correction
-      const correction = calculateDriftCorrection(
+      // Measure drift using the simplified API
+      // The playbackRate is now included in the measurement calculation
+      const measurement = measureDrift(
         deckId,
         localPlayhead,
         serverDeckState.serverStartTime,
         serverDeckState.playheadSec,
+        serverDeckState.playbackRate ?? localState.playbackRate,
         true // isPlaying
       );
 
-      // Apply correction if needed
-      if (correction.applied) {
-        if (correction.type === "snap" && correction.snapToSec !== undefined) {
-          // Large drift - snap to position with crossfade
-          deck.seekSmooth(correction.snapToSec, 50);
-          console.log(
-            `[sync-${deckId}] Snap correction applied: drift=${correction.driftMs.toFixed(1)}ms -> ${correction.snapToSec.toFixed(2)}s`
-          );
-        } else if (correction.type === "rate_adjust") {
-          // Small drift - adjust playback rate
-          deck.setPlaybackRate(correction.playbackRate);
-          console.log(
-            `[sync-${deckId}] Rate correction applied: drift=${correction.driftMs.toFixed(1)}ms, rate=${correction.playbackRate.toFixed(3)}`
-          );
-        }
+      // Only apply snap corrections for large drift
+      // Small drift is ignored - user tempo changes are the priority
+      if (measurement.shouldSnap && measurement.snapToSec !== undefined) {
+        deck.seekSmooth(measurement.snapToSec, 50);
+        recordSnapCorrection(deckId);
+        console.log(
+          `[sync-${deckId}] Snap correction applied: drift=${measurement.driftMs.toFixed(1)}ms -> ${measurement.snapToSec.toFixed(2)}s`
+        );
       }
     } catch (error) {
       // Deck may not be initialized yet, ignore

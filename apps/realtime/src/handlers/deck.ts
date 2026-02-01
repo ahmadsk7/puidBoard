@@ -296,10 +296,13 @@ export function handleDeckPause(
   }
 
   // Calculate current playhead if currently playing
+  // FIXED: Account for playbackRate when calculating elapsed position
   if (deck.playState === "playing" && deck.serverStartTime !== null) {
     const serverTs = Date.now();
     const elapsedSec = (serverTs - deck.serverStartTime) / 1000;
-    deck.playheadSec = Math.max(0, deck.playheadSec + elapsedSec);
+    // Multiply elapsed time by playbackRate to get correct position
+    const adjustedElapsed = elapsedSec * deck.playbackRate;
+    deck.playheadSec = Math.max(0, deck.playheadSec + adjustedElapsed);
 
     // Clamp to track duration if available
     if (deck.durationSec !== null) {

@@ -89,6 +89,7 @@ describe("SyncTick Timer", () => {
             playState: "stopped",
             serverStartTime: null,
             playheadSec: 0,
+            playbackRate: 1,
           },
           deckB: {
             deckId: "B",
@@ -96,6 +97,7 @@ describe("SyncTick Timer", () => {
             playState: "stopped",
             serverStartTime: null,
             playheadSec: 0,
+            playbackRate: 1,
           },
         },
       });
@@ -171,7 +173,8 @@ describe("SyncTick Timer", () => {
             loadedTrackId: "track-123",
             playState: "playing",
             serverStartTime: expect.any(Number),
-            playheadSec: 30.5,
+            playheadSec: expect.any(Number), // Playhead is calculated based on elapsed time
+            playbackRate: 1,
           },
           deckB: {
             deckId: "B",
@@ -179,6 +182,7 @@ describe("SyncTick Timer", () => {
             playState: "stopped",
             serverStartTime: null,
             playheadSec: 0,
+            playbackRate: 1,
           },
         },
       });

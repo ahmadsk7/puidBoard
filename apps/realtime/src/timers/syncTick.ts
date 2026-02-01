@@ -59,12 +59,25 @@ function broadcastSyncTick(io: Server, roomId: string): void {
   const serverTs = Date.now();
 
   // Build deck state snapshots for the tick
+  // Calculate current playhead for playing decks (accounting for playbackRate)
+  const calcPlayhead = (deck: typeof room.deckA) => {
+    if (deck.playState === "playing" && deck.serverStartTime !== null) {
+      const elapsedMs = serverTs - deck.serverStartTime;
+      const elapsedSec = elapsedMs / 1000;
+      // Multiply elapsed time by playbackRate to get correct position
+      const playhead = deck.playheadSec + (elapsedSec * deck.playbackRate);
+      return Math.min(playhead, deck.durationSec ?? playhead);
+    }
+    return deck.playheadSec;
+  };
+
   const deckA: SyncTickDeckState = {
     deckId: room.deckA.deckId,
     loadedTrackId: room.deckA.loadedTrackId,
     playState: room.deckA.playState,
     serverStartTime: room.deckA.serverStartTime,
-    playheadSec: room.deckA.playheadSec,
+    playheadSec: calcPlayhead(room.deckA),
+    playbackRate: room.deckA.playbackRate,
   };
 
   const deckB: SyncTickDeckState = {
@@ -72,7 +85,8 @@ function broadcastSyncTick(io: Server, roomId: string): void {
     loadedTrackId: room.deckB.loadedTrackId,
     playState: room.deckB.playState,
     serverStartTime: room.deckB.serverStartTime,
-    playheadSec: room.deckB.playheadSec,
+    playheadSec: calcPlayhead(room.deckB),
+    playbackRate: room.deckB.playbackRate,
   };
 
   const syncTick: SyncTickEvent = {
