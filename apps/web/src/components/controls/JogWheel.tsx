@@ -249,10 +249,10 @@ const JogWheel = memo(function JogWheel({
         totalAngleDiff += angleDiff;
         prevAngle = currentAngle;
       }
-      state.lastAngle = getAngleFromCenter(
-        data.points[data.points.length - 1].x,
-        data.points[data.points.length - 1].y
-      );
+      const lastPoint = data.points[data.points.length - 1];
+      if (lastPoint) {
+        state.lastAngle = getAngleFromCenter(lastPoint.x, lastPoint.y);
+      }
     } else {
       const currentAngle = getAngleFromCenter(data.x, data.y);
       totalAngleDiff = normalizeAngleDiff(currentAngle - state.lastAngle);
