@@ -130,8 +130,10 @@ const JogWheel = memo(function JogWheel({
     let weightedSum = 0;
 
     for (let i = 0; i < history.length; i++) {
+      const value = history[i];
+      if (value === undefined) continue;
       const weight = (i + 1) / history.length;
-      weightedSum += history[i] * weight;
+      weightedSum += value * weight;
       totalWeight += weight;
     }
 
