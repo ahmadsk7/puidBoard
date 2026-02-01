@@ -112,7 +112,10 @@ export default function FXControlPanel({
         width: 224,
         height: 132,
         pointerEvents: "auto",
-        zIndex: 1,
+        zIndex: 10,
+      }}
+      onClick={(e) => {
+        console.log("[FXControlPanel] Container clicked at:", e.clientX, e.clientY);
       }}
     >
       {/* Channel A Fader - Aligned to left slider hole */}

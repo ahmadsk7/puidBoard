@@ -7,7 +7,6 @@ import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
-import { useAudioEnabled } from "@/components/AutoplayGate";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 
 /** Shared room UI content */
@@ -15,14 +14,12 @@ function RoomContent({
   state,
   clientId,
   latencyMs,
-  autoplayEnabled,
   sendEvent,
   nextSeq,
 }: {
   state: RoomState;
   clientId: string;
   latencyMs: number;
-  autoplayEnabled: boolean;
   sendEvent: (e: ClientMutationEvent) => void;
   nextSeq: () => number;
 }) {
@@ -38,7 +35,6 @@ function RoomContent({
       <TopBar
         roomCode={state.roomCode}
         latencyMs={latencyMs}
-        autoplayEnabled={autoplayEnabled}
       />
       {/* Main content area - full width DJ board with integrated queue */}
       <main
@@ -66,7 +62,6 @@ function RoomContent({
 /** Mock room wrapper */
 function MockRoomContent() {
   const { state, sendEvent, room } = useMockRoom();
-  const audioEnabled = useAudioEnabled();
   // Use a fixed latency value for mock mode
   const latencyMs = 50;
 
@@ -75,7 +70,6 @@ function MockRoomContent() {
       state={state}
       clientId={state.hostId}
       latencyMs={latencyMs}
-      autoplayEnabled={audioEnabled}
       sendEvent={sendEvent}
       nextSeq={() => room.nextClientSeq()}
     />
@@ -84,9 +78,6 @@ function MockRoomContent() {
 
 /** Real room wrapper */
 function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
-  // Check if audio is actually enabled
-  const audioEnabled = useAudioEnabled();
-
   // Generate a stable name for this session
   const [name] = useState(() => `User${Math.floor(Math.random() * 1000)}`);
 
@@ -119,7 +110,7 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
           background: "#0a0a0b",
         }}
       >
-        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={audioEnabled} />
+        <TopBar roomCode={displayCode} latencyMs={0} />
         <main
           style={{
             flex: 1,
@@ -172,7 +163,7 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
           background: "#0a0a0b",
         }}
       >
-        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={audioEnabled} />
+        <TopBar roomCode={displayCode} latencyMs={0} />
         <main
           style={{
             flex: 1,
@@ -208,7 +199,7 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
           background: "#0a0a0b",
         }}
       >
-        <TopBar roomCode={displayCode} latencyMs={0} autoplayEnabled={audioEnabled} />
+        <TopBar roomCode={displayCode} latencyMs={0} />
         <main
           style={{
             flex: 1,
@@ -230,7 +221,6 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
       state={state}
       clientId={clientId}
       latencyMs={latencyMs}
-      autoplayEnabled={audioEnabled}
       sendEvent={sendEvent}
       nextSeq={nextSeq}
     />

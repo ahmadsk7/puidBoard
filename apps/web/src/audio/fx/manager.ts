@@ -161,12 +161,17 @@ export function setFXType(type: FxType): void {
  * Apply full FX state.
  */
 export function applyFXState(state: FxState): void {
+  console.log(`[FXManager] applyFXState called:`, state);
+
   // Change type if needed
   setFXType(state.type);
 
   // Apply settings to processor
   if (fxManager.processor) {
+    console.log(`[FXManager] Applying state to processor: type=${state.type}, enabled=${state.enabled}, wetDry=${state.wetDry}, param=${state.param}`);
     fxManager.processor.applyState(state);
+  } else {
+    console.log(`[FXManager] No processor available for state application`);
   }
 
   notifyListeners();
@@ -176,6 +181,7 @@ export function applyFXState(state: FxState): void {
  * Set FX wet/dry.
  */
 export function setFXWetDry(value: number): void {
+  console.log(`[FXManager] setFXWetDry called: value=${value}, hasProcessor=${!!fxManager.processor}`);
   if (fxManager.processor) {
     fxManager.processor.setWetDry(value);
   }
@@ -195,8 +201,12 @@ export function setFXParam(value: number): void {
  * Set FX enabled.
  */
 export function setFXEnabled(enabled: boolean): void {
+  console.log(`[FXManager] setFXEnabled called: enabled=${enabled}, hasProcessor=${!!fxManager.processor}, currentType=${fxManager.currentType}`);
   if (fxManager.processor) {
     fxManager.processor.setEnabled(enabled);
+    console.log(`[FXManager] setFXEnabled completed for processor type=${fxManager.currentType}`);
+  } else {
+    console.warn(`[FXManager] setFXEnabled called but no processor available`);
   }
 }
 

@@ -49,6 +49,8 @@ export default function FXStrip({
   // Handle FX type change
   const handleTypeChange = useCallback(
     (type: FxType) => {
+      console.log("[FXStrip] Type change clicked:", type, "current type:", fxState.type);
+      console.log("[FXStrip] Sending FX_SET event with type:", type);
       sendEvent({
         type: "FX_SET",
         roomId,
@@ -60,11 +62,13 @@ export default function FXStrip({
         },
       });
     },
-    [sendEvent, roomId, clientId, nextSeq]
+    [sendEvent, roomId, clientId, nextSeq, fxState.type]
   );
 
   // Handle toggle
   const handleToggle = useCallback(() => {
+    console.log("[FXStrip] Toggle clicked, current state:", fxState.enabled, "new state:", !fxState.enabled);
+    console.log("[FXStrip] Sending FX_TOGGLE event");
     sendEvent({
       type: "FX_TOGGLE",
       roomId,
@@ -83,6 +87,12 @@ export default function FXStrip({
         flexDirection: "column",
         alignItems: "center",
         gap: 10,
+        pointerEvents: "auto",
+        zIndex: 10,
+        position: "relative",
+      }}
+      onClick={(e) => {
+        console.log("[FXStrip] Container clicked at:", e.clientX, e.clientY);
       }}
     >
       {/* LCD Display */}
@@ -100,13 +110,19 @@ export default function FXStrip({
           gap: 4,
           flexWrap: "wrap",
           justifyContent: "center",
+          pointerEvents: "auto",
         }}
       >
         {FX_TYPES.map((fx) => (
           <button
             key={fx.value}
             type="button"
-            onClick={() => handleTypeChange(fx.value)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log("[FXStrip] FX type button clicked:", fx.value);
+              handleTypeChange(fx.value);
+            }}
             style={{
               padding: "4px 8px",
               fontSize: "0.5rem",
@@ -117,6 +133,7 @@ export default function FXStrip({
               borderRadius: 4,
               cursor: "pointer",
               transition: "background 0.1s",
+              pointerEvents: "auto",
             }}
           >
             {fx.label}
@@ -127,7 +144,17 @@ export default function FXStrip({
       {/* Enable/Bypass toggle */}
       <button
         type="button"
-        onClick={handleToggle}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log("[FXStrip] ON/OFF toggle clicked - fxType=", fxState.type, "enabled=", fxState.enabled);
+          if (fxState.type !== "none") {
+            console.log("[FXStrip] Executing toggle action");
+            handleToggle();
+          } else {
+            console.log("[FXStrip] Toggle blocked - no FX type selected");
+          }
+        }}
         disabled={fxState.type === "none"}
         style={{
           padding: "4px 12px",
@@ -139,7 +166,11 @@ export default function FXStrip({
           borderRadius: 4,
           cursor: fxState.type === "none" ? "not-allowed" : "pointer",
           opacity: fxState.type === "none" ? 0.5 : 1,
+          pointerEvents: "auto",
+          zIndex: 10,
+          position: "relative",
         }}
+        title={fxState.type === "none" ? "Select an FX type first" : fxState.enabled ? "Turn OFF" : "Turn ON"}
       >
         {fxState.enabled ? "ON" : "OFF"}
       </button>

@@ -26,6 +26,7 @@ export class ReverbFX implements FXProcessor {
   private reverbMix: GainNode;
   private enabled = true;
   private currentParam = 0.5;
+  private currentWetDry = 0.5; // Store wet/dry value for restoration
 
   constructor(ctx: AudioContext) {
     // Create main nodes
@@ -73,8 +74,15 @@ export class ReverbFX implements FXProcessor {
     const wet = Math.max(0, Math.min(1, value));
     const dry = 1 - wet;
 
+    // Store the wet/dry value for restoration when re-enabling
+    this.currentWetDry = wet;
+
+    console.log(`[ReverbFX] setWetDry called: value=${value}, wet=${wet}, dry=${dry}, enabled=${this.enabled}`);
+
     setParamSmooth(this.wetGain.gain, this.enabled ? wet : 0);
     setParamSmooth(this.dryGain.gain, this.enabled ? dry : 1);
+
+    console.log(`[ReverbFX] setWetDry result: wetGain=${this.enabled ? wet : 0}, dryGain=${this.enabled ? dry : 1}`);
   }
 
   setParam(value: number): void {
@@ -90,16 +98,34 @@ export class ReverbFX implements FXProcessor {
   }
 
   setEnabled(enabled: boolean): void {
+    console.log(`[ReverbFX] setEnabled called: enabled=${enabled}, currentWetDry=${this.currentWetDry}`);
+
     this.enabled = enabled;
     if (!enabled) {
+      // Bypass: full dry, no wet
+      console.log("[ReverbFX] Bypassing - setting wetGain=0, dryGain=1");
       setParamSmooth(this.wetGain.gain, 0);
       setParamSmooth(this.dryGain.gain, 1);
+    } else {
+      // Re-enable: restore wet/dry mix
+      const wet = this.currentWetDry;
+      const dry = 1 - wet;
+      console.log(`[ReverbFX] Enabling - restoring wetGain=${wet}, dryGain=${dry}`);
+      setParamSmooth(this.wetGain.gain, wet);
+      setParamSmooth(this.dryGain.gain, dry);
     }
   }
 
   applyState(state: FxState): void {
+    console.log(`[ReverbFX] applyState called:`, { enabled: state.enabled, wetDry: state.wetDry, param: state.param });
+
+    // Always update the stored wet/dry value first, even when disabled
+    this.currentWetDry = state.wetDry;
+
     this.setEnabled(state.enabled);
     this.setParam(state.param);
+    // Note: setEnabled now handles restoring wet/dry when enabling
+    // But we still call setWetDry when enabled to ensure consistency
     if (state.enabled) {
       this.setWetDry(state.wetDry);
     }

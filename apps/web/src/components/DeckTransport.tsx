@@ -112,7 +112,7 @@ export default function DeckTransport({
   }, [audioEnabled, serverState.playheadSec, isLoaded, isPlaying, playhead, seek, deckId]);
 
   // Send DECK_PLAY event
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     sendEvent({
       type: "DECK_PLAY",
       roomId,
@@ -120,9 +120,9 @@ export default function DeckTransport({
       clientSeq: nextSeq(),
       payload: { deckId },
     });
-    // Also play locally for immediate feedback
+    // Also play locally for immediate feedback (auto-initializes audio)
     if (deck.isLoaded) {
-      deck.play();
+      await deck.play();
     }
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 

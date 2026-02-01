@@ -51,8 +51,8 @@ export function useDeck(deckId: "A" | "B") {
     []
   );
 
-  const play = useCallback(() => {
-    deckRef.current.play();
+  const play = useCallback(async () => {
+    await deckRef.current.play();
   }, []);
 
   const pause = useCallback(() => {
@@ -75,12 +75,12 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.setVolume(volume);
   }, []);
 
-  const scrub = useCallback((deltaSec: number) => {
-    deckRef.current.scrub(deltaSec);
+  const scrub = useCallback(async (deltaSec: number) => {
+    await deckRef.current.scrub(deltaSec);
   }, []);
 
-  const nudge = useCallback((bendAmount: number) => {
-    deckRef.current.nudge(bendAmount);
+  const nudge = useCallback(async (bendAmount: number) => {
+    await deckRef.current.nudge(bendAmount);
   }, []);
 
   const releaseNudge = useCallback(() => {

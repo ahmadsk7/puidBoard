@@ -8,7 +8,7 @@
  * - Connect to the mixer chain
  */
 
-import { getAudioContext } from "./engine";
+import { getAudioContext, initAudioEngine } from "./engine";
 import { getDeckInput, initMixerGraph } from "./mixerGraph";
 import { generateWaveform, WaveformData } from "./analysis/waveformGenerator";
 import { detectBPM } from "./analysis/bpmDetector";
@@ -288,7 +288,15 @@ export class Deck {
   /**
    * Play from current position.
    */
-  play(): void {
+  async play(): Promise<void> {
+    // Auto-initialize audio on first interaction
+    try {
+      await initAudioEngine();
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      return;
+    }
+
     const ctx = getAudioContext();
     const gainNode = this.ensureGainNode();
 
@@ -669,7 +677,15 @@ export class Deck {
    *
    * @param deltaSec - Amount to move the playhead (positive = forward, negative = backward)
    */
-  scrub(deltaSec: number): void {
+  async scrub(deltaSec: number): Promise<void> {
+    // Auto-initialize audio on first interaction
+    try {
+      await initAudioEngine();
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      return;
+    }
+
     const ctx = getAudioContext();
     const gainNode = this.ensureGainNode();
 
@@ -728,7 +744,15 @@ export class Deck {
    *
    * @param bendAmount - Amount to bend (-1 to 1, where 1 = +8% speed, -1 = -8% speed)
    */
-  nudge(bendAmount: number): void {
+  async nudge(bendAmount: number): Promise<void> {
+    // Auto-initialize audio on first interaction
+    try {
+      await initAudioEngine();
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      return;
+    }
+
     // Clamp bend amount to reasonable range
     const clampedBend = Math.max(-1, Math.min(1, bendAmount));
 
