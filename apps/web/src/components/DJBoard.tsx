@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback, useEffect, memo } from "react";
 import type {
   ClientMutationEvent,
   RoomState,
@@ -7,13 +8,14 @@ import type {
   ControlOwnership,
   QueueItem,
 } from "@puid-board/shared";
+import { THROTTLE } from "@puid-board/shared";
 import { Knob, Crossfader, JogWheel } from "./controls";
 import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
 // import ClippingIndicator from "./ClippingIndicator"; // TODO: add clipping indicator later
 import FXControlPanel from "./FXControlPanel";
 import { useMixerSync } from "@/audio/useMixer";
-import { useDeck } from "@/audio/useDeck";
+import { useDeck, getDeck } from "@/audio/useDeck";
 import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
 import QueuePanel from "./QueuePanel";
@@ -45,6 +47,19 @@ const DECK_B = {
   waveform: { x: 998, y: 138, width: 492, height: 92 },
   jogWheel: { cx: 1310, cy: 350, r: 150 }, // From SVG: <circle cx="1310" cy="350" r="150"/>
   controls: { x: 1010, y: 312, width: 160, height: 132 }, // From SVG: <rect x="1010" y="312" width="160" height="132"/>
+};
+
+// Tempo fader positions (outer edges, aligned with jog wheels)
+const DECK_A_TEMPO = {
+  x: 91,
+  y: 260,
+  height: 180,
+};
+
+const DECK_B_TEMPO = {
+  x: 1509,
+  y: 260,
+  height: 180,
 };
 
 // Mixer positions (center)
@@ -561,6 +576,358 @@ function CrossfaderSection({
 }
 
 /**
+ * Convert fader value (0-1) to playback rate (0.92-1.08 for ±8% range)
+ * Center (0.5) = 1.0x, Bottom (0) = 0.92x, Top (1) = 1.08x
+ */
+function faderToPlaybackRate(faderValue: number): number {
+  return 0.92 + faderValue * 0.16;
+}
+
+/**
+ * Convert playback rate to fader value (inverse of above)
+ */
+function playbackRateToFader(rate: number): number {
+  return (rate - 0.92) / 0.16;
+}
+
+/**
+ * Tempo fader component for deck playback rate control.
+ * Sends DECK_TEMPO_SET events and controls local audio playback rate.
+ */
+const TempoFader = memo(function TempoFader({
+  deckId,
+  serverPlaybackRate,
+  position,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
+  controlOwners,
+  memberColors,
+}: {
+  deckId: "A" | "B";
+  serverPlaybackRate: number;
+  position: { x: number; y: number; height: number };
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
+  controlOwners: Record<string, ControlOwnership>;
+  memberColors: Record<string, string>;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const lastSendRef = useRef(0);
+  const localValueRef = useRef(playbackRateToFader(serverPlaybackRate));
+
+  const controlId = deckId === "A" ? "deckA.tempo" : "deckB.tempo";
+  const ownership = controlOwners[controlId];
+  const isOwnedByOther = ownership && ownership.clientId !== clientId;
+  const ownerColor = ownership && memberColors[ownership.clientId];
+
+  // Update thumb position directly
+  const updateThumbPosition = useCallback((faderValue: number) => {
+    if (thumbRef.current) {
+      const clampedValue = Math.max(0, Math.min(1, faderValue));
+      // Vertical fader: bottom = 0 (slower), top = 1 (faster)
+      const percent = (1 - clampedValue) * 100;
+      thumbRef.current.style.transform = `translateX(-50%) translateY(${percent}%)`;
+    }
+  }, []);
+
+  // Sync with server state when not dragging
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      const faderValue = playbackRateToFader(serverPlaybackRate);
+      localValueRef.current = faderValue;
+      updateThumbPosition(faderValue);
+
+      // Also sync local audio playback rate
+      const deck = getDeck(deckId);
+      if (deck) {
+        deck.setPlaybackRate(serverPlaybackRate);
+      }
+    }
+  }, [serverPlaybackRate, deckId, updateThumbPosition]);
+
+  // Send DECK_TEMPO_SET event with throttling
+  const sendTempoEvent = useCallback((playbackRate: number) => {
+    const now = performance.now();
+    if (now - lastSendRef.current < THROTTLE.CONTROL_MS) {
+      return;
+    }
+    lastSendRef.current = now;
+
+    sendEvent({
+      type: "DECK_TEMPO_SET",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, playbackRate },
+    });
+  }, [deckId, roomId, clientId, sendEvent, nextSeq]);
+
+  // Send control grab event
+  const sendGrab = useCallback(() => {
+    sendEvent({
+      type: "CONTROL_GRAB",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { controlId },
+    });
+  }, [controlId, roomId, clientId, sendEvent, nextSeq]);
+
+  // Send control release event
+  const sendRelease = useCallback(() => {
+    sendEvent({
+      type: "CONTROL_RELEASE",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { controlId },
+    });
+  }, [controlId, roomId, clientId, sendEvent, nextSeq]);
+
+  // Calculate fader value from pointer position
+  const calculateValue = useCallback((clientY: number): number => {
+    const track = trackRef.current;
+    if (!track) return localValueRef.current;
+
+    const rect = track.getBoundingClientRect();
+    // Vertical: top = 1 (faster), bottom = 0 (slower)
+    const ratio = 1 - (clientY - rect.top) / rect.height;
+    return Math.max(0, Math.min(1, ratio));
+  }, []);
+
+  // Handle pointer down
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (isOwnedByOther) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    isDraggingRef.current = true;
+
+    const faderValue = calculateValue(e.clientY);
+    localValueRef.current = faderValue;
+    updateThumbPosition(faderValue);
+
+    const playbackRate = faderToPlaybackRate(faderValue);
+
+    // Apply locally immediately
+    const deck = getDeck(deckId);
+    if (deck) {
+      deck.setPlaybackRate(playbackRate);
+    }
+
+    sendGrab();
+    sendTempoEvent(playbackRate);
+
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, [isOwnedByOther, calculateValue, updateThumbPosition, deckId, sendGrab, sendTempoEvent]);
+
+  // Handle pointer move
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+
+    const faderValue = calculateValue(e.clientY);
+    localValueRef.current = faderValue;
+    updateThumbPosition(faderValue);
+
+    const playbackRate = faderToPlaybackRate(faderValue);
+
+    // Apply locally immediately
+    const deck = getDeck(deckId);
+    if (deck) {
+      deck.setPlaybackRate(playbackRate);
+    }
+
+    sendTempoEvent(playbackRate);
+  }, [calculateValue, updateThumbPosition, deckId, sendTempoEvent]);
+
+  // Handle pointer up
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+
+    isDraggingRef.current = false;
+    sendRelease();
+
+    // Send final value
+    const playbackRate = faderToPlaybackRate(localValueRef.current);
+    sendTempoEvent(playbackRate);
+
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  }, [sendRelease, sendTempoEvent]);
+
+  // Calculate display percentage for tempo change
+  const currentRate = faderToPlaybackRate(localValueRef.current);
+  const tempoPercent = ((currentRate - 1.0) * 100).toFixed(1);
+  const tempoDisplay = currentRate >= 1.0 ? `+${tempoPercent}%` : `${tempoPercent}%`;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: position.x,
+        top: position.y,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 4,
+        zIndex: 50,
+      }}
+    >
+      {/* TEMPO label */}
+      <div
+        style={{
+          fontSize: "8px",
+          color: "#6b7280",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+          marginBottom: 2,
+        }}
+      >
+        TEMPO
+      </div>
+
+      {/* +8% label */}
+      <div
+        style={{
+          fontSize: "8px",
+          color: "#6b7280",
+          fontWeight: 500,
+        }}
+      >
+        +8%
+      </div>
+
+      {/* Fader track */}
+      <div
+        ref={trackRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        style={{
+          position: "relative",
+          width: 24,
+          height: position.height,
+          background: "linear-gradient(to bottom, #1a1a1a, #0f0f10)",
+          borderRadius: 4,
+          border: "1px solid #242424",
+          cursor: isOwnedByOther ? "not-allowed" : "pointer",
+          touchAction: "none",
+          boxShadow: ownerColor
+            ? `inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03), 0 0 8px 2px ${ownerColor}`
+            : "inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03)",
+        }}
+      >
+        {/* Center line indicator (0% position) */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: 2,
+            right: 2,
+            height: 2,
+            background: "#3b82f6",
+            borderRadius: 1,
+            opacity: 0.5,
+          }}
+        />
+
+        {/* Thumb */}
+        <div
+          ref={thumbRef}
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: 0,
+            transform: `translateX(-50%) translateY(${(1 - playbackRateToFader(serverPlaybackRate)) * 100}%)`,
+            width: 28,
+            height: 16,
+            background: "linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 50%, #1a1a1a 100%)",
+            borderRadius: 3,
+            border: "1px solid #3a3a3a",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)",
+            pointerEvents: "none",
+          }}
+        >
+          {/* Grip lines */}
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              display: "flex",
+              gap: 2,
+            }}
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                style={{
+                  width: 1,
+                  height: 8,
+                  background: "#555",
+                  borderRadius: 0.5,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 0% label (center) */}
+      <div
+        style={{
+          position: "absolute",
+          top: position.height / 2 + 24,
+          right: deckId === "A" ? -18 : "auto",
+          left: deckId === "B" ? -18 : "auto",
+          fontSize: "8px",
+          color: "#6b7280",
+          fontWeight: 500,
+        }}
+      >
+        0%
+      </div>
+
+      {/* -8% label */}
+      <div
+        style={{
+          fontSize: "8px",
+          color: "#6b7280",
+          fontWeight: 500,
+        }}
+      >
+        -8%
+      </div>
+
+      {/* Current tempo display */}
+      <div
+        style={{
+          marginTop: 4,
+          padding: "2px 6px",
+          background: "linear-gradient(135deg, #050508 0%, #0a0a0c 100%)",
+          border: "1px solid #1a1a1a",
+          borderRadius: 3,
+          fontSize: "9px",
+          fontWeight: 700,
+          fontFamily: "monospace",
+          color: Math.abs(currentRate - 1.0) < 0.001 ? "#6b7280" : "#60a5fa",
+          textShadow: Math.abs(currentRate - 1.0) < 0.001 ? "none" : "0 0 4px rgba(96, 165, 250, 0.3)",
+        }}
+      >
+        {tempoDisplay}
+      </div>
+    </div>
+  );
+});
+
+/**
  * Main DJ Board component - professional controller layout.
  * FIXED SIZE with CSS scale transform for perfect pixel alignment.
  */
@@ -660,6 +1027,19 @@ export default function DJBoard({
           nextSeq={nextSeq}
         />
 
+        {/* Deck A Tempo Fader */}
+        <TempoFader
+          deckId="A"
+          serverPlaybackRate={state.deckA.playbackRate}
+          position={DECK_A_TEMPO}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          controlOwners={state.controlOwners}
+          memberColors={memberColors}
+        />
+
         {/* === MIXER (Center) === */}
         <MixerKnobs
           mixer={state.mixer}
@@ -724,6 +1104,19 @@ export default function DJBoard({
           clientId={clientId}
           sendEvent={sendEvent}
           nextSeq={nextSeq}
+        />
+
+        {/* Deck B Tempo Fader */}
+        <TempoFader
+          deckId="B"
+          serverPlaybackRate={state.deckB.playbackRate}
+          position={DECK_B_TEMPO}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          controlOwners={state.controlOwners}
+          memberColors={memberColors}
         />
 
           {/* NOTE: Decorative screws are rendered in the SVG background */}

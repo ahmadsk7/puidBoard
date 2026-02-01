@@ -23,11 +23,13 @@ import {
   DeckPauseEventSchema,
   DeckCueEventSchema,
   DeckSeekEventSchema,
+  DeckTempoSetEventSchema,
   type DeckLoadEvent,
   type DeckPlayEvent,
   type DeckPauseEvent,
   type DeckCueEvent,
   type DeckSeekEvent,
+  type DeckTempoSetEvent,
   type ServerMutationEvent,
   type DeckId,
 } from "@puid-board/shared";
@@ -549,6 +551,87 @@ export function handleDeckSeek(
 }
 
 /**
+ * Handle DECK_TEMPO_SET event.
+ * Sets the playback rate for a deck (tempo fader control).
+ */
+export function handleDeckTempoSet(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckTempoSetEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_TEMPO_SET] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckTempoSetEvent;
+  const { deckId, playbackRate } = event.payload;
+
+  // Get client and room
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    console.log(`[DECK_TEMPO_SET] unauthorized socket=${socket.id}`);
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  // Rate limit check (shared limit for all deck actions)
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_TEMPO_SET");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_TEMPO_SET", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  // Get the deck
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  // Validate playback rate is within bounds (0.5 to 2.0)
+  const clampedRate = Math.max(0.5, Math.min(2.0, playbackRate));
+
+  // Update playback rate
+  deck.playbackRate = clampedRate;
+
+  // Increment version
+  room.version++;
+
+  const serverTs = Date.now();
+  const eventId = `${room.roomId}-${room.version}`;
+
+  // Broadcast to all clients in room
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs,
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_TEMPO_SET",
+    payload: { deckId, playbackRate: clampedRate },
+  };
+
+  io.to(room.roomId).emit("DECK_TEMPO_SET", serverEvent);
+
+  // Send ack
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_TEMPO_SET] deck=${deckId} rate=${clampedRate.toFixed(3)} roomId=${room.roomId}`
+  );
+}
+
+/**
  * Register deck event handlers on a socket.
  */
 export function registerDeckHandlers(io: Server, socket: Socket): void {
@@ -570,5 +653,9 @@ export function registerDeckHandlers(io: Server, socket: Socket): void {
 
   socket.on("DECK_SEEK", (data: unknown) => {
     handleDeckSeek(io, socket, data);
+  });
+
+  socket.on("DECK_TEMPO_SET", (data: unknown) => {
+    handleDeckTempoSet(io, socket, data);
   });
 }

@@ -40,6 +40,8 @@ export const FX_PARAM = "fx.param" as const;
 /** Deck controls */
 export const DECK_A_JOG = "deckA.jog" as const;
 export const DECK_B_JOG = "deckB.jog" as const;
+export const DECK_A_TEMPO = "deckA.tempo" as const;
+export const DECK_B_TEMPO = "deckB.tempo" as const;
 
 // ============================================================================
 // Grouped Constants
@@ -65,6 +67,8 @@ export const ALL_CONTROL_IDS = [
   FX_PARAM,
   DECK_A_JOG,
   DECK_B_JOG,
+  DECK_A_TEMPO,
+  DECK_B_TEMPO,
 ] as const;
 
 /** Channel A control IDs */

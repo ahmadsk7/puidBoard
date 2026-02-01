@@ -165,6 +165,13 @@ export function applyServerEvent(
       return base;
     }
 
+    case "DECK_TEMPO_SET": {
+      const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
+      // Clamp playback rate to valid bounds
+      deck.playbackRate = Math.max(0.5, Math.min(2.0, event.payload.playbackRate));
+      return base;
+    }
+
     case "QUEUE_ADD": {
       const { trackId, title, durationSec, insertAt, queueItemId } = event.payload;
       // Use server-generated queue item ID (mandatory in server mutation events)

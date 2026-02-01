@@ -173,6 +173,19 @@ export const DeckSeekEventSchema = ClientEventMetaSchema.extend({
 });
 export type DeckSeekEvent = z.infer<typeof DeckSeekEventSchema>;
 
+export const DeckTempoSetPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  /** Playback rate (0.92 to 1.08 for ±8% tempo range) */
+  playbackRate: z.number().min(0.5).max(2.0),
+});
+export type DeckTempoSetPayload = z.infer<typeof DeckTempoSetPayloadSchema>;
+
+export const DeckTempoSetEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_TEMPO_SET"),
+  payload: DeckTempoSetPayloadSchema,
+});
+export type DeckTempoSetEvent = z.infer<typeof DeckTempoSetEventSchema>;
+
 // ============================================================================
 // Queue Events
 // ============================================================================
@@ -403,6 +416,7 @@ export const ClientMutationEventSchema = z.discriminatedUnion("type", [
   DeckPauseEventSchema,
   DeckCueEventSchema,
   DeckSeekEventSchema,
+  DeckTempoSetEventSchema,
   QueueAddEventSchema,
   QueueRemoveEventSchema,
   QueueReorderEventSchema,
@@ -445,6 +459,7 @@ export const ServerMutationEventSchema = z.intersection(
     z.object({ type: z.literal("DECK_PAUSE"), payload: DeckPausePayloadSchema }),
     z.object({ type: z.literal("DECK_CUE"), payload: DeckCuePayloadSchema }),
     z.object({ type: z.literal("DECK_SEEK"), payload: DeckSeekPayloadSchema }),
+    z.object({ type: z.literal("DECK_TEMPO_SET"), payload: DeckTempoSetPayloadSchema }),
     z.object({ type: z.literal("QUEUE_ADD"), payload: QueueAddPayloadSchema }),
     z.object({ type: z.literal("QUEUE_REMOVE"), payload: QueueRemovePayloadSchema }),
     z.object({ type: z.literal("QUEUE_REORDER"), payload: QueueReorderPayloadSchema }),
@@ -470,6 +485,7 @@ export const MUTATION_EVENT_TYPES = [
   "DECK_PAUSE",
   "DECK_CUE",
   "DECK_SEEK",
+  "DECK_TEMPO_SET",
   "QUEUE_ADD",
   "QUEUE_REMOVE",
   "QUEUE_REORDER",
@@ -490,6 +506,7 @@ export const DISCRETE_EVENT_TYPES = [
   "DECK_PAUSE",
   "DECK_CUE",
   "DECK_SEEK",
+  "DECK_TEMPO_SET",
   "QUEUE_ADD",
   "QUEUE_REMOVE",
   "QUEUE_REORDER",

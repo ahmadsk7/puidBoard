@@ -89,7 +89,7 @@ export default function DeckTransport({
 
   // Sync playhead position with server (for DECK_SEEK events from other clients)
   const playhead = deck.playhead;
-  const { seek } = deck;
+  const { seek, setPlaybackRate } = deck;
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -102,6 +102,20 @@ export default function DeckTransport({
       seek(serverState.playheadSec);
     }
   }, [serverState.playheadSec, isLoaded, isPlaying, playhead, seek]);
+
+  // Sync playback rate with server (for DECK_TEMPO_SET events from other clients)
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    // Only sync if server rate differs from local rate
+    const localRate = deck.playbackRate;
+    const serverRate = serverState.playbackRate;
+    const rateDiff = Math.abs(serverRate - localRate);
+
+    if (rateDiff > 0.001) {
+      setPlaybackRate(serverRate);
+    }
+  }, [serverState.playbackRate, isLoaded, deck.playbackRate, setPlaybackRate]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(async () => {
@@ -154,15 +168,33 @@ export default function DeckTransport({
   // Sync this deck's BPM to the other deck
   const handleSync = useCallback(() => {
     if (isSynced) {
+      // Reset to 1.0 playback rate
       deck.resetPlaybackRate();
       setIsSynced(false);
+      // Send tempo reset event to server
+      sendEvent({
+        type: "DECK_TEMPO_SET",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: { deckId, playbackRate: 1.0 },
+      });
     } else {
       const success = syncDeckBPM(deckId);
       if (success) {
         setIsSynced(true);
+        // Send the new playback rate to server
+        const newRate = deck.playbackRate;
+        sendEvent({
+          type: "DECK_TEMPO_SET",
+          roomId,
+          clientId,
+          clientSeq: nextSeq(),
+          payload: { deckId, playbackRate: newRate },
+        });
       }
     }
-  }, [deckId, isSynced, deck]);
+  }, [deckId, isSynced, deck, sendEvent, roomId, clientId, nextSeq]);
 
   const hasTrack = deck.isLoaded || serverState.loadedTrackId !== null;
 

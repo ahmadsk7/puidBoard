@@ -27,6 +27,7 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     playheadSec: 0,
     cuePointSec: null,
     durationSec: 180, // 3 minutes
+    playbackRate: 1.0,
     ...overrides,
   };
 }

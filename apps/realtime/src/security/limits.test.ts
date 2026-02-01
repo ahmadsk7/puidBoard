@@ -74,15 +74,22 @@ describe("Rate Limiter", () => {
         expect(result.allowed).toBe(true);
       }
 
-      // Now any deck action should be blocked
+      // Now any deck action in the shared pool should be blocked
       const blockedPlay = rateLimiter.checkAndRecord(testClientId, "DECK_PLAY");
       expect(blockedPlay.allowed).toBe(false);
 
       const blockedPause = rateLimiter.checkAndRecord(testClientId, "DECK_PAUSE");
       expect(blockedPause.allowed).toBe(false);
 
-      const blockedSeek = rateLimiter.checkAndRecord(testClientId, "DECK_SEEK");
-      expect(blockedSeek.allowed).toBe(false);
+      const blockedCue = rateLimiter.checkAndRecord(testClientId, "DECK_CUE");
+      expect(blockedCue.allowed).toBe(false);
+
+      const blockedTempo = rateLimiter.checkAndRecord(testClientId, "DECK_TEMPO_SET");
+      expect(blockedTempo.allowed).toBe(false);
+
+      // DECK_SEEK has its own separate limit (600/min for scratching), so it should still be allowed
+      const allowedSeek = rateLimiter.checkAndRecord(testClientId, "DECK_SEEK");
+      expect(allowedSeek.allowed).toBe(true);
     });
   });
 
@@ -156,6 +163,7 @@ describe("isRateLimitedEventType", () => {
     expect(isRateLimitedEventType("DECK_PAUSE")).toBe(true);
     expect(isRateLimitedEventType("DECK_SEEK")).toBe(true);
     expect(isRateLimitedEventType("DECK_CUE")).toBe(true);
+    expect(isRateLimitedEventType("DECK_TEMPO_SET")).toBe(true);
   });
 
   it("should return false for non-rate-limited events", () => {

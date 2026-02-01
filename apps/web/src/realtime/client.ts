@@ -514,6 +514,35 @@ export class RealtimeClient {
       this.notifyStateListeners();
     });
 
+    this.socket.on("DECK_TEMPO_SET", (event: {
+      roomId: string;
+      clientId: string;
+      payload: { deckId: "A" | "B"; playbackRate: number };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_TEMPO_SET received:", event.payload);
+
+      const { deckId, playbackRate } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.playbackRate = playbackRate;
+
+      // Apply to local audio deck as well
+      try {
+        const localDeck = getDeck(deckId);
+        if (localDeck) {
+          localDeck.setPlaybackRate(playbackRate);
+        }
+      } catch (error) {
+        console.debug(`[RealtimeClient] Could not apply tempo to local deck:`, error);
+      }
+
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
     // SYNC_TICK for playback synchronization
     this.socket.on("SYNC_TICK", (event: {
       roomId: string;

@@ -111,6 +111,8 @@ export {
   DeckCueEventSchema,
   DeckSeekPayloadSchema,
   DeckSeekEventSchema,
+  DeckTempoSetPayloadSchema,
+  DeckTempoSetEventSchema,
   // Queue events
   QueueAddPayloadSchema,
   QueueAddEventSchema,
@@ -171,6 +173,8 @@ export type {
   DeckCueEvent,
   DeckSeekPayload,
   DeckSeekEvent,
+  DeckTempoSetPayload,
+  DeckTempoSetEvent,
   QueueAddPayload,
   QueueAddEvent,
   QueueRemovePayload,
@@ -248,6 +252,8 @@ export {
   FX_PARAM,
   DECK_A_JOG,
   DECK_B_JOG,
+  DECK_A_TEMPO,
+  DECK_B_TEMPO,
   // Grouped control IDs
   ALL_CONTROL_IDS,
   CHANNEL_A_CONTROLS,

@@ -55,6 +55,9 @@ export const VALID_CONTROL_IDS = [
   // Deck controls (for jog/scratch)
   "deckA.jog",
   "deckB.jog",
+  // Deck tempo controls
+  "deckA.tempo",
+  "deckB.tempo",
 ] as const;
 
 export type ValidControlId = (typeof VALID_CONTROL_IDS)[number];

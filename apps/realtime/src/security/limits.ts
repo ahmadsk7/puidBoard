@@ -40,7 +40,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
 };
 
 /** Event types that share the DECK_ACTIONS rate limit */
-const DECK_EVENT_TYPES = ["DECK_LOAD", "DECK_PLAY", "DECK_PAUSE", "DECK_CUE"];
+const DECK_EVENT_TYPES = ["DECK_LOAD", "DECK_PLAY", "DECK_PAUSE", "DECK_CUE", "DECK_TEMPO_SET"];
 
 /** Event types with their own rate limits */
 const INDIVIDUAL_RATE_LIMIT_TYPES = ["DECK_SEEK"];

@@ -129,6 +129,8 @@ export const DeckStateSchema = z.object({
   cuePointSec: z.number().nonnegative().nullable(),
   /** Track duration in seconds (null if no track loaded) */
   durationSec: z.number().nonnegative().nullable(),
+  /** Playback rate (0.92 to 1.08 for ±8% tempo range, default 1.0) */
+  playbackRate: z.number().min(0.5).max(2.0).default(1.0),
 });
 export type DeckState = z.infer<typeof DeckStateSchema>;
 
@@ -288,5 +290,6 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     playheadSec: 0,
     cuePointSec: null,
     durationSec: null,
+    playbackRate: 1.0,
   };
 }
