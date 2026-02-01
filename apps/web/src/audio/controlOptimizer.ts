@@ -1,515 +1,281 @@
 /**
- * Professional-grade control optimization system for DJ components
+ * Professional control optimizer for DJ hardware emulation.
  *
- * Architecture follows Native Instruments, Pioneer DJ, and Serato patterns:
- *
- * Control Pipeline:
- * pointer -> local state (immediate, no lag)
- *         -> RAF render (smooth visual only)
- *         -> network events @ 20-30hz (throttled)
- *
- * CRITICAL RULES:
- * 1. LINEAR 1:1 mapping - NO easing curves (feels fake on instruments)
- * 2. Local = never interpolate - immediate response
- * 3. Remote = interpolate - smooth other users' movements
- * 4. Event-based networking - send deltas with timestamps
- *
- * Performance targets:
- * - <5ms local input latency (visual feedback)
- * - 60fps constant during interaction
- * - <1% CPU usage when idle
- * - Zero jank on pointer move
- * - Feels like real DJ hardware
+ * Architecture principles:
+ * - Single RAF loop for all controls (no jank)
+ * - Linear 1:1 mapping (no easing - feels fake on instruments)
+ * - Local = immediate (zero interpolation)
+ * - Remote = interpolate (smooth other users)
+ * - Event-based with timestamps (deterministic replay)
  */
 
-import { useRef, useCallback, useEffect } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 
-// ============================================================================
-// CONSTANTS & CONFIGURATION
-// ============================================================================
-
-/** Target frame rate for RAF loop */
-const TARGET_FPS = 60;
-const FRAME_TIME = 1000 / TARGET_FPS;
-
-/** Network throttle rate (20-30hz for controls) */
-const NETWORK_THROTTLE_MS = 33; // ~30hz
-
-/**
- * Smoothing factors
- * IMPORTANT: Local controls use INSTANT (1.0) for raw 1:1 mapping
- * Only remote users get interpolation smoothing
- */
-export const SMOOTHING = {
-  /** For local user - NO smoothing, raw 1:1 input */
-  INSTANT: 1.0,
-  /** For remote user interpolation - fast but smooth */
-  REMOTE_FAST: 0.25,
-  /** For remote user interpolation - balanced */
-  REMOTE_MEDIUM: 0.15,
-  /** Legacy compatibility values */
-  FAST: 0.65,
-  MEDIUM: 0.45,
-  SLOW: 0.25,
-  GENTLE: 0.12,
-} as const;
-
-/** Physics constants for momentum-based controls (jog wheel) */
-export const PHYSICS = {
-  /** Friction coefficient for momentum decay */
-  FRICTION: 0.92,
-  /** High friction for quick stop */
-  HIGH_FRICTION: 0.85,
-  /** Low friction for long spin */
-  LOW_FRICTION: 0.97,
-  /** Minimum velocity threshold */
-  MIN_VELOCITY: 0.001,
-  /** Maximum velocity cap */
-  MAX_VELOCITY: 50,
-} as const;
-
-/** Network throttle timing (ms) - optimized for 20-30hz */
-export const NETWORK_THROTTLE = {
-  /** Fast updates for real-time controls (~30hz) */
-  FAST: 33,
-  /** Normal update rate (~20hz) */
-  NORMAL: 50,
-  /** Slow updates for less critical data */
-  SLOW: 100,
-} as const;
-
-// ============================================================================
-// CORE MATH UTILITIES (LINEAR - NO EASING)
-// ============================================================================
-
-/**
- * Exponential interpolation - for REMOTE user smoothing only
- * Local controls should use raw values directly
- */
-export function expLerp(current: number, target: number, factor: number): number {
-  return current + (target - current) * factor;
+/** High-precision timestamp for event ordering */
+export function getTimestamp(): number {
+  return performance.now();
 }
 
-/**
- * Clamp value between min and max
- */
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+/** Linear interpolation - ONLY for remote users */
+export function lerp(start: number, end: number, t: number): number {
+  return start + (end - start) * t;
 }
 
-/**
- * Check if two values are approximately equal
- */
-export function approxEqual(a: number, b: number, epsilon: number = 0.0001): boolean {
-  return Math.abs(a - b) < epsilon;
-}
-
-// ============================================================================
-// GPU ACCELERATION HELPERS
-// ============================================================================
-
-/**
- * Generate rotate3d string (GPU accelerated)
- * Uses rotateZ with translate3d(0,0,0) to force GPU layer
- */
-export function rotate3d(degrees: number): string {
-  return `translate3d(0, 0, 0) rotateZ(${degrees}deg)`;
-}
-
-/**
- * Combine multiple transforms into one string
- */
-export function combineTransforms(...transforms: string[]): string {
-  return transforms.filter(Boolean).join(' ');
-}
-
-/**
- * Generate translate3d string for position (GPU accelerated)
- */
-export function transform3d(
-  x: number | string = 0,
-  y: number | string = 0,
-  z: number | string = 0
-): string {
-  const xVal = typeof x === 'number' ? `${x}px` : x;
-  const yVal = typeof y === 'number' ? `${y}px` : y;
-  const zVal = typeof z === 'number' ? `${z}px` : z;
-  return `translate3d(${xVal}, ${yVal}, ${zVal})`;
-}
-
-// ============================================================================
-// POINTER EVENT COALESCING
-// ============================================================================
-
-export interface CoalescedPointerData {
-  /** Current X position */
-  x: number;
-  /** Current Y position */
-  y: number;
-  /** Movement delta X (from all coalesced points) */
-  deltaX: number;
-  /** Movement delta Y (from all coalesced points) */
-  deltaY: number;
-  /** Pressure (0-1) */
-  pressure: number;
-  /** Tilt X angle */
-  tiltX: number;
-  /** Tilt Y angle */
-  tiltY: number;
-  /** All coalesced points for high-precision tracking */
-  points: Array<{ x: number; y: number; pressure: number }>;
-  /** High-res timestamp */
-  timestamp: number;
-}
-
-/**
- * Extract coalesced pointer events for high-precision tracking
- * Uses getCoalescedEvents() for sub-frame precision on supported browsers
- */
-export function getCoalescedPointerData(
-  event: PointerEvent,
-  lastPosition: { x: number; y: number } | null = null
-): CoalescedPointerData {
-  const points: Array<{ x: number; y: number; pressure: number }> = [];
-
-  // Try to get coalesced events (high-precision tracking)
-  if ('getCoalescedEvents' in event && typeof event.getCoalescedEvents === 'function') {
-    try {
-      const coalescedEvents = event.getCoalescedEvents();
-      for (const e of coalescedEvents) {
-        points.push({
-          x: e.clientX,
-          y: e.clientY,
-          pressure: e.pressure,
-        });
-      }
-    } catch {
-      // Fallback if getCoalescedEvents fails
-    }
-  }
-
-  // Always include main event if we got nothing
-  if (points.length === 0) {
-    points.push({
-      x: event.clientX,
-      y: event.clientY,
-      pressure: event.pressure,
-    });
-  }
-
-  // Safe access with fallbacks
-  const last = points[points.length - 1] ?? { x: event.clientX, y: event.clientY, pressure: event.pressure };
-  const first = lastPosition || points[0] || last;
-
-  // Calculate total delta from all coalesced points
-  let totalDeltaX = 0;
-  let totalDeltaY = 0;
-
-  if (points.length > 1) {
-    for (let i = 1; i < points.length; i++) {
-      const curr = points[i];
-      const prev = points[i - 1];
-      if (curr && prev) {
-        totalDeltaX += curr.x - prev.x;
-        totalDeltaY += curr.y - prev.y;
-      }
-    }
-    const firstPoint = points[0];
-    if (lastPosition && firstPoint) {
-      totalDeltaX += firstPoint.x - lastPosition.x;
-      totalDeltaY += firstPoint.y - lastPosition.y;
-    }
-  } else {
-    totalDeltaX = last.x - first.x;
-    totalDeltaY = last.y - first.y;
-  }
-
-  return {
-    x: last.x,
-    y: last.y,
-    deltaX: totalDeltaX,
-    deltaY: totalDeltaY,
-    pressure: last.pressure,
-    tiltX: event.tiltX || 0,
-    tiltY: event.tiltY || 0,
-    points,
-    timestamp: performance.now(),
-  };
-}
-
-// ============================================================================
-// VELOCITY PREDICTION
-// ============================================================================
-
-export interface VelocityPredictor {
-  samples: Array<{ value: number; time: number }>;
-  maxSamples: number;
-}
-
-/**
- * Create a velocity predictor for reduced latency feel
- */
-export function createVelocityPredictor(maxSamples: number = 5): VelocityPredictor {
-  return {
-    samples: [],
-    maxSamples,
-  };
-}
-
-/**
- * Add sample and get predicted value
- */
-export function predictValue(
-  predictor: VelocityPredictor,
-  value: number,
-  lookaheadMs: number = 8
-): number {
-  const now = performance.now();
-
-  predictor.samples.push({ value, time: now });
-
-  while (predictor.samples.length > predictor.maxSamples) {
-    predictor.samples.shift();
-  }
-
-  if (predictor.samples.length < 2) {
-    return value;
-  }
-
-  let totalVelocity = 0;
-  let totalWeight = 0;
-
-  for (let i = 1; i < predictor.samples.length; i++) {
-    const prev = predictor.samples[i - 1];
-    const curr = predictor.samples[i];
-    if (!prev || !curr) continue;
-
-    const dt = curr.time - prev.time;
-
-    if (dt > 0 && dt < 100) {
-      const velocity = (curr.value - prev.value) / dt;
-      const weight = i / predictor.samples.length;
-      totalVelocity += velocity * weight;
-      totalWeight += weight;
-    }
-  }
-
-  if (totalWeight === 0) return value;
-
-  const avgVelocity = totalVelocity / totalWeight;
-  return value + avgVelocity * lookaheadMs * 0.5;
-}
-
-/**
- * Reset predictor state
- */
-export function resetPredictor(predictor: VelocityPredictor): void {
-  predictor.samples = [];
-}
-
-// ============================================================================
-// SINGLE RAF LOOP MANAGER (SHARED BY ALL CONTROLS)
-// ============================================================================
-
-type AnimationCallback = (deltaTime: number, timestamp: number) => boolean | void;
-
-/**
- * Singleton RAF manager - ONE shared requestAnimationFrame for ALL controls
- * This is critical for performance - avoids multiple RAF loops competing
- */
+/** Shared RAF loop manager - all controls use one requestAnimationFrame */
 class RAFManager {
-  private callbacks: Map<string, AnimationCallback> = new Map();
+  private callbacks = new Set<FrameRequestCallback>();
   private rafId: number | null = null;
-  private lastTime: number = 0;
-  private isRunning: boolean = false;
 
-  /**
-   * Register an animation callback
-   * Returns cleanup function
-   */
-  register(id: string, callback: AnimationCallback): () => void {
-    this.callbacks.set(id, callback);
-
-    if (!this.isRunning && this.callbacks.size > 0) {
-      this.start();
-    }
-
+  subscribe(callback: FrameRequestCallback): () => void {
+    this.callbacks.add(callback);
+    this.ensureRunning();
     return () => {
-      this.callbacks.delete(id);
+      this.callbacks.delete(callback);
       if (this.callbacks.size === 0) {
         this.stop();
       }
     };
   }
 
-  /**
-   * Unregister a callback by ID
-   */
-  unregister(id: string): void {
-    this.callbacks.delete(id);
-    if (this.callbacks.size === 0) {
-      this.stop();
+  private ensureRunning(): void {
+    if (this.rafId === null) {
+      this.tick(0);
     }
   }
 
-  private start(): void {
-    if (this.isRunning) return;
+  private tick = (time: number): void => {
+    this.rafId = requestAnimationFrame(this.tick);
 
-    this.isRunning = true;
-    this.lastTime = performance.now();
-    this.tick(this.lastTime);
-  }
+    // Execute all callbacks in single frame
+    for (const callback of this.callbacks) {
+      callback(time);
+    }
+  };
 
   private stop(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
-    this.isRunning = false;
   }
-
-  private tick = (timestamp: number): void => {
-    if (!this.isRunning) return;
-
-    // Cap delta to avoid physics explosions on tab switch
-    const deltaTime = Math.min(timestamp - this.lastTime, FRAME_TIME * 3);
-    this.lastTime = timestamp;
-
-    // Execute all callbacks, remove if they return false
-    const toRemove: string[] = [];
-
-    this.callbacks.forEach((callback, id) => {
-      try {
-        const result = callback(deltaTime, timestamp);
-        if (result === false) {
-          toRemove.push(id);
-        }
-      } catch (e) {
-        console.error(`[RAF] Callback error for ${id}:`, e);
-        toRemove.push(id);
-      }
-    });
-
-    toRemove.forEach(id => this.callbacks.delete(id));
-
-    if (this.callbacks.size > 0) {
-      this.rafId = requestAnimationFrame(this.tick);
-    } else {
-      this.stop();
-    }
-  };
 }
 
-/** Singleton instance - shared by ALL controls */
+/** Singleton RAF manager */
 export const rafManager = new RAFManager();
 
-// ============================================================================
-// REACT HOOKS
-// ============================================================================
-
 /**
- * Hook for shared RAF loop subscription
- * Multiple components can share the same RAF loop for efficiency
+ * Hook to subscribe to shared RAF loop.
+ * All controls use this to batch visual updates.
  */
-export function useSharedRAF(
-  id: string,
-  callback: (deltaTime: number, timestamp: number) => boolean | void,
-  enabled: boolean = true
-): void {
+export function useSharedRAF(callback: FrameRequestCallback, enabled: boolean = true): void {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
   useEffect(() => {
     if (!enabled) return;
 
-    const wrappedCallback = (deltaTime: number, timestamp: number) => {
-      return callbackRef.current(deltaTime, timestamp);
+    const wrappedCallback: FrameRequestCallback = (time) => {
+      callbackRef.current(time);
     };
 
-    const cleanup = rafManager.register(id, wrappedCallback);
-    return cleanup;
-  }, [id, enabled]);
+    return rafManager.subscribe(wrappedCallback);
+  }, [enabled]);
 }
 
 /**
- * Hook for network-throttled value sending
- * Sends at ~30hz for optimal network/responsiveness balance
+ * Optimized control value manager.
+ *
+ * Separates:
+ * - Visual state (RAF-smoothed for remote users only)
+ * - Local state (immediate, no latency)
+ * - Network state (throttled to 20-30hz)
  */
-export function useThrottledSend<T>(
-  sendFn: (value: T) => void,
-  throttleMs: number = NETWORK_THROTTLE_MS
-): (value: T) => void {
-  const lastSendRef = useRef(0);
-  const pendingRef = useRef<T | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+export function useOptimizedControl(
+  value: number,
+  isLocalControl: boolean,
+  onChange?: (value: number, timestamp: number) => void
+) {
+  const [visualValue, setVisualValue] = useState(value);
+  const targetValueRef = useRef(value);
+  const lastNetworkSendRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
-  const throttledSend = useCallback((value: T) => {
-    const now = performance.now();
-    const elapsed = now - lastSendRef.current;
-
-    if (elapsed >= throttleMs) {
-      lastSendRef.current = now;
-      sendFn(value);
-      pendingRef.current = null;
-    } else {
-      pendingRef.current = value;
-
-      if (!timeoutRef.current) {
-        timeoutRef.current = setTimeout(() => {
-          if (pendingRef.current !== null) {
-            lastSendRef.current = performance.now();
-            sendFn(pendingRef.current);
-            pendingRef.current = null;
-          }
-          timeoutRef.current = null;
-        }, throttleMs - elapsed);
-      }
-    }
-  }, [sendFn, throttleMs]);
-
+  // Update target when prop changes (from network)
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+    targetValueRef.current = value;
+
+    // Local controls = immediate update (no interpolation)
+    if (isLocalControl || !isDraggingRef.current) {
+      setVisualValue(value);
+    }
+  }, [value, isLocalControl]);
+
+  // Smooth interpolation for REMOTE users only
+  useSharedRAF(
+    useCallback(() => {
+      // Skip interpolation for local user (feels laggy)
+      if (isLocalControl || isDraggingRef.current) {
+        return;
       }
-    };
+
+      // Linear interpolation for remote users
+      const current = visualValue;
+      const target = targetValueRef.current;
+      const diff = Math.abs(target - current);
+
+      if (diff > 0.001) {
+        // Fast interpolation (not easing - linear catch up)
+        const lerpFactor = 0.3; // 30% per frame = ~5 frames to settle
+        const newValue = lerp(current, target, lerpFactor);
+        setVisualValue(newValue);
+      } else if (diff > 0) {
+        setVisualValue(target);
+      }
+    }, [visualValue, isLocalControl])
+  );
+
+  // Send to network with throttling (20-30hz)
+  const sendToNetwork = useCallback(
+    (newValue: number) => {
+      const now = getTimestamp();
+      const timeSinceLastSend = now - lastNetworkSendRef.current;
+
+      // Throttle to ~30hz (33ms)
+      if (timeSinceLastSend < 33) {
+        return;
+      }
+
+      lastNetworkSendRef.current = now;
+      onChange?.(newValue, now);
+    },
+    [onChange]
+  );
+
+  // Update local value immediately (zero latency)
+  const updateValue = useCallback(
+    (newValue: number) => {
+      if (!isLocalControl) return;
+
+      // Immediate visual update
+      setVisualValue(newValue);
+      targetValueRef.current = newValue;
+
+      // Throttled network update
+      sendToNetwork(newValue);
+    },
+    [isLocalControl, sendToNetwork]
+  );
+
+  const setDragging = useCallback((dragging: boolean) => {
+    isDraggingRef.current = dragging;
   }, []);
 
-  return throttledSend;
-}
-
-// ============================================================================
-// TRIPLE BUFFER STATE
-// ============================================================================
-
-export interface TripleBufferState {
-  /** Raw local input value - NEVER interpolated for local user */
-  local: number;
-  /** Smoothed visual value - only for remote user rendering */
-  visual: number;
-  /** Throttled network-synced value */
-  network: number;
-  /** Target value for remote interpolation */
-  target: number;
-  /** Current velocity (for momentum physics) */
-  velocity: number;
-  /** Last update timestamp */
-  lastUpdate: number;
-  /** Is being actively manipulated */
-  isActive: boolean;
-  /** Is this a local user's control */
-  isLocalUser: boolean;
-}
-
-export function createTripleBuffer(initialValue: number = 0): TripleBufferState {
   return {
-    local: initialValue,
-    visual: initialValue,
-    network: initialValue,
-    target: initialValue,
-    velocity: 0,
-    lastUpdate: performance.now(),
-    isActive: false,
-    isLocalUser: true,
+    visualValue,
+    updateValue,
+    setDragging,
   };
+}
+
+export interface CoalescedPointerData {
+  x: number;
+  y: number;
+  deltaX: number;
+  deltaY: number;
+  pressure: number;
+  tiltX: number;
+  tiltY: number;
+  points: Array<{ x: number; y: number; pressure: number }>;
+  timestamp: number;
+}
+
+/**
+ * Coalesce pointer events for high-precision input.
+ * Returns array of all coalesced events for this frame.
+ */
+export function getCoalescedPointerEvents(e: PointerEvent): PointerEvent[] {
+  if ("getCoalescedEvents" in e && typeof e.getCoalescedEvents === "function") {
+    const coalesced = e.getCoalescedEvents();
+    return coalesced.length > 0 ? coalesced : [e];
+  }
+  return [e];
+}
+
+export function getCoalescedPointerData(
+  event: PointerEvent,
+  _lastPosition?: { x: number; y: number } | null
+): CoalescedPointerData {
+  const points: Array<{ x: number; y: number; pressure: number }> = [];
+  const coalesced = getCoalescedPointerEvents(event);
+
+  for (const e of coalesced) {
+    points.push({
+      x: e.clientX,
+      y: e.clientY,
+      pressure: e.pressure,
+    });
+  }
+
+  const last = points[points.length - 1] ?? { x: event.clientX, y: event.clientY, pressure: event.pressure };
+  const first = points[0] ?? last;
+
+  return {
+    x: last.x,
+    y: last.y,
+    deltaX: last.x - first.x,
+    deltaY: last.y - first.y,
+    pressure: last.pressure,
+    tiltX: event.tiltX ?? 0,
+    tiltY: event.tiltY ?? 0,
+    points,
+    timestamp: performance.now(),
+  };
+}
+
+/**
+ * Clamp value to range.
+ */
+export function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Normalize angle difference to handle wrap-around.
+ */
+export function normalizeAngleDiff(angle: number): number {
+  while (angle > 180) angle -= 360;
+  while (angle < -180) angle += 360;
+  return angle;
+}
+
+/**
+ * Apply momentum/friction physics for jog wheel.
+ * Simple model, not over-engineered.
+ */
+export class MomentumPhysics {
+  private velocity = 0;
+  private friction = 0.92; // Friction coefficient
+
+  update(): number {
+    if (Math.abs(this.velocity) < 0.1) {
+      this.velocity = 0;
+      return 0;
+    }
+
+    const delta = this.velocity;
+    this.velocity *= this.friction;
+    return delta;
+  }
+
+  setVelocity(v: number): void {
+    this.velocity = v;
+  }
+
+  reset(): void {
+    this.velocity = 0;
+  }
+
+  isActive(): boolean {
+    return Math.abs(this.velocity) > 0.1;
+  }
 }
