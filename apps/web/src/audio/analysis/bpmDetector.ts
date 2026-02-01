@@ -36,17 +36,35 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
 
       if (peaks.length >= 2) {
         // Use autocorrelation to find dominant period
-        const bpm = detectBPMFromPeaks(peaks);
+        let bpm = detectBPMFromPeaks(peaks);
         console.log(`[BPM Detector] Calculated BPM: ${bpm}`);
 
-        // Constrain to reasonable BPM range
-        if (bpm && bpm >= 60 && bpm <= 180) {
-          const rounded = Math.round(bpm);
-          console.log(`[BPM Detector] ✓ Detection successful: ${rounded} BPM (threshold: ${(thresholdPercent * 100).toFixed(0)}%)`);
-          return rounded;
-        } else {
-          console.log(`[BPM Detector] BPM ${bpm} outside valid range (60-180), trying next threshold...`);
+        if (bpm) {
+          // Correct BPM octave - divide if too fast, multiply if too slow
+          let correctedBpm = bpm;
+
+          // If detecting sub-beats (too fast), halve until in range
+          while (correctedBpm > 180) {
+            correctedBpm = correctedBpm / 2;
+          }
+
+          // If detecting super-beats (too slow), double until in range
+          while (correctedBpm < 60 && correctedBpm * 2 <= 180) {
+            correctedBpm = correctedBpm * 2;
+          }
+
+          // Check if correction brought it into valid range
+          if (correctedBpm >= 60 && correctedBpm <= 180) {
+            const rounded = Math.round(correctedBpm);
+            if (correctedBpm !== bpm) {
+              console.log(`[BPM Detector] Corrected ${bpm.toFixed(1)} → ${rounded} BPM (octave correction)`);
+            }
+            console.log(`[BPM Detector] ✓ Detection successful: ${rounded} BPM (threshold: ${(thresholdPercent * 100).toFixed(0)}%)`);
+            return rounded;
+          }
         }
+
+        console.log(`[BPM Detector] BPM ${bpm} outside valid range after correction, trying next threshold...`);
       }
     }
 
