@@ -692,7 +692,7 @@ export class RealtimeClient {
           );
         } else if (correction.type === "rate_adjust") {
           // Small drift - adjust playback rate
-          deck.setPlaybackRate(correction.playbackRate, 100);
+          deck.setPlaybackRate(correction.playbackRate);
           console.log(
             `[sync-${deckId}] Rate correction applied: drift=${correction.driftMs.toFixed(1)}ms, rate=${correction.playbackRate.toFixed(3)}`
           );

@@ -10,8 +10,8 @@ export type DeckControlPanelProps = {
   onPause: () => void;
   onCue: () => void;
   onSync?: () => void;
+  isSynced?: boolean;
   isPlaying: boolean;
-  audioEnabled: boolean;
 };
 
 /**
@@ -27,13 +27,9 @@ export function DeckControlPanel({
   onPause,
   onCue,
   onSync,
+  isSynced = false,
   isPlaying,
-  audioEnabled,
 }: DeckControlPanelProps) {
-  // Debug BPM value
-  React.useEffect(() => {
-    console.log(`[DeckControlPanel] BPM prop changed: ${bpm}, hasTrack: ${hasTrack}`);
-  }, [bpm, hasTrack]);
 
   // Status text based on play state
   const statusText =
@@ -177,12 +173,8 @@ export function DeckControlPanel({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log("[DeckControlPanel] Cue button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled);
-            if (hasTrack && audioEnabled) {
-              console.log("[DeckControlPanel] Executing cue action");
+            if (hasTrack) {
               onCue();
-            } else {
-              console.log("[DeckControlPanel] Cue blocked - cannot execute");
             }
           }}
           style={{
@@ -191,8 +183,8 @@ export function DeckControlPanel({
             borderRadius: "6px",
             border: playState === "cued" ? `2px solid #ff6b35` : "2px solid #242424",
             background: playState === "cued" ? "rgba(255, 107, 53, 0.15)" : "rgba(0, 0, 0, 0.3)",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.4,
+            cursor: hasTrack ? "pointer" : "not-allowed",
+            opacity: hasTrack ? 1 : 0.4,
             padding: 0,
             display: "flex",
             alignItems: "center",
@@ -201,7 +193,7 @@ export function DeckControlPanel({
             boxShadow: playState === "cued" ? `0 0 12px rgba(255, 107, 53, 0.3)` : "none",
             pointerEvents: "auto",
           }}
-          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : "Cue"}
+          title={!hasTrack ? "Load a track first" : "Cue"}
         >
           <img
             src="/assets/dj-controls/buttons/cue-icon.svg"
@@ -220,16 +212,12 @@ export function DeckControlPanel({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log("[DeckControlPanel] Play/Pause button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled, "isPlaying=", isPlaying);
-            if (hasTrack && audioEnabled) {
-              console.log("[DeckControlPanel] Executing play/pause action");
+            if (hasTrack) {
               if (isPlaying) {
                 onPause();
               } else {
                 onPlay();
               }
-            } else {
-              console.log("[DeckControlPanel] Play/Pause blocked - cannot execute");
             }
           }}
           style={{
@@ -238,8 +226,8 @@ export function DeckControlPanel({
             borderRadius: "6px",
             border: isPlaying ? `2px solid #22c55e` : "2px solid #242424",
             background: isPlaying ? "rgba(34, 197, 94, 0.15)" : "rgba(0, 0, 0, 0.3)",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.4,
+            cursor: hasTrack ? "pointer" : "not-allowed",
+            opacity: hasTrack ? 1 : 0.4,
             padding: 0,
             display: "flex",
             alignItems: "center",
@@ -248,7 +236,7 @@ export function DeckControlPanel({
             boxShadow: isPlaying ? `0 0 12px rgba(34, 197, 94, 0.3)` : "none",
             pointerEvents: "auto",
           }}
-          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : isPlaying ? "Pause" : "Play"}
+          title={!hasTrack ? "Load a track first" : isPlaying ? "Pause" : "Play"}
         >
           <img
             src={
@@ -271,30 +259,33 @@ export function DeckControlPanel({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log("[DeckControlPanel] Sync button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled);
-            if (hasTrack && audioEnabled) {
-              console.log("[DeckControlPanel] Executing sync action");
+            if (hasTrack) {
               onSync?.();
-            } else {
-              console.log("[DeckControlPanel] Sync blocked - cannot execute");
             }
           }}
           style={{
             width: "36px",
             height: "36px",
             borderRadius: "6px",
-            border: "2px solid #242424",
-            background: "rgba(0, 0, 0, 0.3)",
-            cursor: hasTrack && audioEnabled ? "pointer" : "not-allowed",
-            opacity: hasTrack && audioEnabled ? 1 : 0.4,
+            border: isSynced ? "2px solid #8b5cf6" : "2px solid #242424",
+            background: isSynced ? "rgba(139, 92, 246, 0.15)" : "rgba(0, 0, 0, 0.3)",
+            cursor: hasTrack ? "pointer" : "not-allowed",
+            opacity: hasTrack ? 1 : 0.4,
             padding: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             transition: "all 0.15s ease",
+            boxShadow: isSynced ? "0 0 12px rgba(139, 92, 246, 0.3)" : "none",
             pointerEvents: "auto",
           }}
-          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : "Sync BPM"}
+          title={
+            !hasTrack
+              ? "Load a track first"
+              : isSynced
+              ? "Click to unsync"
+              : "Sync BPM to other deck"
+          }
         >
           <img
             src="/assets/dj-controls/buttons/sync-icon.svg"
@@ -302,7 +293,7 @@ export function DeckControlPanel({
             style={{
               width: "28px",
               height: "28px",
-              filter: "brightness(0.7)",
+              filter: isSynced ? "brightness(1.2)" : "brightness(0.7)",
             }}
           />
         </button>

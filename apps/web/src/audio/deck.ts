@@ -439,48 +439,46 @@ export class Deck {
   }
 
   /**
-   * Set the playback rate with a smooth transition.
+   * Set the playback rate immediately.
    *
    * @param rate - Target playback rate (0.5 to 2.0, 1.0 = normal)
-   * @param rampTimeMs - Time to ramp to the new rate (default 100ms)
    */
-  setPlaybackRate(rate: number, rampTimeMs: number = 100): void {
+  setPlaybackRate(rate: number): void {
     const ctx = getAudioContext();
-    if (!ctx || !this.state.source) {
-      // No source playing, just update state for next play
-      this.state.playbackRate = rate;
-      return;
-    }
-
+    
     // Clamp rate to reasonable bounds
     const clampedRate = Math.max(0.5, Math.min(2.0, rate));
 
-    // Update state immediately
-    const previousRate = this.state.playbackRate;
-    this.state.playbackRate = clampedRate;
+    if (!ctx || !this.state.source) {
+      // No source playing, just update state for next play
+      this.state.playbackRate = clampedRate;
+      this.notify();
+      return;
+    }
 
-    // If we're playing, we need to:
-    // 1. Calculate current playhead based on old rate
-    // 2. Update startTime and startOffset to maintain position
-    // 3. Apply new rate to source
+    // If we're playing, smoothly transition the playback rate
+    // The audio continues from its current position, just at a different speed
     if (this.state.playState === "playing" && this.state.startTime !== null) {
-      // Calculate current position with old rate
+      const previousRate = this.state.playbackRate;
+      
+      // Calculate current position using the OLD rate before we change it
       const elapsed = ctx.currentTime - this.state.startTime;
-      const adjustedElapsed = elapsed * previousRate;
-      const currentPosition = this.state.startOffset + adjustedElapsed;
-
-      // Update timing references for new rate
+      const currentPosition = this.state.startOffset + (elapsed * previousRate);
+      
+      // Update our timing references so getCurrentPlayhead() works correctly with new rate
+      // Reset startTime to now, and startOffset to current position
       this.state.startTime = ctx.currentTime;
       this.state.startOffset = currentPosition;
-      this.state.playheadSec = currentPosition;
+      
+      // Now update the rate
+      this.state.playbackRate = clampedRate;
 
-      // Apply rate change with smooth ramp
-      const rampTimeSec = rampTimeMs / 1000;
-      this.state.source.playbackRate.setTargetAtTime(
-        clampedRate,
-        ctx.currentTime,
-        rampTimeSec / 3 // Time constant (reaches ~95% in rampTimeSec)
-      );
+      // Apply rate change immediately (no ramp - causes sync issues)
+      this.state.source.playbackRate.value = clampedRate;
+      
+      console.log(`[deck-${this.state.deckId}] Rate changed: ${previousRate.toFixed(3)} -> ${clampedRate.toFixed(3)} at position ${currentPosition.toFixed(2)}s`);
+    } else {
+      this.state.playbackRate = clampedRate;
     }
 
     this.notify();

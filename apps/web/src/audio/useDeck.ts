@@ -87,6 +87,14 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.releaseNudge();
   }, []);
 
+  const setPlaybackRate = useCallback((rate: number) => {
+    deckRef.current.setPlaybackRate(rate);
+  }, []);
+
+  const resetPlaybackRate = useCallback(() => {
+    deckRef.current.resetPlaybackRate();
+  }, []);
+
   // Calculate current BPM (original BPM × playback rate)
   const originalBpm = state.analysis.bpm;
   const currentBpm = originalBpm !== null
@@ -105,6 +113,8 @@ export function useDeck(deckId: "A" | "B") {
     scrub,
     nudge,
     releaseNudge,
+    setPlaybackRate,
+    resetPlaybackRate,
     /** Current playhead in seconds */
     playhead: state.playheadSec,
     /** Track duration in seconds */
@@ -117,9 +127,53 @@ export function useDeck(deckId: "A" | "B") {
     waveform: state.analysis.waveform,
     /** Current BPM (adjusted for playback rate) */
     bpm: currentBpm,
+    /** Current playback rate */
+    playbackRate: state.playbackRate,
     /** Is analyzing audio */
     isAnalyzing: state.analysis.status === "analyzing",
   };
+}
+
+/**
+ * Sync one deck's BPM to match the other deck.
+ * Adjusts the source deck's playback rate to match the target deck's BPM.
+ * 
+ * @param sourceDeckId - The deck to adjust (the one you pressed sync on)
+ * @returns true if sync was successful, false if either deck has no BPM detected
+ */
+export function syncDeckBPM(sourceDeckId: "A" | "B"): boolean {
+  const targetDeckId = sourceDeckId === "A" ? "B" : "A";
+  
+  const sourceDeck = decks[sourceDeckId];
+  const targetDeck = decks[targetDeckId];
+  
+  if (!sourceDeck || !targetDeck) {
+    console.warn(`[syncDeckBPM] Deck not initialized`);
+    return false;
+  }
+  
+  const sourceState = sourceDeck.getState();
+  const targetState = targetDeck.getState();
+  
+  const sourceBPM = sourceState.analysis.bpm;
+  const targetBPM = targetState.analysis.bpm;
+  
+  if (!sourceBPM || !targetBPM) {
+    console.warn(`[syncDeckBPM] BPM not detected - source: ${sourceBPM}, target: ${targetBPM}`);
+    return false;
+  }
+  
+  // Calculate the rate needed to match BPMs
+  // If source is 120 BPM and target is 130 BPM, we need rate = 130/120 = 1.083
+  const newRate = targetBPM / sourceBPM;
+  
+  // Clamp to reasonable range (0.5x to 2.0x)
+  const clampedRate = Math.max(0.5, Math.min(2.0, newRate));
+  
+  console.log(`[syncDeckBPM] Syncing Deck ${sourceDeckId} (${sourceBPM} BPM) to Deck ${targetDeckId} (${targetBPM} BPM) - rate: ${clampedRate.toFixed(3)}`);
+  
+  sourceDeck.setPlaybackRate(clampedRate);
+  return true;
 }
 
 /**

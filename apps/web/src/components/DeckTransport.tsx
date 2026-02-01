@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
-import { useDeck } from "@/audio/useDeck";
-import { useAudioEnabled } from "./AutoplayGate";
+import { useDeck, syncDeckBPM } from "@/audio/useDeck";
 import { DeckControlPanel } from "./displays";
+import { initAudioEngine } from "@/audio/engine";
 
 export type DeckTransportProps = {
   /** Deck ID (A or B) */
@@ -37,7 +37,6 @@ export default function DeckTransport({
   nextSeq,
   accentColor,
 }: DeckTransportProps) {
-  const audioEnabled = useAudioEnabled();
   const deck = useDeck(deckId);
 
   // Extract values for stable dependencies
@@ -46,31 +45,30 @@ export default function DeckTransport({
 
   // Sync with server state - load track when server says to
   useEffect(() => {
-    if (!audioEnabled) return;
-
     const serverTrackId = serverState.loadedTrackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
-      console.log(`[DeckTransport-${deckId}] Loading track ${serverTrackId} (current: ${localTrackId})`);
+      // Init audio first (will be no-op if already initialized)
+      initAudioEngine().then(() => {
+        // Fetch the track URL from the realtime server API
+        const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
 
-      // Fetch the track URL from the realtime server API
-      const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
-
-      fetch(`${realtimeUrl}/api/tracks/${serverTrackId}/url`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Failed to get track URL: ${res.status}`);
-          return res.json();
-        })
-        .then((data) => {
-          // Load the track with the URL from the server
-          console.log(`[DeckTransport-${deckId}] Fetched URL for ${serverTrackId}, loading...`);
-          return loadTrack(serverTrackId, data.url);
-        })
-        .catch((err) => {
-          console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
-        });
+        fetch(`${realtimeUrl}/api/tracks/${serverTrackId}/url`)
+          .then((res) => {
+            if (!res.ok) throw new Error(`Failed to get track URL: ${res.status}`);
+            return res.json();
+          })
+          .then((data) => {
+            return loadTrack(serverTrackId, data.url);
+          })
+          .catch((err) => {
+            console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
+          });
+      }).catch(() => {
+        // Audio init failed, will retry on next user interaction
+      });
     }
-  }, [audioEnabled, serverState.loadedTrackId, localTrackId, loadTrack, deckId]);
+  }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId]);
 
   // Sync play state with server
   const isLoaded = deck.isLoaded;
@@ -78,38 +76,32 @@ export default function DeckTransport({
   const { play, pause, stop } = deck;
 
   useEffect(() => {
-    if (!audioEnabled || !isLoaded) return;
+    if (!isLoaded) return;
 
     if (serverState.playState === "playing" && !isPlaying) {
-      console.log(`[DeckTransport-${deckId}] Syncing play state: playing`);
       play();
     } else if (serverState.playState === "paused" && isPlaying) {
-      console.log(`[DeckTransport-${deckId}] Syncing play state: paused`);
       pause();
     } else if (serverState.playState === "stopped" && isPlaying) {
-      console.log(`[DeckTransport-${deckId}] Syncing play state: stopped`);
       stop();
     }
-  }, [audioEnabled, serverState.playState, isLoaded, isPlaying, play, pause, stop, deckId]);
+  }, [serverState.playState, isLoaded, isPlaying, play, pause, stop]);
 
   // Sync playhead position with server (for DECK_SEEK events from other clients)
   const playhead = deck.playhead;
   const { seek } = deck;
 
   useEffect(() => {
-    if (!audioEnabled || !isLoaded) return;
+    if (!isLoaded) return;
 
     // Check if server playhead differs significantly from local playhead
-    // Only sync if difference is > 0.5 seconds to avoid constant corrections
     const playheadDiff = Math.abs(serverState.playheadSec - playhead);
     const shouldSync = playheadDiff > 0.5;
 
     if (shouldSync && !isPlaying) {
-      // Only auto-sync when paused/stopped to avoid disrupting playback
-      console.log(`[DeckTransport-${deckId}] Syncing playhead: ${serverState.playheadSec.toFixed(2)}s (was ${playhead.toFixed(2)}s)`);
       seek(serverState.playheadSec);
     }
-  }, [audioEnabled, serverState.playheadSec, isLoaded, isPlaying, playhead, seek, deckId]);
+  }, [serverState.playheadSec, isLoaded, isPlaying, playhead, seek]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(async () => {
@@ -120,7 +112,7 @@ export default function DeckTransport({
       clientSeq: nextSeq(),
       payload: { deckId },
     });
-    // Also play locally for immediate feedback (auto-initializes audio)
+    // Play locally (auto-initializes audio on user interaction)
     if (deck.isLoaded) {
       await deck.play();
     }
@@ -139,7 +131,7 @@ export default function DeckTransport({
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
   // Send DECK_CUE event
-  const handleCue = useCallback(() => {
+  const handleCue = useCallback(async () => {
     sendEvent({
       type: "DECK_CUE",
       roomId,
@@ -150,11 +142,27 @@ export default function DeckTransport({
     deck.cue();
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
-  // Sync handler (placeholder for future BPM sync functionality)
+  // Track if this deck is synced (rate !== 1.0)
+  const [isSynced, setIsSynced] = useState(false);
+
+  // Update sync state when playback rate changes
+  useEffect(() => {
+    const rate = deck.playbackRate;
+    setIsSynced(Math.abs(rate - 1.0) > 0.001);
+  }, [deck.playbackRate]);
+
+  // Sync this deck's BPM to the other deck
   const handleSync = useCallback(() => {
-    // TODO: Implement BPM sync between decks
-    console.log(`[DeckTransport-${deckId}] Sync not yet implemented`);
-  }, [deckId]);
+    if (isSynced) {
+      deck.resetPlaybackRate();
+      setIsSynced(false);
+    } else {
+      const success = syncDeckBPM(deckId);
+      if (success) {
+        setIsSynced(true);
+      }
+    }
+  }, [deckId, isSynced, deck]);
 
   const hasTrack = deck.isLoaded || serverState.loadedTrackId !== null;
 
@@ -168,8 +176,8 @@ export default function DeckTransport({
       onPause={handlePause}
       onCue={handleCue}
       onSync={handleSync}
+      isSynced={isSynced}
       isPlaying={isPlaying}
-      audioEnabled={audioEnabled}
     />
   );
 }
