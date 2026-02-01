@@ -37,6 +37,11 @@ class RAFManager {
     };
   }
 
+  register(_id: string, callback: (deltaTime: number) => boolean | void): void {
+    // Simple wrapper for compatibility with control components
+    this.subscribe(() => callback(16.67));
+  }
+
   private ensureRunning(): void {
     if (this.rafId === null) {
       this.tick(0);
