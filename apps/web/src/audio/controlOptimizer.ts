@@ -121,7 +121,7 @@ class RAFManager {
     };
   }
 
-  register(id: string, callback: (deltaTime: number) => boolean | void): void {
+  register(_id: string, callback: (deltaTime: number) => boolean | void): void {
     // Simple wrapper - ignores id and deltaTime for now
     this.subscribe(() => callback(16.67));
   }
