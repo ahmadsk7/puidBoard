@@ -599,13 +599,29 @@ export function handleDeckTempoSet(
   // Validate playback rate is within bounds (0.5 to 2.0)
   const clampedRate = Math.max(0.5, Math.min(2.0, playbackRate));
 
+  const serverTs = Date.now();
+
+  // CRITICAL: When tempo changes, we must recalculate the current playhead position
+  // and reset the serverStartTime reference. Otherwise, SYNC_TICK will retroactively
+  // apply the new rate to all elapsed time, causing incorrect playhead calculations
+  // and drift correction to skip the playhead around.
+  if (deck.playState === "playing" && deck.serverStartTime !== null) {
+    // Calculate current playhead using the OLD rate
+    const elapsedMs = serverTs - deck.serverStartTime;
+    const elapsedSec = elapsedMs / 1000;
+    const currentPlayhead = deck.playheadSec + (elapsedSec * deck.playbackRate);
+
+    // Update playhead to current position and reset time reference
+    deck.playheadSec = Math.min(currentPlayhead, deck.durationSec ?? currentPlayhead);
+    deck.serverStartTime = serverTs;
+  }
+
   // Update playback rate
   deck.playbackRate = clampedRate;
 
   // Increment version
   room.version++;
 
-  const serverTs = Date.now();
   const eventId = `${room.roomId}-${room.version}`;
 
   // Broadcast to all clients in room
