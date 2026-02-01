@@ -87,6 +87,12 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.releaseNudge();
   }, []);
 
+  // Calculate current BPM (original BPM × playback rate)
+  const originalBpm = state.analysis.bpm;
+  const currentBpm = originalBpm !== null
+    ? Math.round(originalBpm * state.playbackRate)
+    : null;
+
   return {
     state,
     loadTrack,
@@ -109,8 +115,8 @@ export function useDeck(deckId: "A" | "B") {
     isLoaded: state.buffer !== null,
     /** Waveform data */
     waveform: state.analysis.waveform,
-    /** Detected BPM */
-    bpm: state.analysis.bpm,
+    /** Current BPM (adjusted for playback rate) */
+    bpm: currentBpm,
     /** Is analyzing audio */
     isAnalyzing: state.analysis.status === "analyzing",
   };
