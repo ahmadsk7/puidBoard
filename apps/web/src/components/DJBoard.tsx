@@ -76,43 +76,92 @@ function DeckDisplay({
   position,
   accentColor,
   queue,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
 }: {
   deck: DeckState;
   deckId: "A" | "B";
   position: { x: number; y: number; width: number; height: number };
   accentColor: string;
   queue: QueueItem[];
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
 }) {
   const localDeck = useDeck(deckId);
   const loadedItem = queue.find(q => q.id === deck.loadedQueueItemId);
   const progress = localDeck.duration > 0 ? localDeck.playhead / localDeck.duration : 0;
 
+  // Handle click-to-seek on the display panel
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only seek if a track is loaded and has duration
+    if (!localDeck.isLoaded || localDeck.duration === 0) {
+      return;
+    }
+
+    // Get click position relative to the LCD screen
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickProgress = clickX / rect.width;
+
+    // Clamp to 0-1 range and convert to seconds
+    const clampedProgress = Math.max(0, Math.min(1, clickProgress));
+    const targetPositionSec = clampedProgress * localDeck.duration;
+
+    console.log(`[DeckDisplay-${deckId}] Click-to-seek: ${clampedProgress.toFixed(2)} (${targetPositionSec.toFixed(2)}s)`);
+
+    // Send DECK_SEEK event to server
+    sendEvent({
+      type: "DECK_SEEK",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, positionSec: targetPositionSec },
+    });
+
+    // Also seek locally for immediate feedback
+    localDeck.seek(targetPositionSec);
+  };
+
   return (
-    <LCDScreen
-      width={position.width}
-      height={position.height}
-      accentColor={accentColor}
-      style={{ position: "absolute", left: position.x, top: position.y, zIndex: 10 }}
+    <div
+      onClick={handleClick}
+      style={{
+        cursor: localDeck.isLoaded ? "pointer" : "default",
+        position: "absolute",
+        left: position.x,
+        top: position.y,
+        zIndex: 10,
+      }}
     >
-      <TrackInfoDisplay
-        deckId={deckId}
-        title={loadedItem?.title ?? null}
-        bpm={localDeck.bpm}
-        playState={deck.playState}
+      <LCDScreen
+        width={position.width}
+        height={position.height}
         accentColor={accentColor}
-      />
-      <WaveformDisplay
-        waveform={localDeck.waveform}
-        progress={progress}
-        accentColor={accentColor}
-        isPlaying={localDeck.isPlaying}
-        isLoading={localDeck.isAnalyzing}
-      />
-      <TimeDisplay
-        currentTime={localDeck.playhead}
-        duration={localDeck.duration}
-      />
-    </LCDScreen>
+      >
+        <TrackInfoDisplay
+          deckId={deckId}
+          title={loadedItem?.title ?? null}
+          bpm={localDeck.bpm}
+          playState={deck.playState}
+          accentColor={accentColor}
+        />
+        <WaveformDisplay
+          waveform={localDeck.waveform}
+          progress={progress}
+          accentColor={accentColor}
+          isPlaying={localDeck.isPlaying}
+          isLoading={localDeck.isAnalyzing}
+        />
+        <TimeDisplay
+          currentTime={localDeck.playhead}
+          duration={localDeck.duration}
+        />
+      </LCDScreen>
+    </div>
   );
 }
 
@@ -584,6 +633,10 @@ export default function DJBoard({
           position={DECK_A.waveform}
           accentColor="#3b82f6"
           queue={state.queue}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
         />
 
         <DeckControls
@@ -646,6 +699,10 @@ export default function DJBoard({
           position={DECK_B.waveform}
           accentColor="#8b5cf6"
           queue={state.queue}
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
         />
 
         <DeckControls

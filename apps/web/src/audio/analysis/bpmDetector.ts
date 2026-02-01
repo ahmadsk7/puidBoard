@@ -6,37 +6,48 @@
  */
 export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
   try {
+    console.log('[BPM Detector] Starting detection...');
+    console.log(`[BPM Detector] Buffer: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}, channels=${buffer.numberOfChannels}`);
+
     // Use first 30 seconds for analysis (sufficient for BPM detection)
     const analysisDuration = Math.min(30, buffer.duration);
     const sampleCount = Math.floor(analysisDuration * buffer.sampleRate);
 
     // Extract mono channel
     const channelData = extractMonoChannel(buffer, sampleCount);
+    console.log(`[BPM Detector] Extracted ${sampleCount} samples for analysis`);
 
     // Apply low-pass filter to isolate bass frequencies (improves beat detection)
     const filtered = applyLowPassFilter(channelData);
 
     // Calculate energy envelope
     const envelope = calculateEnergyEnvelope(filtered, buffer.sampleRate);
+    console.log(`[BPM Detector] Calculated energy envelope: ${envelope.length} frames`);
 
     // Find peaks in envelope (onsets)
     const peaks = findPeaks(envelope);
+    console.log(`[BPM Detector] Found ${peaks.length} peaks`);
 
     if (peaks.length < 2) {
+      console.warn('[BPM Detector] Not enough peaks found (minimum 2 required)');
       return null; // Not enough peaks to detect tempo
     }
 
     // Use autocorrelation to find dominant period
     const bpm = detectBPMFromPeaks(peaks);
+    console.log(`[BPM Detector] Calculated BPM: ${bpm}`);
 
     // Constrain to reasonable BPM range
     if (bpm && bpm >= 60 && bpm <= 180) {
-      return Math.round(bpm);
+      const rounded = Math.round(bpm);
+      console.log(`[BPM Detector] Detection successful: ${rounded} BPM`);
+      return rounded;
     }
 
+    console.warn(`[BPM Detector] BPM ${bpm} outside valid range (60-180)`);
     return null;
   } catch (error) {
-    console.warn('BPM detection failed:', error);
+    console.warn('[BPM Detector] Detection failed:', error);
     return null;
   }
 }
@@ -135,7 +146,9 @@ function findPeaks(envelope: Float32Array): number[] {
  */
 function calculateDynamicThreshold(envelope: Float32Array): number {
   const max = Math.max(...envelope);
-  return max * 0.3; // 30% of max energy
+  const threshold = max * 0.2; // 20% of max energy (lowered from 30% for better detection)
+  console.log(`[BPM Detector] Dynamic threshold: ${threshold.toFixed(6)} (max energy: ${max.toFixed(6)})`);
+  return threshold;
 }
 
 /**
@@ -165,18 +178,39 @@ function detectBPMFromPeaks(peaks: number[]): number | null {
 }
 
 /**
- * Find dominant interval using histogram approach
+ * Find dominant interval using histogram approach with tolerance for nearby values
  */
 function findDominantInterval(intervals: number[]): number | null {
-  if (intervals.length === 0) return null;
+  if (intervals.length === 0) {
+    console.log('[BPM Detector] No intervals to analyze');
+    return null;
+  }
 
-  // Create histogram of intervals (rounded to nearest integer)
+  console.log(`[BPM Detector] Analyzing ${intervals.length} intervals`);
+
+  // Create histogram of intervals with clustering tolerance
   const histogram = new Map<number, number>();
+  const tolerance = 2; // Cluster intervals within 2 frames
 
   for (const interval of intervals) {
     const rounded = Math.round(interval);
-    histogram.set(rounded, (histogram.get(rounded) || 0) + 1);
+
+    // Find nearby existing intervals to cluster with
+    let foundCluster = false;
+    for (const [existingInterval] of histogram) {
+      if (Math.abs(rounded - existingInterval) <= tolerance) {
+        histogram.set(existingInterval, (histogram.get(existingInterval) || 0) + 1);
+        foundCluster = true;
+        break;
+      }
+    }
+
+    if (!foundCluster) {
+      histogram.set(rounded, (histogram.get(rounded) || 0) + 1);
+    }
   }
+
+  console.log('[BPM Detector] Interval histogram:', Array.from(histogram.entries()).map(([k, v]) => `${k}:${v}`).join(', '));
 
   // Find interval with highest count
   let maxCount = 0;
@@ -189,5 +223,6 @@ function findDominantInterval(intervals: number[]): number | null {
     }
   }
 
+  console.log(`[BPM Detector] Dominant interval: ${dominantInterval} (appears ${maxCount} times)`);
   return dominantInterval > 0 ? dominantInterval : null;
 }

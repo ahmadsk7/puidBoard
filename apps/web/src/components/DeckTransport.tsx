@@ -40,12 +40,15 @@ export default function DeckTransport({
   const audioEnabled = useAudioEnabled();
   const deck = useDeck(deckId);
 
+  // Extract values for stable dependencies
+  const localTrackId = deck.state.trackId;
+  const { loadTrack } = deck;
+
   // Sync with server state - load track when server says to
   useEffect(() => {
     if (!audioEnabled) return;
 
     const serverTrackId = serverState.loadedTrackId;
-    const localTrackId = deck.state.trackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
       console.log(`[DeckTransport-${deckId}] Loading track ${serverTrackId} (current: ${localTrackId})`);
@@ -61,29 +64,52 @@ export default function DeckTransport({
         .then((data) => {
           // Load the track with the URL from the server
           console.log(`[DeckTransport-${deckId}] Fetched URL for ${serverTrackId}, loading...`);
-          return deck.loadTrack(serverTrackId, data.url);
+          return loadTrack(serverTrackId, data.url);
         })
         .catch((err) => {
           console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
         });
     }
-  }, [audioEnabled, serverState.loadedTrackId, deck.state.trackId, deckId, deck]);
+  }, [audioEnabled, serverState.loadedTrackId, localTrackId, loadTrack, deckId]);
 
   // Sync play state with server
-  useEffect(() => {
-    if (!audioEnabled || !deck.isLoaded) return;
+  const isLoaded = deck.isLoaded;
+  const isPlaying = deck.isPlaying;
+  const { play, pause, stop } = deck;
 
-    if (serverState.playState === "playing" && !deck.isPlaying) {
+  useEffect(() => {
+    if (!audioEnabled || !isLoaded) return;
+
+    if (serverState.playState === "playing" && !isPlaying) {
       console.log(`[DeckTransport-${deckId}] Syncing play state: playing`);
-      deck.play();
-    } else if (serverState.playState === "paused" && deck.isPlaying) {
+      play();
+    } else if (serverState.playState === "paused" && isPlaying) {
       console.log(`[DeckTransport-${deckId}] Syncing play state: paused`);
-      deck.pause();
-    } else if (serverState.playState === "stopped" && deck.isPlaying) {
+      pause();
+    } else if (serverState.playState === "stopped" && isPlaying) {
       console.log(`[DeckTransport-${deckId}] Syncing play state: stopped`);
-      deck.stop();
+      stop();
     }
-  }, [audioEnabled, serverState.playState, deck.isLoaded, deck.isPlaying, deckId, deck]);
+  }, [audioEnabled, serverState.playState, isLoaded, isPlaying, play, pause, stop, deckId]);
+
+  // Sync playhead position with server (for DECK_SEEK events from other clients)
+  const playhead = deck.playhead;
+  const { seek } = deck;
+
+  useEffect(() => {
+    if (!audioEnabled || !isLoaded) return;
+
+    // Check if server playhead differs significantly from local playhead
+    // Only sync if difference is > 0.5 seconds to avoid constant corrections
+    const playheadDiff = Math.abs(serverState.playheadSec - playhead);
+    const shouldSync = playheadDiff > 0.5;
+
+    if (shouldSync && !isPlaying) {
+      // Only auto-sync when paused/stopped to avoid disrupting playback
+      console.log(`[DeckTransport-${deckId}] Syncing playhead: ${serverState.playheadSec.toFixed(2)}s (was ${playhead.toFixed(2)}s)`);
+      seek(serverState.playheadSec);
+    }
+  }, [audioEnabled, serverState.playheadSec, isLoaded, isPlaying, playhead, seek, deckId]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(() => {
@@ -131,7 +157,6 @@ export default function DeckTransport({
   }, [deckId]);
 
   const hasTrack = deck.isLoaded || serverState.loadedTrackId !== null;
-  const isPlaying = deck.isPlaying;
 
   return (
     <DeckControlPanel

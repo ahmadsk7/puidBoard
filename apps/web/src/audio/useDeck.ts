@@ -25,16 +25,21 @@ export function useDeck(deckId: "A" | "B") {
 
   useEffect(() => {
     const deck = deckRef.current;
-    
+    console.log(`[useDeck-${deckId}] Subscribing to deck state changes`);
+
     // Subscribe to state changes
     const unsubscribe = deck.subscribe((newState) => {
+      console.log(`[useDeck-${deckId}] State update - BPM: ${newState.analysis.bpm}, status: ${newState.analysis.status}, trackId: ${newState.trackId}`);
       setState(newState);
     });
 
     // Initial state
-    setState(deck.getState());
+    const initialState = deck.getState();
+    console.log(`[useDeck-${deckId}] Initial state - BPM: ${initialState.analysis.bpm}, status: ${initialState.analysis.status}`);
+    setState(initialState);
 
     return () => {
+      console.log(`[useDeck-${deckId}] Unsubscribing from deck state changes`);
       unsubscribe();
     };
   }, [deckId]);

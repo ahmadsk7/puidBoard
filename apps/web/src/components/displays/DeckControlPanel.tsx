@@ -30,6 +30,11 @@ export function DeckControlPanel({
   isPlaying,
   audioEnabled,
 }: DeckControlPanelProps) {
+  // Debug BPM value
+  React.useEffect(() => {
+    console.log(`[DeckControlPanel] BPM prop changed: ${bpm}, hasTrack: ${hasTrack}`);
+  }, [bpm, hasTrack]);
+
   // Status text based on play state
   const statusText =
     playState === "playing"

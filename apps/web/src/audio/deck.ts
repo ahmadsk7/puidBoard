@@ -62,6 +62,7 @@ export class Deck {
   private state: DeckState;
   private listeners = new Set<DeckStateListener>();
   private animationFrameId: number | null = null;
+  private currentAnalysisId: number = 0;
 
   constructor(deckId: "A" | "B") {
     this.state = {
@@ -89,7 +90,10 @@ export class Deck {
    * Get current deck state.
    */
   getState(): DeckState {
-    return { ...this.state };
+    return {
+      ...this.state,
+      analysis: { ...this.state.analysis },
+    };
   }
 
   /**
@@ -192,28 +196,67 @@ export class Deck {
    * Analyze audio buffer for waveform and BPM.
    */
   private async analyzeAudio(buffer: AudioBuffer): Promise<void> {
+    // Cancel any previous analysis by incrementing the ID
+    this.currentAnalysisId++;
+    const analysisId = this.currentAnalysisId;
+
+    console.log(`[deck-${this.state.deckId}] Starting analysis #${analysisId}`);
+
     // Set analyzing status
-    this.state.analysis.status = "analyzing";
-    this.state.analysis.waveform = null;
-    this.state.analysis.bpm = null;
+    this.state.analysis = {
+      status: "analyzing",
+      waveform: null,
+      bpm: null,
+    };
     this.notify();
 
     try {
       // Generate waveform (synchronous, fast)
       const waveform = generateWaveform(buffer, 480);
-      this.state.analysis.waveform = waveform;
+
+      // Check if this analysis was cancelled
+      if (this.currentAnalysisId !== analysisId) {
+        console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (waveform stage)`);
+        return;
+      }
+
+      this.state.analysis = {
+        ...this.state.analysis,
+        waveform,
+      };
       this.notify();
+      console.log(`[deck-${this.state.deckId}] Waveform generated for analysis #${analysisId}`);
 
       // Detect BPM (async, slower)
+      console.log(`[deck-${this.state.deckId}] Starting BPM detection for analysis #${analysisId}...`);
       const bpm = await detectBPM(buffer);
-      this.state.analysis.bpm = bpm;
-      this.state.analysis.status = "complete";
+
+      // Check if this analysis was cancelled while BPM detection was running
+      if (this.currentAnalysisId !== analysisId) {
+        console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (BPM stage), got BPM=${bpm}`);
+        return;
+      }
+
+      this.state.analysis = {
+        ...this.state.analysis,
+        bpm,
+        status: "complete",
+      };
       this.notify();
 
-      console.log(`[deck-${this.state.deckId}] Analysis complete: BPM=${bpm ?? "N/A"}`);
+      console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} complete: BPM=${bpm ?? "N/A"}`);
     } catch (error) {
-      console.error(`[deck-${this.state.deckId}] Analysis failed:`, error);
-      this.state.analysis.status = "error";
+      // Check if cancelled before setting error
+      if (this.currentAnalysisId !== analysisId) {
+        console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (error stage)`);
+        return;
+      }
+
+      console.error(`[deck-${this.state.deckId}] Analysis #${analysisId} failed:`, error);
+      this.state.analysis = {
+        ...this.state.analysis,
+        status: "error",
+      };
       this.notify();
     }
   }
@@ -254,7 +297,7 @@ export class Deck {
       return;
     }
 
-    // Stop existing source if any
+    // Stop existing source if any (ensures single instance)
     this.stopSource();
 
     // Create new buffer source
@@ -263,9 +306,14 @@ export class Deck {
     source.playbackRate.value = this.state.playbackRate;
     source.connect(gainNode);
 
+    // Store reference for closure comparison
+    const thisSource = source;
+
     // Handle track end
+    // CRITICAL: Check that THIS source is still the current source
+    // This prevents orphaned sources from affecting state
     source.onended = () => {
-      if (this.state.playState === "playing") {
+      if (this.state.playState === "playing" && this.state.source === thisSource) {
         this.state.playState = "stopped";
         this.state.playheadSec = 0;
         this.state.source = null;
@@ -299,15 +347,19 @@ export class Deck {
       return;
     }
 
-    // Save current playhead position
-    this.state.playheadSec = this.getCurrentPlayhead();
-    
-    // Stop source
-    this.stopSource();
-    
+    // Save current playhead position BEFORE changing state
+    const savedPlayhead = this.getCurrentPlayhead();
+
+    // CRITICAL: Change state BEFORE stopping source
+    // This prevents the onended handler from interfering
     this.state.playState = "paused";
+    this.state.playheadSec = savedPlayhead;
+
+    // Now stop the source (onended will fire but check will fail)
+    this.stopSource();
+
     this.stopPlayheadUpdate();
-    
+
     this.notify();
     console.log(`[deck-${this.state.deckId}] Paused at ${this.state.playheadSec.toFixed(2)}s`);
   }
@@ -316,9 +368,14 @@ export class Deck {
    * Stop playback and reset to beginning.
    */
   stop(): void {
-    this.stopSource();
+    // CRITICAL: Change state BEFORE stopping source
+    // This prevents the onended handler from interfering
     this.state.playState = "stopped";
     this.state.playheadSec = 0;
+
+    // Now stop the source (onended will fire but check will fail)
+    this.stopSource();
+
     this.stopPlayheadUpdate();
     this.notify();
   }
@@ -332,12 +389,16 @@ export class Deck {
       this.state.cuePointSec = Math.max(0, Math.min(cuePointSec, this.state.durationSec));
     }
 
-    // Stop and jump to cue point
-    this.stopSource();
-    this.state.playheadSec = this.state.cuePointSec;
+    // CRITICAL: Change state BEFORE stopping source
+    // This prevents the onended handler from interfering
     this.state.playState = "cued";
+    this.state.playheadSec = this.state.cuePointSec;
+
+    // Now stop the source
+    this.stopSource();
+
     this.stopPlayheadUpdate();
-    
+
     this.notify();
     console.log(`[deck-${this.state.deckId}] Cued at ${this.state.cuePointSec.toFixed(2)}s`);
   }
@@ -348,9 +409,17 @@ export class Deck {
   seek(positionSec: number): void {
     const wasPlaying = this.state.playState === "playing";
     const currentRate = this.state.playbackRate;
+    const targetPosition = Math.max(0, Math.min(positionSec, this.state.durationSec));
+
+    // CRITICAL: Change state BEFORE stopping source if we were playing
+    // This prevents the onended handler from interfering
+    if (wasPlaying) {
+      // Temporarily set to paused so onended doesn't reset playhead
+      this.state.playState = "paused";
+    }
 
     this.stopSource();
-    this.state.playheadSec = Math.max(0, Math.min(positionSec, this.state.durationSec));
+    this.state.playheadSec = targetPosition;
 
     if (wasPlaying) {
       // Preserve playback rate when resuming
@@ -422,7 +491,7 @@ export class Deck {
       return;
     }
 
-    // Stop existing source if any
+    // Stop existing source if any (ensures single instance)
     this.stopSource();
 
     // Create new buffer source
@@ -431,9 +500,13 @@ export class Deck {
     source.playbackRate.value = rate;
     source.connect(gainNode);
 
+    // Store reference for closure comparison
+    const thisSource = source;
+
     // Handle track end
+    // CRITICAL: Check that THIS source is still the current source
     source.onended = () => {
-      if (this.state.playState === "playing") {
+      if (this.state.playState === "playing" && this.state.source === thisSource) {
         this.state.playState = "stopped";
         this.state.playheadSec = 0;
         this.state.source = null;
@@ -520,9 +593,13 @@ export class Deck {
     fadeInGain.gain.setValueAtTime(0, now);
     fadeInGain.gain.linearRampToValueAtTime(1, now + crossfadeSec);
 
+    // Store reference for closure comparison
+    const thisSource = newSource;
+
     // Handle track end for new source
+    // CRITICAL: Check that THIS source is still the current source
     newSource.onended = () => {
-      if (this.state.playState === "playing") {
+      if (this.state.playState === "playing" && this.state.source === thisSource) {
         this.state.playState = "stopped";
         this.state.playheadSec = 0;
         this.state.source = null;
@@ -533,7 +610,10 @@ export class Deck {
     };
 
     // Cleanup old source after crossfade
+    // Store newSource reference to check if it's still current when cleanup runs
+    const sourceAtCleanupTime = newSource;
     setTimeout(() => {
+      // Always clean up the old source
       if (oldSource) {
         try {
           oldSource.stop();
@@ -544,13 +624,25 @@ export class Deck {
       }
       fadeOutGain.disconnect();
 
-      // Reconnect new source directly to gain node
-      try {
-        newSource.disconnect();
-        newSource.connect(gainNode);
-        fadeInGain.disconnect();
-      } catch {
-        // Ignore
+      // Only reconnect if newSource is still the current source
+      // (prevents reconnecting orphaned sources if another operation happened)
+      if (this.state.source === sourceAtCleanupTime) {
+        try {
+          newSource.disconnect();
+          newSource.connect(gainNode);
+          fadeInGain.disconnect();
+        } catch {
+          // Ignore
+        }
+      } else {
+        // This source was replaced, stop it
+        try {
+          newSource.stop();
+          newSource.disconnect();
+          fadeInGain.disconnect();
+        } catch {
+          // Ignore
+        }
       }
     }, crossfadeMs + 10);
 
@@ -594,7 +686,7 @@ export class Deck {
 
     // If we're playing, we need to restart the source at the new position
     if (this.state.playState === "playing") {
-      // Stop existing source
+      // Stop existing source (ensures single instance)
       this.stopSource();
 
       // Create new buffer source at new position
@@ -603,9 +695,13 @@ export class Deck {
       source.playbackRate.value = this.state.playbackRate;
       source.connect(gainNode);
 
+      // Store reference for closure comparison
+      const thisSource = source;
+
       // Handle track end
+      // CRITICAL: Check that THIS source is still the current source
       source.onended = () => {
-        if (this.state.playState === "playing") {
+        if (this.state.playState === "playing" && this.state.source === thisSource) {
           this.state.playState = "stopped";
           this.state.playheadSec = 0;
           this.state.source = null;
