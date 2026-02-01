@@ -141,6 +141,22 @@ function sendError(
 }
 
 /**
+ * Infer mime type from filename extension.
+ */
+function inferMimeTypeFromFilename(filename: string | null): string | null {
+  if (!filename) return null;
+  const ext = filename.toLowerCase().split(".").pop();
+  const extToMime: Record<string, string> = {
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    aiff: "audio/aiff",
+    aif: "audio/aiff",
+    flac: "audio/flac",
+  };
+  return extToMime[ext || ""] || null;
+}
+
+/**
  * Handle POST /api/tracks/upload
  */
 async function handleUpload(
@@ -158,12 +174,21 @@ async function handleUpload(
       return;
     }
 
-    console.log(`[upload] Received file: ${filename} (${file.length} bytes, ${parsedMimeType})`);
+    console.log(`[upload] Received file: ${filename} (${file.length} bytes, parsedMimeType=${parsedMimeType}, fieldMimeType=${fields.mimeType})`);
 
     const title = fields.title;
     const durationSec = parseFloat(fields.durationSec || "0");
-    // Use parsed mimeType from file, fallback to field
-    const mimeType = parsedMimeType || fields.mimeType;
+
+    // Use parsed mimeType from file, fallback to field, fallback to inference from filename
+    const inferredMimeType = inferMimeTypeFromFilename(filename);
+    let mimeType = parsedMimeType || fields.mimeType;
+
+    // If we got a generic mime type (like application/octet-stream), try to infer from filename
+    if (!mimeType || mimeType === "application/octet-stream") {
+      mimeType = inferredMimeType || mimeType;
+      console.log(`[upload] Inferred mime type from filename: ${mimeType}`);
+    }
+
     const finalFilename = filename || "upload";
     const ownerId = fields.ownerId;
 
@@ -268,13 +293,15 @@ async function handleGetTrackUrl(
 }
 
 /**
- * Handle GET /files/:storageKey
+ * Handle GET or HEAD /files/:storageKey
  */
 async function handleServeFile(
   _req: IncomingMessage,
   res: ServerResponse,
-  storageKey: string
+  storageKey: string,
+  headOnly = false
 ): Promise<void> {
+  console.log(`[serveFile] Serving file: ${storageKey} (HEAD=${headOnly})`);
   try {
     const buffer = await storageService.read(storageKey);
 
@@ -294,7 +321,12 @@ async function handleServeFile(
       "Cache-Control": "public, max-age=31536000", // 1 year
       "Access-Control-Allow-Origin": "*",
     });
-    res.end(buffer);
+
+    if (headOnly) {
+      res.end();
+    } else {
+      res.end(buffer);
+    }
   } catch (error) {
     console.error("[serveFile] error:", error);
     sendError(res, 404, "File not found");
@@ -363,10 +395,10 @@ export async function handleTrackApiRequest(
     return true;
   }
 
-  // GET /files/:storageKey
+  // GET or HEAD /files/:storageKey
   const fileMatch = url.match(/^\/files\/(.+)$/);
-  if (method === "GET" && fileMatch && fileMatch[1]) {
-    await handleServeFile(req, res, fileMatch[1]);
+  if ((method === "GET" || method === "HEAD") && fileMatch && fileMatch[1]) {
+    await handleServeFile(req, res, fileMatch[1], method === "HEAD");
     return true;
   }
 

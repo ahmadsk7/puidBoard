@@ -10,15 +10,22 @@ import { mkdir, writeFile, readFile, unlink } from "fs/promises";
 import { join, dirname, resolve } from "path";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { supabaseStorage } from "./supabaseStorage.js";
 
 // Get the directory of this module for reliable relative paths
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Use environment variable or default to .storage/tracks relative to the realtime app root
-const DEFAULT_STORAGE_DIR = resolve(__dirname, "../../.storage/tracks");
+// When running with tsx, __dirname is the source dir; when running built JS, it's in dist
+const isInDist = __dirname.includes("/dist/");
+const appRoot = isInDist ? resolve(__dirname, "../../..") : resolve(__dirname, "../..");
+const DEFAULT_STORAGE_DIR = resolve(appRoot, ".storage/tracks");
 const STORAGE_DIR = process.env.STORAGE_DIR ?? DEFAULT_STORAGE_DIR;
 const CDN_BASE_URL = process.env.CDN_BASE_URL ?? "http://localhost:3001/files";
+
+console.log(`[storage] __dirname: ${__dirname}`);
+console.log(`[storage] appRoot: ${appRoot}`);
 
 export interface UploadResult {
   storageKey: string;
@@ -28,11 +35,18 @@ export interface UploadResult {
 
 class StorageService {
   private initialized = false;
+  private useSupabase: boolean;
 
   constructor() {
-    // Don't block constructor, but ensure dir exists on first operation
-    console.log(`[storage] Storage directory: ${STORAGE_DIR}`);
-    console.log(`[storage] CDN base URL: ${CDN_BASE_URL}`);
+    this.useSupabase = supabaseStorage.isAvailable();
+
+    if (this.useSupabase) {
+      console.log(`[storage] Using Supabase Storage`);
+    } else {
+      console.log(`[storage] Using local filesystem storage`);
+      console.log(`[storage] Storage directory: ${STORAGE_DIR}`);
+      console.log(`[storage] CDN base URL: ${CDN_BASE_URL}`);
+    }
   }
 
   /**
@@ -53,9 +67,15 @@ class StorageService {
    */
   async upload(
     buffer: Buffer,
-    _filename: string,
+    filename: string,
     mimeType: string
   ): Promise<UploadResult> {
+    // Use Supabase if available
+    if (this.useSupabase) {
+      return await supabaseStorage.upload(buffer, filename, mimeType);
+    }
+
+    // Fall back to local filesystem
     await this.ensureStorageDir();
 
     // Compute file hash for deduplication
@@ -86,6 +106,9 @@ class StorageService {
    * Get CDN URL for a storage key.
    */
   getUrl(storageKey: string): string {
+    if (this.useSupabase) {
+      return supabaseStorage.getUrl(storageKey);
+    }
     return `${CDN_BASE_URL}/${storageKey}`;
   }
 
@@ -93,7 +116,12 @@ class StorageService {
    * Read file from storage.
    */
   async read(storageKey: string): Promise<Buffer> {
+    if (this.useSupabase) {
+      return await supabaseStorage.read(storageKey);
+    }
+
     const filePath = join(STORAGE_DIR, storageKey);
+    console.log(`[storage] Reading file: ${filePath}, exists=${existsSync(filePath)}`);
     return await readFile(filePath);
   }
 
@@ -101,6 +129,10 @@ class StorageService {
    * Delete file from storage.
    */
   async delete(storageKey: string): Promise<void> {
+    if (this.useSupabase) {
+      return await supabaseStorage.delete(storageKey);
+    }
+
     const filePath = join(STORAGE_DIR, storageKey);
     if (existsSync(filePath)) {
       await unlink(filePath);

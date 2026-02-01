@@ -243,13 +243,64 @@ class PersistenceManager {
 /**
  * Initialize Redis client from environment.
  * Returns null if Redis is not configured.
+ *
+ * Supports both traditional Redis and Upstash REST API:
+ * - REDIS_URL=redis://... (traditional)
+ * - UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (REST API)
  */
 export async function createRedisClient(): Promise<RedisClient | null> {
   const redisUrl = process.env.REDIS_URL;
+  const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 
+  // Try Upstash REST API first (preferred for serverless)
+  if (upstashUrl && upstashToken) {
+    try {
+      const { Redis } = await import("@upstash/redis");
+
+      const client = new Redis({
+        url: upstashUrl,
+        token: upstashToken,
+      });
+
+      // Test connection
+      await client.ping();
+
+      console.log("[persistence] Upstash Redis (REST) connected successfully");
+
+      // Wrap Upstash client to match our RedisClient interface
+      return {
+        async get(key: string) {
+          return await client.get(key);
+        },
+        async set(key: string, value: string, options?: { EX?: number }) {
+          if (options?.EX) {
+            await client.set(key, value, { ex: options.EX });
+          } else {
+            await client.set(key, value);
+          }
+        },
+        async del(key: string) {
+          await client.del(key);
+        },
+        async ping() {
+          await client.ping();
+          return "PONG";
+        },
+      } as RedisClient;
+    } catch (error) {
+      console.error(
+        "[persistence] Failed to initialize Upstash Redis, falling back to in-memory:",
+        error
+      );
+      return null;
+    }
+  }
+
+  // Fall back to traditional Redis if REDIS_URL is set
   if (!redisUrl) {
     console.log(
-      "[persistence] REDIS_URL not set, using in-memory persistence only"
+      "[persistence] No Redis configuration found, using in-memory persistence only"
     );
     return null;
   }

@@ -28,17 +28,21 @@ export default function QueuePanel({
   /** Add a track to the queue after upload completes */
   const handleUploadComplete = useCallback(
     (result: UploadResult) => {
-      sendEvent({
-        type: "QUEUE_ADD",
+      console.log("[QueuePanel] Upload complete, adding to queue:", result);
+      const seq = nextSeq();
+      const event = {
+        type: "QUEUE_ADD" as const,
         roomId,
         clientId,
-        clientSeq: nextSeq(),
+        clientSeq: seq,
         payload: {
           trackId: result.trackId,
           title: result.title,
           durationSec: result.durationSec,
         },
-      });
+      };
+      console.log("[QueuePanel] Sending QUEUE_ADD event:", event);
+      sendEvent(event);
     },
     [sendEvent, roomId, clientId, nextSeq]
   );

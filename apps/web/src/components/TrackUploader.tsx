@@ -16,22 +16,46 @@ export type TrackUploaderProps = {
 
 /** Get audio duration using Web Audio API */
 async function getAudioDuration(file: File): Promise<number> {
+  console.log(`[TrackUploader] Getting duration for: ${file.name} (${file.size} bytes, type=${file.type})`);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const arrayBuffer = e.target?.result as ArrayBuffer;
+        console.log(`[TrackUploader] Read file as ArrayBuffer: ${arrayBuffer.byteLength} bytes`);
+
         const audioContext = new AudioContext();
+        console.log(`[TrackUploader] Created AudioContext, state=${audioContext.state}`);
+
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        console.log(`[TrackUploader] Decoded audio: duration=${audioBuffer.duration}s, sampleRate=${audioBuffer.sampleRate}`);
+
         await audioContext.close();
         resolve(audioBuffer.duration);
       } catch (err) {
-        reject(err);
+        console.error("[TrackUploader] decodeAudioData failed:", err);
+        reject(new Error(`Unable to analyze audio file: ${err instanceof Error ? err.message : String(err)}`));
       }
     };
-    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onerror = () => {
+      console.error("[TrackUploader] FileReader error");
+      reject(new Error("Failed to read file"));
+    };
     reader.readAsArrayBuffer(file);
   });
+}
+
+/** Infer mime type from filename extension */
+function inferMimeType(filename: string): string {
+  const ext = filename.toLowerCase().split(".").pop();
+  const extToMime: Record<string, string> = {
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    aiff: "audio/aiff",
+    aif: "audio/aiff",
+    flac: "audio/flac",
+  };
+  return extToMime[ext || ""] || "application/octet-stream";
 }
 
 /** Upload track to server */
@@ -40,25 +64,35 @@ async function uploadTrack(
   title: string,
   durationSec: number
 ): Promise<UploadResult> {
+  // Use file.type if available, otherwise infer from extension
+  const mimeType = file.type || inferMimeType(file.name);
+
+  console.log(`[TrackUploader] Uploading: title="${title}", duration=${durationSec}s, mimeType=${mimeType}`);
+
   const formData = new FormData();
   formData.append("file", file);
   formData.append("title", title);
   formData.append("durationSec", durationSec.toString());
-  formData.append("mimeType", file.type);
+  formData.append("mimeType", mimeType);
 
   const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
 
+  console.log(`[TrackUploader] Sending POST to ${realtimeUrl}/api/tracks/upload`);
   const response = await fetch(`${realtimeUrl}/api/tracks/upload`, {
     method: "POST",
     body: formData,
   });
 
+  console.log(`[TrackUploader] Response: ${response.status} ${response.statusText}`);
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Upload failed" }));
+    console.error("[TrackUploader] Server error:", error);
     throw new Error(error.error || "Upload failed");
   }
 
   const data = await response.json();
+  console.log("[TrackUploader] Upload success:", data);
 
   return {
     trackId: data.trackId,
@@ -95,8 +129,17 @@ export default function TrackUploader({
       // Reset input so same file can be selected again
       e.target.value = "";
 
-      // Validate file type
-      if (!file.type.startsWith("audio/")) {
+      console.log(`[TrackUploader] File selected: ${file.name}, size=${file.size}, type="${file.type}"`);
+
+      // Validate file type - check both mime type and extension
+      // Some browsers may report incorrect or empty mime types
+      const ext = file.name.toLowerCase().split(".").pop();
+      const validExtensions = ["mp3", "wav", "aiff", "aif", "flac"];
+      const isValidExtension = ext && validExtensions.includes(ext);
+      const isValidMimeType = file.type.startsWith("audio/");
+
+      if (!isValidMimeType && !isValidExtension) {
+        console.log(`[TrackUploader] Invalid file type: mime="${file.type}", ext="${ext}"`);
         setError("Please select an audio file (MP3, WAV, etc.)");
         return;
       }

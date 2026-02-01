@@ -175,7 +175,11 @@ export class RealtimeClient {
 
   /** Send a client mutation event */
   sendEvent(event: ClientMutationEvent): void {
-    if (!this.socket?.connected) return;
+    if (!this.socket?.connected) {
+      console.warn("[RealtimeClient] sendEvent: socket not connected, dropping event:", event.type);
+      return;
+    }
+    console.log(`[RealtimeClient] sendEvent: ${event.type}`, event);
     this.socket.emit(event.type, event);
   }
 
@@ -272,6 +276,318 @@ export class RealtimeClient {
       const rtt = now - event.t0;
       this.latencyMs = Math.round(rtt / 2);
       this.notifyLatencyListeners();
+    });
+
+    // Queue event handlers - update local state when server broadcasts queue changes
+    this.socket.on("QUEUE_ADD", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      payload: {
+        trackId: string;
+        title: string;
+        durationSec: number;
+        queueItemId: string;
+        insertAt?: number;
+      };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] QUEUE_ADD received:", event.payload);
+
+      const queueItem = {
+        id: event.payload.queueItemId,
+        trackId: event.payload.trackId,
+        title: event.payload.title,
+        durationSec: event.payload.durationSec,
+        addedBy: event.clientId,
+        addedAt: event.serverTs,
+        status: "queued" as const,
+      };
+
+      const insertAt = event.payload.insertAt ?? this.state.queue.length;
+      const newQueue = [...this.state.queue];
+      newQueue.splice(insertAt, 0, queueItem);
+
+      this.state = {
+        ...this.state,
+        queue: newQueue,
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("QUEUE_REMOVE", (event: {
+      roomId: string;
+      payload: { queueItemId: string };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] QUEUE_REMOVE received:", event.payload);
+
+      this.state = {
+        ...this.state,
+        queue: this.state.queue.filter((q) => q.id !== event.payload.queueItemId),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("QUEUE_REORDER", (event: {
+      roomId: string;
+      payload: { queueItemId: string; newIndex: number };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] QUEUE_REORDER received:", event.payload);
+
+      const itemIndex = this.state.queue.findIndex((q) => q.id === event.payload.queueItemId);
+      if (itemIndex === -1) return;
+
+      const newQueue = [...this.state.queue];
+      const [item] = newQueue.splice(itemIndex, 1);
+      if (item) {
+        newQueue.splice(event.payload.newIndex, 0, item);
+      }
+
+      this.state = {
+        ...this.state,
+        queue: newQueue,
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("QUEUE_EDIT", (event: {
+      roomId: string;
+      payload: { queueItemId: string; updates: { title?: string } };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] QUEUE_EDIT received:", event.payload);
+
+      this.state = {
+        ...this.state,
+        queue: this.state.queue.map((q) =>
+          q.id === event.payload.queueItemId
+            ? { ...q, ...event.payload.updates }
+            : q
+        ),
+      };
+      this.notifyStateListeners();
+    });
+
+    // Deck event handlers
+    this.socket.on("DECK_LOAD", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      payload: { deckId: "A" | "B"; trackId: string; queueItemId: string };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_LOAD received:", event.payload);
+
+      const { deckId, trackId, queueItemId } = event.payload;
+      const item = this.state.queue.find((q) => q.id === queueItemId);
+      if (!item) return;
+
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.loadedTrackId = trackId;
+      deck.loadedQueueItemId = queueItemId;
+      deck.playState = "stopped";
+      deck.playheadSec = 0;
+      deck.cuePointSec = null;
+      deck.durationSec = item.durationSec;
+      deck.serverStartTime = null;
+
+      const newStatus = deckId === "A" ? "loaded_A" as const : "loaded_B" as const;
+      const newQueue = this.state.queue.map((q) =>
+        q.id === queueItemId
+          ? { ...q, status: newStatus }
+          : q
+      );
+
+      this.state = {
+        ...this.state,
+        queue: newQueue,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("DECK_PLAY", (event: {
+      roomId: string;
+      serverTs: number;
+      payload: { deckId: "A" | "B" };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_PLAY received:", event.payload);
+
+      const { deckId } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.playState = "playing";
+      deck.serverStartTime = event.serverTs;
+
+      const playingStatus = deckId === "A" ? "playing_A" as const : "playing_B" as const;
+      const newQueue = this.state.queue.map((q) =>
+        q.id === deck.loadedQueueItemId
+          ? { ...q, status: playingStatus }
+          : q
+      );
+
+      this.state = {
+        ...this.state,
+        queue: newQueue,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("DECK_PAUSE", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B" };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_PAUSE received:", event.payload);
+
+      const { deckId } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.playState = "paused";
+      deck.serverStartTime = null;
+
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("DECK_CUE", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B"; cuePointSec?: number };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_CUE received:", event.payload);
+
+      const { deckId, cuePointSec } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+
+      if (cuePointSec !== undefined) {
+        deck.cuePointSec = cuePointSec;
+      }
+      if (deck.cuePointSec !== null) {
+        deck.playheadSec = deck.cuePointSec;
+        deck.playState = "cued";
+        deck.serverStartTime = null;
+      }
+
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("DECK_SEEK", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B"; positionSec: number };
+    }) => {
+      if (!this.state) return;
+
+      const { deckId, positionSec } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.playheadSec = positionSec;
+
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    // SYNC_TICK for playback synchronization
+    this.socket.on("SYNC_TICK", (event: {
+      roomId: string;
+      payload: {
+        serverTs: number;
+        version: number;
+        deckA: { deckId: "A"; loadedTrackId: string | null; playState: string; serverStartTime: number | null; playheadSec: number };
+        deckB: { deckId: "B"; loadedTrackId: string | null; playState: string; serverStartTime: number | null; playheadSec: number };
+      };
+    }) => {
+      if (!this.state) return;
+
+      const { deckA, deckB } = event.payload;
+      this.state = {
+        ...this.state,
+        deckA: {
+          ...this.state.deckA,
+          playState: deckA.playState as "stopped" | "playing" | "paused" | "cued",
+          serverStartTime: deckA.serverStartTime,
+          playheadSec: deckA.playheadSec,
+        },
+        deckB: {
+          ...this.state.deckB,
+          playState: deckB.playState as "stopped" | "playing" | "paused" | "cued",
+          serverStartTime: deckB.serverStartTime,
+          playheadSec: deckB.playheadSec,
+        },
+      };
+      this.notifyStateListeners();
+    });
+
+    // Mixer value updates
+    this.socket.on("MIXER_VALUE", (event: {
+      roomId: string;
+      payload: { controlId: string; value: number };
+    }) => {
+      if (!this.state) return;
+
+      const { controlId, value } = event.payload;
+      const mixer = { ...this.state.mixer };
+
+      // Apply value to appropriate mixer control
+      if (controlId === "crossfader") mixer.crossfader = value;
+      else if (controlId === "masterVolume") mixer.masterVolume = value;
+      else if (controlId.startsWith("channelA.")) {
+        mixer.channelA = { ...mixer.channelA };
+        if (controlId === "channelA.fader") mixer.channelA.fader = value;
+        else if (controlId === "channelA.gain") mixer.channelA.gain = value;
+        else if (controlId === "channelA.filter") mixer.channelA.filter = value;
+        else if (controlId.startsWith("channelA.eq.")) {
+          mixer.channelA.eq = { ...mixer.channelA.eq };
+          if (controlId === "channelA.eq.low") mixer.channelA.eq.low = value;
+          else if (controlId === "channelA.eq.mid") mixer.channelA.eq.mid = value;
+          else if (controlId === "channelA.eq.high") mixer.channelA.eq.high = value;
+        }
+      } else if (controlId.startsWith("channelB.")) {
+        mixer.channelB = { ...mixer.channelB };
+        if (controlId === "channelB.fader") mixer.channelB.fader = value;
+        else if (controlId === "channelB.gain") mixer.channelB.gain = value;
+        else if (controlId === "channelB.filter") mixer.channelB.filter = value;
+        else if (controlId.startsWith("channelB.eq.")) {
+          mixer.channelB.eq = { ...mixer.channelB.eq };
+          if (controlId === "channelB.eq.low") mixer.channelB.eq.low = value;
+          else if (controlId === "channelB.eq.mid") mixer.channelB.eq.mid = value;
+          else if (controlId === "channelB.eq.high") mixer.channelB.eq.high = value;
+        }
+      }
+
+      this.state = { ...this.state, mixer };
+      this.notifyStateListeners();
+    });
+
+    // Control ownership updates
+    this.socket.on("CONTROL_OWNERSHIP", (event: {
+      roomId: string;
+      payload: { controlId: string; owner: { clientId: string; acquiredAt: number; lastMovedAt: number } | null };
+    }) => {
+      if (!this.state) return;
+
+      const { controlId, owner } = event.payload;
+      const controlOwners = { ...this.state.controlOwners };
+
+      if (owner) {
+        controlOwners[controlId] = owner;
+      } else {
+        delete controlOwners[controlId];
+      }
+
+      this.state = { ...this.state, controlOwners };
+      this.notifyStateListeners();
     });
 
     this.socket.on("ROOM_LEFT", () => {
