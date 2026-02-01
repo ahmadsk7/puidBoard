@@ -147,6 +147,14 @@ export class Deck {
    * Load a track by URL.
    */
   async loadTrack(trackId: string, url: string): Promise<void> {
+    // Auto-initialize audio on track load
+    try {
+      await initAudioEngine();
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      throw new Error("Failed to initialize audio context");
+    }
+
     const ctx = getAudioContext();
     if (!ctx) {
       throw new Error("AudioContext not initialized");

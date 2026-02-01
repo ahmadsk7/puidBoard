@@ -1,12 +1,13 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
+import { initAudioEngine } from "@/audio/engine";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 
 /** Shared room UI content */
@@ -23,6 +24,23 @@ function RoomContent({
   sendEvent: (e: ClientMutationEvent) => void;
   nextSeq: () => number;
 }) {
+  // Initialize audio on first user interaction (click anywhere)
+  useEffect(() => {
+    const handleFirstClick = async () => {
+      try {
+        await initAudioEngine();
+        console.log("[Room] Audio engine initialized on first click");
+        // Remove listener after first successful initialization
+        document.removeEventListener("click", handleFirstClick);
+      } catch (err) {
+        console.error("[Room] Failed to initialize audio:", err);
+      }
+    };
+
+    document.addEventListener("click", handleFirstClick);
+    return () => document.removeEventListener("click", handleFirstClick);
+  }, []);
+
   return (
     <div
       style={{
