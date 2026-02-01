@@ -84,6 +84,7 @@ export function handleQueueAdd(
     trackId: payload.trackId,
     title: payload.title,
     durationSec: payload.durationSec,
+    url: payload.url,
     addedBy: clientId,
     addedAt: now,
     status: "queued" as QueueItemStatus,

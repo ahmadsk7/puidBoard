@@ -91,6 +91,8 @@ export const QueueItemSchema = z.object({
   title: z.string(),
   /** Track duration in seconds */
   durationSec: z.number().nonnegative(),
+  /** Track URL for playback (denormalized to avoid backend lookup) */
+  url: z.string().url(),
   /** Who added this to the queue */
   addedBy: ClientIdSchema,
   /** When it was added (server timestamp) */

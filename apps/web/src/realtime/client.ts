@@ -304,6 +304,7 @@ export class RealtimeClient {
         trackId: string;
         title: string;
         durationSec: number;
+        url: string;
         queueItemId: string;
         insertAt?: number;
       };
@@ -316,6 +317,7 @@ export class RealtimeClient {
         trackId: event.payload.trackId,
         title: event.payload.title,
         durationSec: event.payload.durationSec,
+        url: event.payload.url,
         addedBy: event.clientId,
         addedAt: event.serverTs,
         status: "queued" as const,

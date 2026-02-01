@@ -17,6 +17,7 @@ function RoomContent() {
         trackId: `track-${Date.now()}`,
         title: `Track ${state.queue.length + 1}`,
         durationSec: 180,
+        url: "https://example.com/mock-track.mp3",
       },
     };
     sendEvent(event);

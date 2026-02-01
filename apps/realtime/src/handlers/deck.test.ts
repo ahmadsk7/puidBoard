@@ -43,6 +43,7 @@ function addTestQueueItem(roomId: string, clientId: string): QueueItem {
     trackId: `track-${Date.now()}`,
     title: "Test Track",
     durationSec: 180,
+    url: "https://example.com/test-track.mp3",
     addedBy: clientId,
     addedAt: Date.now(),
     status: "queued",

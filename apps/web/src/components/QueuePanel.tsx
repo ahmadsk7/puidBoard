@@ -39,6 +39,7 @@ export default function QueuePanel({
           trackId: result.trackId,
           title: result.title,
           durationSec: result.durationSec,
+          url: result.url,
         },
       };
       console.log("[QueuePanel] Sending QUEUE_ADD event:", event);

@@ -171,13 +171,14 @@ export function applyMutation(
     }
 
     case "QUEUE_ADD": {
-      const { trackId, title, durationSec, insertAt } = event.payload;
+      const { trackId, title, durationSec, url, insertAt } = event.payload;
       const id = `q-${serverTs}-${Math.random().toString(36).slice(2, 9)}`;
       const item = {
         id,
         trackId,
         title,
         durationSec,
+        url,
         addedBy: event.clientId,
         addedAt: serverTs,
         status: "queued" as const,

@@ -82,6 +82,7 @@ describe("@puid-board/shared", () => {
         trackId: "track-abc",
         title: "Test Track",
         durationSec: 180,
+        url: "https://example.com/track-abc.mp3",
         addedBy: "client-123",
         addedAt: Date.now(),
         status: "queued",
@@ -205,6 +206,7 @@ describe("@puid-board/shared", () => {
           trackId: "track-123",
           title: "Test Track",
           durationSec: 180,
+          url: "https://example.com/track.mp3",
         },
       };
       expect(QueueAddEventSchema.safeParse(event).success).toBe(true);

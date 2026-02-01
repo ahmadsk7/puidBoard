@@ -71,6 +71,7 @@ describe("mockRoom", () => {
             trackId: "track-1",
             title: "Test Track",
             durationSec: 120,
+            url: "https://example.com/track-1.mp3",
           },
         },
         Date.now(),
@@ -191,6 +192,7 @@ describe("mockRoom", () => {
           trackId: "t1",
           title: "Track 1",
           durationSec: 60,
+          url: "https://example.com/t1.mp3",
         },
       });
 

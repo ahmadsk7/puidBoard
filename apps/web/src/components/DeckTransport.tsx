@@ -22,7 +22,7 @@ export type DeckTransportProps = {
   /** Accent color for this deck */
   accentColor: string;
   /** Queue items (for loading tracks) */
-  queue: Array<{ id: string; trackId: string; title: string }>;
+  queue: Array<{ id: string; trackId: string; title: string; url: string }>;
 };
 
 /**
@@ -36,6 +36,7 @@ export default function DeckTransport({
   sendEvent,
   nextSeq,
   accentColor,
+  queue,
 }: DeckTransportProps) {
   const deck = useDeck(deckId);
 
@@ -48,27 +49,24 @@ export default function DeckTransport({
     const serverTrackId = serverState.loadedTrackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
+      // Find the queue item to get the URL
+      const queueItem = queue.find((q) => q.trackId === serverTrackId);
+
+      if (!queueItem) {
+        console.error(`[DeckTransport-${deckId}] Track ${serverTrackId} not found in queue`);
+        return;
+      }
+
       // Init audio first (will be no-op if already initialized)
       initAudioEngine().then(() => {
-        // Fetch the track URL from the realtime server API
-        const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
-
-        fetch(`${realtimeUrl}/api/tracks/${serverTrackId}/url`)
-          .then((res) => {
-            if (!res.ok) throw new Error(`Failed to get track URL: ${res.status}`);
-            return res.json();
-          })
-          .then((data) => {
-            return loadTrack(serverTrackId, data.url);
-          })
-          .catch((err) => {
-            console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
-          });
-      }).catch(() => {
-        // Audio init failed, will retry on next user interaction
+        // Use URL directly from queue item (no API call needed)
+        console.log(`[DeckTransport-${deckId}] Loading track from queue: ${queueItem.title}`);
+        return loadTrack(serverTrackId, queueItem.url);
+      }).catch((err) => {
+        console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
       });
     }
-  }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId]);
+  }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId, queue]);
 
   // Sync play state with server
   const isLoaded = deck.isLoaded;

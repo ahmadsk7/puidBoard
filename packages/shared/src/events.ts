@@ -194,6 +194,8 @@ export const QueueAddPayloadSchema = z.object({
   trackId: TrackIdSchema,
   title: z.string(),
   durationSec: z.number().nonnegative(),
+  /** Track URL for playback */
+  url: z.string().url(),
   /** Optional: insert at specific position (0 = top). Default: end */
   insertAt: z.number().int().nonnegative().optional(),
   /** Server-generated queue item ID (included in mutation events) */

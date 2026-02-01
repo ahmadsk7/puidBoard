@@ -173,7 +173,7 @@ export function applyServerEvent(
     }
 
     case "QUEUE_ADD": {
-      const { trackId, title, durationSec, insertAt, queueItemId } = event.payload;
+      const { trackId, title, durationSec, url, insertAt, queueItemId } = event.payload;
       // Use server-generated queue item ID (mandatory in server mutation events)
       const id = queueItemId ?? `q-${event.serverTs}-${Math.random().toString(36).slice(2, 9)}`;
       const item = {
@@ -181,6 +181,7 @@ export function applyServerEvent(
         trackId,
         title,
         durationSec,
+        url,
         addedBy: event.clientId,
         addedAt: event.serverTs,
         status: "queued" as const,

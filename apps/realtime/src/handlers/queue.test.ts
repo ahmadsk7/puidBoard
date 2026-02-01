@@ -37,6 +37,7 @@ describe("Queue Handlers", () => {
           trackId: "track-123",
           title: "Test Track",
           durationSec: 180,
+          url: "https://example.com/track-123.mp3",
         },
       };
 
@@ -102,6 +103,7 @@ describe("Queue Handlers", () => {
           trackId: "track-1",
           title: "Track 1",
           durationSec: 100,
+          url: "https://example.com/track-1.mp3",
         },
       });
 
@@ -115,6 +117,7 @@ describe("Queue Handlers", () => {
           trackId: "track-2",
           title: "Track 2",
           durationSec: 120,
+          url: "https://example.com/track-2.mp3",
         },
       });
 
@@ -128,6 +131,7 @@ describe("Queue Handlers", () => {
           trackId: "track-3",
           title: "Track 3",
           durationSec: 90,
+          url: "https://example.com/track-3.mp3",
           insertAt: 0,
         },
       });
@@ -160,6 +164,7 @@ describe("Queue Handlers", () => {
           trackId: "track-123",
           title: "Test Track",
           durationSec: 180,
+          url: "https://example.com/track-123.mp3",
         },
       });
 
@@ -189,6 +194,7 @@ describe("Queue Handlers", () => {
           trackId: "track-123",
           title: "Test Track",
           durationSec: 180,
+          url: "https://example.com/track-123.mp3",
         },
       });
 
@@ -300,6 +306,7 @@ describe("Queue Handlers", () => {
           trackId: "track-1",
           title: "Track 1",
           durationSec: 100,
+          url: "https://example.com/track-1.mp3",
         },
       });
 
@@ -312,6 +319,7 @@ describe("Queue Handlers", () => {
           trackId: "track-2",
           title: "Track 2",
           durationSec: 120,
+          url: "https://example.com/track-2.mp3",
         },
       });
 
@@ -324,6 +332,7 @@ describe("Queue Handlers", () => {
           trackId: "track-3",
           title: "Track 3",
           durationSec: 90,
+          url: "https://example.com/track-3.mp3",
         },
       });
 
@@ -391,6 +400,7 @@ describe("Queue Handlers", () => {
           trackId: "track-1",
           title: "Track 1",
           durationSec: 100,
+          url: "https://example.com/track-1.mp3",
         },
       });
 
@@ -448,6 +458,7 @@ describe("Queue Handlers", () => {
           trackId: "track-123",
           title: "Original Title",
           durationSec: 180,
+          url: "https://example.com/track-123.mp3",
         },
       });
 
@@ -568,6 +579,7 @@ describe("Queue Handlers", () => {
           trackId: "track-1",
           title: "Track 1",
           durationSec: 100,
+          url: "https://example.com/track-1.mp3",
         },
       });
 
@@ -581,6 +593,7 @@ describe("Queue Handlers", () => {
           trackId: "track-2",
           title: "Track 2",
           durationSec: 120,
+          url: "https://example.com/track-2.mp3",
         },
       });
 
