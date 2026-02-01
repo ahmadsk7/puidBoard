@@ -115,11 +115,10 @@ const Knob = memo(function Knob({
   const animationCallback = useCallback((deltaTime: number): boolean | void => {
     const state = stateRef.current;
 
-    if (state.isDragging) {
-      // LOCAL USER DRAGGING: immediate 1:1 mapping, no interpolation
-      state.visual = state.local;
-      updateKnobRotation(state.visual);
-      return true;
+    // LOCAL USER DRAGGING: skip RAF entirely, updates happen in pointer handler
+    // This eliminates any frame delay for local user
+    if (state.isDragging && state.isLocalUser) {
+      return false; // Stop RAF during local drag
     }
 
     if (!state.isLocalUser) {
@@ -255,11 +254,13 @@ const Knob = memo(function Knob({
         const curr = data.points[i];
         const prev = data.points[i - 1];
         if (curr && prev) {
-          totalDeltaY += prev.y - curr.y;
+          // REVERSED: drag DOWN = increase (like real DJ knobs)
+          totalDeltaY += curr.y - prev.y;
         }
       }
     } else {
-      totalDeltaY = state.startY - data.y;
+      // REVERSED: drag DOWN = increase
+      totalDeltaY = data.y - state.startY;
     }
 
     // LINEAR 1:1 mapping - delta pixels = delta value

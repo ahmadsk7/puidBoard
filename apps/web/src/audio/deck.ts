@@ -572,6 +572,97 @@ export class Deck {
   }
 
   /**
+   * Scrub/scratch the audio - directly move the playhead.
+   * Used for vinyl mode scratching on jog wheel center platter.
+   *
+   * @param deltaSec - Amount to move the playhead (positive = forward, negative = backward)
+   */
+  scrub(deltaSec: number): void {
+    const ctx = getAudioContext();
+    const gainNode = this.ensureGainNode();
+
+    if (!ctx || !gainNode || !this.state.buffer) {
+      return;
+    }
+
+    // Calculate new position
+    const currentPlayhead = this.getCurrentPlayhead();
+    const newPosition = Math.max(0, Math.min(currentPlayhead + deltaSec, this.state.durationSec));
+
+    // Update playhead
+    this.state.playheadSec = newPosition;
+
+    // If we're playing, we need to restart the source at the new position
+    if (this.state.playState === "playing") {
+      // Stop existing source
+      this.stopSource();
+
+      // Create new buffer source at new position
+      const source = ctx.createBufferSource();
+      source.buffer = this.state.buffer;
+      source.playbackRate.value = this.state.playbackRate;
+      source.connect(gainNode);
+
+      // Handle track end
+      source.onended = () => {
+        if (this.state.playState === "playing") {
+          this.state.playState = "stopped";
+          this.state.playheadSec = 0;
+          this.state.source = null;
+          this.state.playbackRate = 1.0;
+          this.stopPlayheadUpdate();
+          this.notify();
+        }
+      };
+
+      // Start from new position
+      source.start(0, newPosition);
+
+      this.state.source = source;
+      this.state.startTime = ctx.currentTime;
+      this.state.startOffset = newPosition;
+    }
+
+    this.notify();
+  }
+
+  /**
+   * Apply temporary pitch bend (nudge) for beat matching.
+   * This temporarily adjusts the playback rate without modifying the base tempo.
+   *
+   * @param bendAmount - Amount to bend (-1 to 1, where 1 = +8% speed, -1 = -8% speed)
+   */
+  nudge(bendAmount: number): void {
+    // Clamp bend amount to reasonable range
+    const clampedBend = Math.max(-1, Math.min(1, bendAmount));
+
+    // Calculate temporary rate: 1.0 +/- 8% based on bend amount
+    const bendRange = 0.08; // 8% max bend
+    const tempRate = 1.0 + (clampedBend * bendRange);
+
+    // Apply without ramp for immediate effect (nudging needs to be instant)
+    const ctx = getAudioContext();
+    if (ctx && this.state.source && this.state.playState === "playing") {
+      this.state.source.playbackRate.setValueAtTime(tempRate, ctx.currentTime);
+    }
+  }
+
+  /**
+   * Release the pitch bend and return to normal playback rate.
+   */
+  releaseNudge(): void {
+    const ctx = getAudioContext();
+    if (ctx && this.state.source && this.state.playState === "playing") {
+      // Smoothly return to base rate
+      this.state.source.playbackRate.setTargetAtTime(
+        this.state.playbackRate,
+        ctx.currentTime,
+        0.05 // Quick but smooth return
+      );
+    }
+  }
+
+  /**
    * Set deck volume (gain).
    */
   setVolume(volume: number): void {

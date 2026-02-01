@@ -70,6 +70,18 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.setVolume(volume);
   }, []);
 
+  const scrub = useCallback((deltaSec: number) => {
+    deckRef.current.scrub(deltaSec);
+  }, []);
+
+  const nudge = useCallback((bendAmount: number) => {
+    deckRef.current.nudge(bendAmount);
+  }, []);
+
+  const releaseNudge = useCallback(() => {
+    deckRef.current.releaseNudge();
+  }, []);
+
   return {
     state,
     loadTrack,
@@ -79,6 +91,9 @@ export function useDeck(deckId: "A" | "B") {
     cue,
     seek,
     setVolume,
+    scrub,
+    nudge,
+    releaseNudge,
     /** Current playhead in seconds */
     playhead: state.playheadSec,
     /** Track duration in seconds */
@@ -88,11 +103,11 @@ export function useDeck(deckId: "A" | "B") {
     /** Is track loaded */
     isLoaded: state.buffer !== null,
     /** Waveform data */
-    waveform: state.analysis?.waveform ?? null,
+    waveform: state.analysis.waveform,
     /** Detected BPM */
-    bpm: state.analysis?.bpm ?? null,
+    bpm: state.analysis.bpm,
     /** Is analyzing audio */
-    isAnalyzing: state.analysis?.status === "analyzing",
+    isAnalyzing: state.analysis.status === "analyzing",
   };
 }
 

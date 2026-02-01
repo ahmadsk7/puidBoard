@@ -108,7 +108,8 @@ const Fader = memo(function Fader({
       const ledElements = ledsRef.current.children;
       for (let i = 0; i < ledElements.length; i++) {
         const led = ledElements[i] as HTMLElement;
-        const isActive = LED_COUNT - i <= activeLeds;
+        // Normal bar: i=0 is bottom, lights up from bottom to top
+        const isActive = i < activeLeds;
         if (isActive) {
           led.style.background = "linear-gradient(90deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)";
           led.style.boxShadow = "0 0 2px #3b82f6, 0 0 4px rgba(59, 130, 246, 0.6), inset 0 1px 1px rgba(96, 165, 250, 0.8), inset 0 -1px 1px rgba(30, 64, 175, 0.8)";
@@ -128,11 +129,10 @@ const Fader = memo(function Fader({
   const animationCallback = useCallback((deltaTime: number): boolean | void => {
     const state = stateRef.current;
 
-    if (state.isDragging) {
-      // LOCAL USER DRAGGING: immediate 1:1 mapping, no interpolation
-      state.visual = state.local;
-      updateThumbPosition(state.visual);
-      return true;
+    // LOCAL USER DRAGGING: skip RAF entirely, updates happen in pointer handler
+    // This eliminates any frame delay for local user
+    if (state.isDragging && state.isLocalUser) {
+      return false; // Stop RAF during local drag
     }
 
     if (!state.isLocalUser) {
@@ -398,7 +398,8 @@ const Fader = memo(function Fader({
     if (!isVertical) return null;
 
     return Array.from({ length: LED_COUNT }).map((_, i) => {
-      const isActive = LED_COUNT - i <= Math.ceil(stateRef.current.visual * LED_COUNT);
+      // Normal bar: i=0 is bottom, lights up from bottom to top
+      const isActive = i < Math.ceil(stateRef.current.visual * LED_COUNT);
       return (
         <div
           key={i}

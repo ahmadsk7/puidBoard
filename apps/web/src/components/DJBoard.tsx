@@ -92,7 +92,7 @@ function DeckDisplay({
       width={position.width}
       height={position.height}
       accentColor={accentColor}
-      style={{ position: "absolute", left: position.x, top: position.y }}
+      style={{ position: "absolute", left: position.x, top: position.y, zIndex: 10 }}
     >
       <TrackInfoDisplay
         deckId={deckId}
@@ -144,6 +144,8 @@ function DeckControls({
         position: "absolute",
         left: position.x,
         top: position.y,
+        zIndex: 100,
+        pointerEvents: "auto",
       }}
     >
       <DeckTransport
@@ -165,10 +167,18 @@ function PositionedJogWheel({
   deckId,
   position,
   accentColor,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
 }: {
   deckId: "A" | "B";
   position: { cx: number; cy: number; r: number };
   accentColor: string;
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
 }) {
   const localDeck = useDeck(deckId);
   const isPlaying = localDeck.isPlaying;
@@ -184,6 +194,7 @@ function PositionedJogWheel({
         transform: "translate(-50%, -50%)",
         width: size,
         height: size,
+        zIndex: 50,
       }}
     >
       <JogWheel
@@ -191,6 +202,10 @@ function PositionedJogWheel({
         accentColor={accentColor}
         size={size}
         isPlaying={isPlaying}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
       />
     </div>
   );
@@ -437,6 +452,8 @@ function MixerFaders({
         top: MIXER.faders.y,
         width: MIXER.faders.width,
         height: MIXER.faders.height,
+        zIndex: 100,
+        pointerEvents: "auto",
       }}
     >
       <FXControlPanel
@@ -585,6 +602,10 @@ export default function DJBoard({
           deckId="A"
           position={DECK_A.jogWheel}
           accentColor="#3b82f6"
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
         />
 
         {/* === MIXER (Center) === */}
@@ -643,6 +664,10 @@ export default function DJBoard({
           deckId="B"
           position={DECK_B.jogWheel}
           accentColor="#8b5cf6"
+          roomId={state.roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
         />
 
           {/* NOTE: Decorative screws are rendered in the SVG background */}

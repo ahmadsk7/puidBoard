@@ -58,6 +58,8 @@ export default function FXControlPanel({
   // Handle FX type change
   const handleTypeChange = useCallback(
     (type: FxType) => {
+      console.log("[FXControlPanel] Type change clicked:", type, "current type:", fxState.type);
+      console.log("[FXControlPanel] Sending FX_SET event with type:", type);
       sendEvent({
         type: "FX_SET",
         roomId,
@@ -69,11 +71,13 @@ export default function FXControlPanel({
         },
       });
     },
-    [sendEvent, roomId, clientId, nextSeq]
+    [sendEvent, roomId, clientId, nextSeq, fxState.type]
   );
 
   // Handle toggle
   const handleToggle = useCallback(() => {
+    console.log("[FXControlPanel] Toggle clicked, current state:", fxState.enabled, "new state:", !fxState.enabled);
+    console.log("[FXControlPanel] Sending FX_TOGGLE event");
     sendEvent({
       type: "FX_TOGGLE",
       roomId,
@@ -107,6 +111,8 @@ export default function FXControlPanel({
         position: "relative",
         width: 224,
         height: 132,
+        pointerEvents: "auto",
+        zIndex: 1,
       }}
     >
       {/* Channel A Fader - Aligned to left slider hole */}
@@ -254,7 +260,12 @@ export default function FXControlPanel({
             <button
               key={fx.value}
               type="button"
-              onClick={() => handleTypeChange(fx.value)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("[FXControlPanel] FX type button clicked:", fx.value);
+                handleTypeChange(fx.value);
+              }}
               style={{
                 padding: "1px 2px",
                 fontSize: "0.4rem",
@@ -266,6 +277,7 @@ export default function FXControlPanel({
                 cursor: "pointer",
                 transition: "all 0.1s",
                 letterSpacing: "0.01em",
+                pointerEvents: "auto",
               }}
             >
               {fx.label}
@@ -276,8 +288,17 @@ export default function FXControlPanel({
         {/* ON/OFF Toggle - Full width */}
         <button
           type="button"
-          onClick={handleToggle}
-          disabled={fxState.type === "none"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log("[FXControlPanel] ON/OFF toggle clicked - fxType=", fxState.type, "enabled=", fxState.enabled);
+            if (fxState.type !== "none") {
+              console.log("[FXControlPanel] Executing toggle action");
+              handleToggle();
+            } else {
+              console.log("[FXControlPanel] Toggle blocked - no FX type selected");
+            }
+          }}
           style={{
             padding: "2px 4px",
             fontSize: "0.45rem",
@@ -290,7 +311,9 @@ export default function FXControlPanel({
             opacity: fxState.type === "none" ? 0.4 : 1,
             letterSpacing: "0.03em",
             transition: "all 0.1s",
+            pointerEvents: "auto",
           }}
+          title={fxState.type === "none" ? "Select an FX type first" : fxState.enabled ? "Turn OFF" : "Turn ON"}
         >
           {fxState.enabled ? "ON" : "OFF"}
         </button>

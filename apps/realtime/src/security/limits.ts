@@ -33,12 +33,17 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   QUEUE_REMOVE: { maxEvents: 30, windowMs: 60_000 },
   QUEUE_REORDER: { maxEvents: 60, windowMs: 60_000 },
   QUEUE_EDIT: { maxEvents: 60, windowMs: 60_000 },
-  // Deck operations (combined limit)
+  // Deck operations (combined limit for discrete actions)
   DECK_ACTIONS: { maxEvents: 100, windowMs: 60_000 },
+  // DECK_SEEK has higher limit for jog wheel scratching (high-frequency operation)
+  DECK_SEEK: { maxEvents: 600, windowMs: 60_000 }, // ~10 per second for smooth scratching
 };
 
 /** Event types that share the DECK_ACTIONS rate limit */
-const DECK_EVENT_TYPES = ["DECK_LOAD", "DECK_PLAY", "DECK_PAUSE", "DECK_SEEK", "DECK_CUE"];
+const DECK_EVENT_TYPES = ["DECK_LOAD", "DECK_PLAY", "DECK_PAUSE", "DECK_CUE"];
+
+/** Event types with their own rate limits */
+const INDIVIDUAL_RATE_LIMIT_TYPES = ["DECK_SEEK"];
 
 // ============================================================================
 // Sliding Window Implementation
@@ -67,9 +72,14 @@ class RateLimiter {
 
   /**
    * Get the rate limit key for a client and event type.
-   * Deck events share a combined limit.
+   * Deck events share a combined limit, except those with individual limits.
    */
   private getKey(clientId: string, eventType: string): string {
+    // Check if this event has its own rate limit
+    if (INDIVIDUAL_RATE_LIMIT_TYPES.includes(eventType)) {
+      return `${clientId}:${eventType}`;
+    }
+    // Otherwise, deck events share combined limit
     const limitType = DECK_EVENT_TYPES.includes(eventType) ? "DECK_ACTIONS" : eventType;
     return `${clientId}:${limitType}`;
   }
@@ -84,7 +94,15 @@ class RateLimiter {
     clientId: string,
     eventType: string
   ): { allowed: true } | { allowed: false; error: string; retryAfterMs: number } {
-    const limitType = DECK_EVENT_TYPES.includes(eventType) ? "DECK_ACTIONS" : eventType;
+    // Check if this event has its own rate limit first
+    let limitType: string;
+    if (INDIVIDUAL_RATE_LIMIT_TYPES.includes(eventType)) {
+      limitType = eventType;
+    } else if (DECK_EVENT_TYPES.includes(eventType)) {
+      limitType = "DECK_ACTIONS";
+    } else {
+      limitType = eventType;
+    }
     const config = RATE_LIMITS[limitType];
 
     // If no rate limit configured for this event type, allow it
@@ -233,7 +251,8 @@ export const rateLimiter = new RateLimiter();
 export function isRateLimitedEventType(eventType: string): boolean {
   return (
     eventType in RATE_LIMITS ||
-    DECK_EVENT_TYPES.includes(eventType)
+    DECK_EVENT_TYPES.includes(eventType) ||
+    INDIVIDUAL_RATE_LIMIT_TYPES.includes(eventType)
   );
 }
 
@@ -241,6 +260,11 @@ export function isRateLimitedEventType(eventType: string): boolean {
  * Get the rate limit config for an event type.
  */
 export function getRateLimitConfig(eventType: string): RateLimitConfig | null {
+  // Check for individual rate limit first
+  if (INDIVIDUAL_RATE_LIMIT_TYPES.includes(eventType)) {
+    return RATE_LIMITS[eventType] ?? null;
+  }
+  // Then check for combined deck action limit
   if (DECK_EVENT_TYPES.includes(eventType)) {
     return RATE_LIMITS.DECK_ACTIONS ?? null;
   }

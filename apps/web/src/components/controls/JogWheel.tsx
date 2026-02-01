@@ -7,6 +7,8 @@ import {
   clamp,
   type CoalescedPointerData,
 } from "../../audio/controlOptimizer";
+import { getDeck } from "../../audio/useDeck";
+import type { ClientMutationEvent } from "@puid-board/shared";
 
 export type JogWheelProps = {
   /** Deck identifier */
@@ -17,55 +19,101 @@ export type JogWheelProps = {
   size?: number;
   /** Whether the deck is currently playing (affects spin animation) */
   isPlaying?: boolean;
-  /** Callback when the wheel is scratched/spun */
-  onScratch?: (delta: number) => void;
   /** Optional playback rate for variable speed */
   playbackRate?: number;
+  /** Room ID for network events */
+  roomId?: string;
+  /** Client ID for network events */
+  clientId?: string;
+  /** Function to send network events */
+  sendEvent?: (e: ClientMutationEvent) => void;
+  /** Function to get next sequence number */
+  nextSeq?: () => number;
 };
 
-// Simple momentum physics - no complex prediction
-const JOG_PHYSICS = {
-  /** Friction during momentum decay - simple linear */
-  FRICTION: 0.985,
-  /** Minimum velocity before stopping */
-  MIN_VELOCITY: 0.05,
-  /** Maximum scratch velocity */
-  MAX_VELOCITY: 80,
-  /** Vinyl RPM at normal playback */
-  VINYL_RPM: 33.33,
-  /** Degrees per ms at normal speed */
-  DEGREES_PER_MS: (33.33 * 360) / 60000,
-  /** Scratch sensitivity - 1:1 linear */
-  SCRATCH_SENSITIVITY: 1.0,
+// Jog wheel physics and sensitivity settings
+const JOG_CONFIG = {
+  // Vinyl mode settings (center platter - scratching)
+  VINYL: {
+    /** Seconds of audio per full rotation */
+    SECONDS_PER_ROTATION: 1.8,
+    /** Sensitivity multiplier for scratch movement */
+    SENSITIVITY: 1.0,
+    /** Center zone radius as percentage of wheel radius (0-1) */
+    ZONE_RADIUS: 0.65,
+  },
+  // Pitch bend mode settings (outer ring - nudging)
+  PITCH_BEND: {
+    /** Max bend amount at full rotation speed */
+    MAX_BEND: 1.0,
+    /** Degrees per frame to reach max bend */
+    DEGREES_FOR_MAX_BEND: 15,
+    /** How quickly bend returns to zero on release */
+    RELEASE_DECAY: 0.15,
+  },
+  // Visual rotation settings
+  VISUAL: {
+    /** Friction during momentum decay */
+    FRICTION: 0.985,
+    /** Minimum velocity before stopping */
+    MIN_VELOCITY: 0.05,
+    /** Maximum visual velocity */
+    MAX_VELOCITY: 80,
+    /** Vinyl RPM at normal playback */
+    VINYL_RPM: 33.33,
+    /** Degrees per ms at normal speed */
+    DEGREES_PER_MS: (33.33 * 360) / 60000,
+  },
+  // Network throttle
+  NETWORK: {
+    /** Minimum ms between DECK_SEEK events */
+    THROTTLE_MS: 50,
+  },
 } as const;
 
-// Triple-buffer state for jog wheel
+// Touch zone types
+type TouchZone = "center" | "outer" | null;
+
+// Jog wheel state for RAF loop
 interface JogWheelState {
   rotation: number;        // Current visual rotation
-  targetRotation: number;  // Target rotation
   velocity: number;        // Angular velocity (degrees/frame)
   isDragging: boolean;     // Currently being touched
   lastAngle: number;       // Last pointer angle from center
   isSpinning: boolean;     // Has momentum active
+  touchZone: TouchZone;    // Which zone is being touched
+  currentBend: number;     // Current pitch bend amount (-1 to 1)
 }
 
 /**
- * Professional-grade jog wheel with:
- * - LINEAR 1:1 scratch mapping (no curves)
- * - Simple momentum physics (friction only)
- * - GPU-accelerated transforms: translate3d(0,0,0) rotateZ(deg)
- * - Pointer event coalescing for high-precision tracking
- * - RAF-batched visual updates via shared loop
- * - touch-action: none
- * - pointer-events: none on decorative layers
+ * Professional DJ jog wheel with dual-mode operation:
+ *
+ * 1. VINYL MODE (Center Platter):
+ *    - Touch and drag to scratch/scrub audio
+ *    - Directly controls playhead position
+ *    - Works when playing or paused
+ *
+ * 2. PITCH BEND MODE (Outer Ring):
+ *    - Rotate to temporarily speed up/slow down
+ *    - Used for beat matching
+ *    - Only active when playing
+ *
+ * Features:
+ * - GPU-accelerated transforms
+ * - Pointer event coalescing for smooth tracking
+ * - RAF-batched visual updates
+ * - Network event throttling
  */
 const JogWheel = memo(function JogWheel({
   deckId,
   accentColor,
   size = 280,
   isPlaying = false,
-  onScratch,
   playbackRate = 1.0,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
 }: JogWheelProps) {
   const wheelRef = useRef<HTMLDivElement>(null);
   const discRef = useRef<HTMLImageElement>(null);
@@ -73,11 +121,12 @@ const JogWheel = memo(function JogWheel({
   // State refs for RAF loop (avoid re-renders)
   const stateRef = useRef<JogWheelState>({
     rotation: 0,
-    targetRotation: 0,
     velocity: 0,
     isDragging: false,
     lastAngle: 0,
     isSpinning: false,
+    touchZone: null,
+    currentBend: 0,
   });
 
   // Tracking refs
@@ -85,16 +134,46 @@ const JogWheel = memo(function JogWheel({
   const velocityHistoryRef = useRef<number[]>([]);
   const rafIdRef = useRef<string | null>(null);
   const lastTimeRef = useRef(performance.now());
+  const lastNetworkSendRef = useRef(0);
 
-  // Visual feedback state
-  const isDraggingRef = useRef(false);
+  // Get the deck instance for audio control
+  const deckRef = useRef(getDeck(deckId));
 
   // Update disc rotation directly - GPU accelerated
   const updateDiscRotation = useCallback((degrees: number) => {
     if (discRef.current) {
-      // GPU-accelerated: translate3d(0,0,0) forces GPU layer
       discRef.current.style.transform = `translate3d(0, 0, 0) rotateZ(${degrees}deg)`;
     }
+  }, []);
+
+  // Determine which zone was touched based on distance from center
+  const getTouchZone = useCallback((clientX: number, clientY: number): TouchZone => {
+    const wheel = wheelRef.current;
+    if (!wheel) return null;
+
+    const rect = wheel.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const radius = rect.width / 2;
+
+    const deltaX = clientX - centerX;
+    const deltaY = clientY - centerY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    // Normalize distance (0 = center, 1 = edge)
+    const normalizedDistance = distance / radius;
+
+    // Check if in center zone (vinyl scratching)
+    if (normalizedDistance <= JOG_CONFIG.VINYL.ZONE_RADIUS) {
+      return "center";
+    }
+
+    // Check if in outer ring (pitch bend)
+    if (normalizedDistance <= 1.0) {
+      return "outer";
+    }
+
+    return null;
   }, []);
 
   // Calculate angle from center of wheel to pointer position
@@ -120,12 +199,11 @@ const JogWheel = memo(function JogWheel({
     return angle;
   }, []);
 
-  // Calculate average velocity from history - simple weighted average
+  // Calculate average velocity from history
   const getAverageVelocity = useCallback((): number => {
     const history = velocityHistoryRef.current;
     if (history.length === 0) return 0;
 
-    // Simple weighted average - recent samples weighted more
     let totalWeight = 0;
     let weightedSum = 0;
 
@@ -140,6 +218,62 @@ const JogWheel = memo(function JogWheel({
     return weightedSum / totalWeight;
   }, []);
 
+  // Send DECK_SEEK event to network (throttled)
+  const sendSeekEvent = useCallback((positionSec: number) => {
+    if (!sendEvent || !nextSeq || !roomId || !clientId) return;
+
+    const now = performance.now();
+    if (now - lastNetworkSendRef.current < JOG_CONFIG.NETWORK.THROTTLE_MS) {
+      return;
+    }
+    lastNetworkSendRef.current = now;
+
+    sendEvent({
+      type: "DECK_SEEK",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: {
+        deckId,
+        positionSec: Math.max(0, positionSec),
+      },
+    });
+  }, [sendEvent, nextSeq, roomId, clientId, deckId]);
+
+  // Handle vinyl scratching (center platter)
+  const handleVinylScratch = useCallback((angleDiff: number) => {
+    const deck = deckRef.current;
+
+    // Calculate how much audio time this rotation represents
+    const rotationFraction = angleDiff / 360;
+    const deltaSec = rotationFraction * JOG_CONFIG.VINYL.SECONDS_PER_ROTATION * JOG_CONFIG.VINYL.SENSITIVITY;
+
+    // Apply the scratch to the deck
+    deck.scrub(deltaSec);
+
+    // Send network event
+    const newPosition = deck.getCurrentPlayhead();
+    sendSeekEvent(newPosition);
+  }, [sendSeekEvent]);
+
+  // Handle pitch bend (outer ring)
+  const handlePitchBend = useCallback((angleDiff: number) => {
+    const state = stateRef.current;
+    const deck = deckRef.current;
+
+    // Only apply pitch bend when playing
+    if (!isPlaying) return;
+
+    // Calculate bend amount based on rotation speed
+    const bendDelta = (angleDiff / JOG_CONFIG.PITCH_BEND.DEGREES_FOR_MAX_BEND) * JOG_CONFIG.PITCH_BEND.MAX_BEND;
+
+    // Update current bend (additive for continuous movement)
+    state.currentBend = clamp(state.currentBend + bendDelta, -1, 1);
+
+    // Apply nudge to deck
+    deck.nudge(state.currentBend);
+  }, [isPlaying]);
+
   // RAF animation callback
   const animationCallback = useCallback((deltaTime: number): boolean | void => {
     const state = stateRef.current;
@@ -147,46 +281,47 @@ const JogWheel = memo(function JogWheel({
     const dt = deltaTime / 16.67; // Normalize to 60fps
 
     if (state.isDragging) {
-      // DRAGGING: immediate 1:1 mapping
-      state.rotation = state.targetRotation;
-      updateDiscRotation(state.rotation);
+      // DRAGGING: keep animation running
       return true;
     }
 
-    // Not dragging: apply physics
+    // Handle pitch bend decay when not dragging
+    if (Math.abs(state.currentBend) > 0.001) {
+      state.currentBend *= (1 - JOG_CONFIG.PITCH_BEND.RELEASE_DECAY);
+      if (Math.abs(state.currentBend) < 0.001) {
+        state.currentBend = 0;
+        deckRef.current.releaseNudge();
+      } else {
+        deckRef.current.nudge(state.currentBend);
+      }
+    }
+
+    // Handle visual momentum spinning
     if (state.isSpinning) {
-      // Apply momentum with simple friction
-      state.velocity *= Math.pow(JOG_PHYSICS.FRICTION, dt);
+      state.velocity *= Math.pow(JOG_CONFIG.VISUAL.FRICTION, dt);
       state.rotation += state.velocity * dt;
 
-      // Check if should stop
-      if (Math.abs(state.velocity) < JOG_PHYSICS.MIN_VELOCITY) {
+      if (Math.abs(state.velocity) < JOG_CONFIG.VISUAL.MIN_VELOCITY) {
         state.velocity = 0;
         state.isSpinning = false;
       }
 
       updateDiscRotation(state.rotation);
-
-      // Report scratch delta
-      if (onScratch && Math.abs(state.velocity) > 0.1) {
-        onScratch(state.velocity / 360);
-      }
-
-      return state.isSpinning;
+      return state.isSpinning || Math.abs(state.currentBend) > 0.001;
     }
 
-    // Auto-spin when playing
+    // Auto-spin when playing (visual feedback)
     if (isPlaying) {
       const elapsed = now - lastTimeRef.current;
       lastTimeRef.current = now;
 
-      state.rotation += JOG_PHYSICS.DEGREES_PER_MS * elapsed * playbackRate;
+      state.rotation += JOG_CONFIG.VISUAL.DEGREES_PER_MS * elapsed * playbackRate;
       updateDiscRotation(state.rotation);
       return true;
     }
 
-    return false; // Stop animation loop
-  }, [isPlaying, playbackRate, onScratch, updateDiscRotation]);
+    return Math.abs(state.currentBend) > 0.001;
+  }, [isPlaying, playbackRate, updateDiscRotation]);
 
   // Start RAF loop
   const startAnimation = useCallback(() => {
@@ -211,22 +346,25 @@ const JogWheel = memo(function JogWheel({
     e.stopPropagation();
 
     const state = stateRef.current;
+    const zone = getTouchZone(e.clientX, e.clientY);
+
+    if (!zone) return;
+
     state.isDragging = true;
     state.isSpinning = false;
     state.velocity = 0;
+    state.touchZone = zone;
     velocityHistoryRef.current = [];
 
     const angle = getAngleFromCenter(e.clientX, e.clientY);
     state.lastAngle = angle;
     lastPositionRef.current = { x: e.clientX, y: e.clientY };
 
-    isDraggingRef.current = true;
-
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     startAnimation();
-  }, [getAngleFromCenter, startAnimation]);
+  }, [getTouchZone, getAngleFromCenter, startAnimation]);
 
-  // Handle pointer move with coalescing
+  // Handle pointer move
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const state = stateRef.current;
     if (!state.isDragging) return;
@@ -238,7 +376,7 @@ const JogWheel = memo(function JogWheel({
     );
     lastPositionRef.current = { x: data.x, y: data.y };
 
-    // Process all coalesced points for smooth tracking
+    // Calculate total angle difference from all coalesced points
     let totalAngleDiff = 0;
 
     if (data.points.length > 1) {
@@ -259,47 +397,49 @@ const JogWheel = memo(function JogWheel({
       state.lastAngle = currentAngle;
     }
 
-    // LINEAR 1:1 mapping - pointer rotation = wheel rotation
-    totalAngleDiff *= JOG_PHYSICS.SCRATCH_SENSITIVITY;
+    // Update visual rotation
+    state.rotation += totalAngleDiff;
+    updateDiscRotation(state.rotation);
 
-    // Immediate update - no interpolation for local user
-    state.targetRotation += totalAngleDiff;
-    state.rotation = state.targetRotation;
-
-    // Track velocity for momentum (simple history)
+    // Track velocity for momentum
     velocityHistoryRef.current.push(totalAngleDiff);
     if (velocityHistoryRef.current.length > 8) {
       velocityHistoryRef.current.shift();
     }
 
-    // Report scratch delta
-    if (onScratch) {
-      onScratch(totalAngleDiff / 360);
+    // Apply appropriate action based on touch zone
+    if (state.touchZone === "center") {
+      // Vinyl mode - scratch the audio
+      handleVinylScratch(totalAngleDiff);
+    } else if (state.touchZone === "outer") {
+      // Pitch bend mode - nudge playback speed
+      handlePitchBend(totalAngleDiff);
     }
+  }, [getAngleFromCenter, normalizeAngleDiff, updateDiscRotation, handleVinylScratch, handlePitchBend]);
 
-    updateDiscRotation(state.rotation);
-  }, [getAngleFromCenter, normalizeAngleDiff, onScratch, updateDiscRotation]);
-
-  // Handle pointer up - apply momentum
+  // Handle pointer up
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     const state = stateRef.current;
     if (!state.isDragging) return;
 
     state.isDragging = false;
-    isDraggingRef.current = false;
-
     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 
-    // Calculate release velocity
+    // Release pitch bend if we were in outer zone
+    if (state.touchZone === "outer") {
+      // Bend will decay in animation callback
+    }
+
+    state.touchZone = null;
+
+    // Calculate release velocity for visual momentum
     const avgVelocity = getAverageVelocity();
 
-    // Apply momentum if velocity is significant
-    if (Math.abs(avgVelocity) > JOG_PHYSICS.MIN_VELOCITY * 2) {
-      state.velocity = clamp(avgVelocity, -JOG_PHYSICS.MAX_VELOCITY, JOG_PHYSICS.MAX_VELOCITY);
+    if (Math.abs(avgVelocity) > JOG_CONFIG.VISUAL.MIN_VELOCITY * 2) {
+      state.velocity = clamp(avgVelocity, -JOG_CONFIG.VISUAL.MAX_VELOCITY, JOG_CONFIG.VISUAL.MAX_VELOCITY);
       state.isSpinning = true;
       startAnimation();
-    } else if (isPlaying) {
-      // Resume auto-spin
+    } else if (isPlaying || Math.abs(state.currentBend) > 0.001) {
       startAnimation();
     }
   }, [getAverageVelocity, startAnimation, isPlaying]);
@@ -309,13 +449,14 @@ const JogWheel = memo(function JogWheel({
     position: "relative",
     width: size,
     height: size,
-    cursor: isDraggingRef.current ? "grabbing" : "grab",
+    cursor: "grab",
     touchAction: "none",
     userSelect: "none",
     WebkitUserSelect: "none",
   }), [size]);
 
-  const glowRingStyle = useMemo<React.CSSProperties>(() => ({
+  // Outer ring style (pitch bend zone)
+  const outerRingStyle = useMemo<React.CSSProperties>(() => ({
     position: "absolute",
     top: 0,
     left: 0,
@@ -325,6 +466,23 @@ const JogWheel = memo(function JogWheel({
     boxShadow: `0 0 14px 4px ${accentColor}, inset 0 0 18px rgba(0,0,0,0.75)`,
     pointerEvents: "none",
   }), [accentColor]);
+
+  // Center platter indicator (vinyl zone)
+  const centerZoneStyle = useMemo<React.CSSProperties>(() => {
+    const centerSize = JOG_CONFIG.VINYL.ZONE_RADIUS * 100;
+    return {
+      position: "absolute",
+      top: "50%",
+      left: "50%",
+      width: `${centerSize}%`,
+      height: `${centerSize}%`,
+      transform: "translate(-50%, -50%)",
+      borderRadius: "50%",
+      border: `2px solid ${accentColor}40`,
+      pointerEvents: "none",
+      opacity: 0.5,
+    };
+  }, [accentColor]);
 
   const discStyle = useMemo<React.CSSProperties>(() => ({
     position: "absolute",
@@ -348,19 +506,6 @@ const JogWheel = memo(function JogWheel({
     pointerEvents: "none",
   }), []);
 
-  const touchFeedbackStyle = useMemo<React.CSSProperties>(() => ({
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    borderRadius: "50%",
-    background: `radial-gradient(circle, ${accentColor}25 0%, transparent 55%)`,
-    pointerEvents: "none",
-    opacity: 0,
-    transition: "opacity 0.15s ease-out",
-  }), [accentColor]);
-
   return (
     <div
       ref={wheelRef}
@@ -370,8 +515,8 @@ const JogWheel = memo(function JogWheel({
       onPointerCancel={handlePointerUp}
       style={containerStyle}
     >
-      {/* Outer glow ring - decorative, no pointer events */}
-      <div style={glowRingStyle} />
+      {/* Outer glow ring - pitch bend zone indicator */}
+      <div style={outerRingStyle} />
 
       {/* Rotating disc - updated via RAF */}
       <img
@@ -382,16 +527,16 @@ const JogWheel = memo(function JogWheel({
         style={discStyle}
       />
 
-      {/* Center cap (stationary) - decorative */}
+      {/* Center vinyl zone indicator */}
+      <div style={centerZoneStyle} />
+
+      {/* Center cap (stationary) */}
       <img
         src="/assets/dj-controls/wheels/jog-wheel-center-cap.svg"
         alt=""
         draggable={false}
         style={centerCapStyle}
       />
-
-      {/* Touch feedback overlay - decorative */}
-      <div style={touchFeedbackStyle} />
     </div>
   );
 });

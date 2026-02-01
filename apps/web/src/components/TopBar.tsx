@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { initAudioEngine } from "@/audio/engine";
 
 const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_CODE_LEN = 6;
@@ -30,6 +31,7 @@ export type TopBarProps = {
 export default function TopBar({ roomCode, latencyMs, autoplayEnabled }: TopBarProps) {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [enablingAudio, setEnablingAudio] = useState(false);
 
   const inviteLink =
     typeof window !== "undefined"
@@ -55,6 +57,20 @@ export default function TopBar({ roomCode, latencyMs, autoplayEnabled }: TopBarP
       // ignore
     }
   }, [inviteLink]);
+
+  const handleEnableAudio = useCallback(async () => {
+    if (enablingAudio || autoplayEnabled) return;
+
+    setEnablingAudio(true);
+    try {
+      await initAudioEngine();
+      console.log("[TopBar] Audio engine enabled successfully");
+    } catch (err) {
+      console.error("[TopBar] Failed to enable audio:", err);
+    } finally {
+      setEnablingAudio(false);
+    }
+  }, [enablingAudio, autoplayEnabled]);
 
   const level = getLatencyColor(latencyMs);
   const latencyBg =
@@ -121,15 +137,45 @@ export default function TopBar({ roomCode, latencyMs, autoplayEnabled }: TopBarP
         />
         <span>Latency: {latencyMs}ms</span>
       </span>
-      <span
-        style={{
-          padding: "0.2rem 0.5rem",
-          background: autoplayEnabled ? "#166534" : "#374151",
-          borderRadius: 4,
-        }}
-      >
-        Autoplay: {autoplayEnabled ? "on" : "off"}
-      </span>
+      {autoplayEnabled ? (
+        <span
+          style={{
+            padding: "0.2rem 0.5rem",
+            background: "#166534",
+            borderRadius: 4,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.25rem",
+          }}
+        >
+          <span style={{ fontSize: "0.75rem" }}>🔊</span>
+          Audio: ON
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={handleEnableAudio}
+          disabled={enablingAudio}
+          style={{
+            padding: "0.5rem 1rem",
+            background: enablingAudio ? "#6b7280" : "#22c55e",
+            border: "2px solid #16a34a",
+            borderRadius: 6,
+            color: "#fff",
+            cursor: enablingAudio ? "not-allowed" : "pointer",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            transition: "all 0.2s",
+            boxShadow: "0 2px 4px rgba(0, 0, 0, 0.3)",
+          }}
+        >
+          <span style={{ fontSize: "1rem" }}>🔊</span>
+          {enablingAudio ? "Enabling..." : "Enable Audio"}
+        </button>
+      )}
     </header>
   );
 }

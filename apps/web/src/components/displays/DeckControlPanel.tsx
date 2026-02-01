@@ -70,6 +70,9 @@ export function DeckControlPanel({
         flexDirection: "column",
         gap: "8px",
         boxSizing: "border-box",
+        pointerEvents: "auto",
+        position: "relative",
+        zIndex: 1,
       }}
     >
       {/* BPM Display - Large and Prominent */}
@@ -166,8 +169,17 @@ export function DeckControlPanel({
         {/* Cue Button */}
         <button
           type="button"
-          onClick={onCue}
-          disabled={!hasTrack || !audioEnabled}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log("[DeckControlPanel] Cue button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled);
+            if (hasTrack && audioEnabled) {
+              console.log("[DeckControlPanel] Executing cue action");
+              onCue();
+            } else {
+              console.log("[DeckControlPanel] Cue blocked - cannot execute");
+            }
+          }}
           style={{
             width: "36px",
             height: "36px",
@@ -182,8 +194,9 @@ export function DeckControlPanel({
             justifyContent: "center",
             transition: "all 0.15s ease",
             boxShadow: playState === "cued" ? `0 0 12px rgba(255, 107, 53, 0.3)` : "none",
+            pointerEvents: "auto",
           }}
-          title="Cue"
+          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : "Cue"}
         >
           <img
             src="/assets/dj-controls/buttons/cue-icon.svg"
@@ -199,8 +212,21 @@ export function DeckControlPanel({
         {/* Play/Pause Button */}
         <button
           type="button"
-          onClick={isPlaying ? onPause : onPlay}
-          disabled={!hasTrack || !audioEnabled}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log("[DeckControlPanel] Play/Pause button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled, "isPlaying=", isPlaying);
+            if (hasTrack && audioEnabled) {
+              console.log("[DeckControlPanel] Executing play/pause action");
+              if (isPlaying) {
+                onPause();
+              } else {
+                onPlay();
+              }
+            } else {
+              console.log("[DeckControlPanel] Play/Pause blocked - cannot execute");
+            }
+          }}
           style={{
             width: "42px",
             height: "36px",
@@ -215,8 +241,9 @@ export function DeckControlPanel({
             justifyContent: "center",
             transition: "all 0.15s ease",
             boxShadow: isPlaying ? `0 0 12px rgba(34, 197, 94, 0.3)` : "none",
+            pointerEvents: "auto",
           }}
-          title={isPlaying ? "Pause" : "Play"}
+          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : isPlaying ? "Pause" : "Play"}
         >
           <img
             src={
@@ -236,8 +263,17 @@ export function DeckControlPanel({
         {/* Sync Button */}
         <button
           type="button"
-          onClick={onSync}
-          disabled={!hasTrack || !audioEnabled}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log("[DeckControlPanel] Sync button clicked - hasTrack=", hasTrack, "audioEnabled=", audioEnabled);
+            if (hasTrack && audioEnabled) {
+              console.log("[DeckControlPanel] Executing sync action");
+              onSync?.();
+            } else {
+              console.log("[DeckControlPanel] Sync blocked - cannot execute");
+            }
+          }}
           style={{
             width: "36px",
             height: "36px",
@@ -251,8 +287,9 @@ export function DeckControlPanel({
             alignItems: "center",
             justifyContent: "center",
             transition: "all 0.15s ease",
+            pointerEvents: "auto",
           }}
-          title="Sync BPM"
+          title={!audioEnabled ? "Enable audio first" : !hasTrack ? "Load a track first" : "Sync BPM"}
         >
           <img
             src="/assets/dj-controls/buttons/sync-icon.svg"

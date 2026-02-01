@@ -163,12 +163,16 @@ export function initMixerGraph(): boolean {
   mixerGraph.channelA = createChannelNodes(ctx);
   mixerGraph.channelB = createChannelNodes(ctx);
 
-  // Create crossfader gains
+  // Create crossfader gains - initialize at center position (0.5)
+  // This matches the default state in state.ts: crossfader: 0.5
+  // Using equal power crossfade: at 0.5, both channels are at ~0.707 (-3dB)
+  const [initialGainA, initialGainB] = equalPowerCrossfade(0.5);
+
   mixerGraph.crossfaderA = ctx.createGain();
-  mixerGraph.crossfaderA.gain.value = 1.0; // Start with A full
+  mixerGraph.crossfaderA.gain.value = initialGainA;
 
   mixerGraph.crossfaderB = ctx.createGain();
-  mixerGraph.crossfaderB.gain.value = 0.0; // Start with B silent
+  mixerGraph.crossfaderB.gain.value = initialGainB;
 
   // Create pre-master summing node
   mixerGraph.preMaster = ctx.createGain();

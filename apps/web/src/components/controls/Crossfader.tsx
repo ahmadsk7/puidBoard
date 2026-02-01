@@ -80,8 +80,10 @@ const Crossfader = memo(function Crossfader({
   const updateThumbPosition = useCallback((normalizedValue: number) => {
     if (thumbRef.current) {
       // GPU-accelerated transform: translate3d(x, 0, 0)
+      // Use direct left position for IMMEDIATE feedback (no calc lag)
       const percent = normalizedValue * 100;
-      thumbRef.current.style.transform = `translate3d(calc(${percent}% - 50%), -50%, 0)`;
+      thumbRef.current.style.left = `${percent}%`;
+      thumbRef.current.style.transform = `translate3d(-50%, -50%, 0)`;
     }
   }, []);
 
@@ -89,11 +91,10 @@ const Crossfader = memo(function Crossfader({
   const animationCallback = useCallback((deltaTime: number): boolean | void => {
     const state = stateRef.current;
 
-    if (state.isDragging) {
-      // LOCAL USER DRAGGING: immediate 1:1 mapping, no interpolation
-      state.visual = state.local;
-      updateThumbPosition(state.visual);
-      return true;
+    // LOCAL USER DRAGGING: skip RAF entirely, updates happen in pointer handler
+    // This eliminates any frame delay for local user
+    if (state.isDragging && state.isLocalUser) {
+      return false; // Stop RAF during local drag
     }
 
     if (!state.isLocalUser) {
@@ -253,7 +254,8 @@ const Crossfader = memo(function Crossfader({
     state.visual = finalValue;
     state.target = finalValue;
 
-    // Immediate visual update (DOM updated in RAF for batching)
+    // IMMEDIATE visual update for local user - NO RAF delay
+    // This is critical for "follows mouse" feel
     updateThumbPosition(finalValue);
 
     // Send throttled network update
@@ -324,8 +326,8 @@ const Crossfader = memo(function Crossfader({
     touchAction: "none",  // Critical: prevents browser scroll/zoom
     boxShadow: ownerColor
       ? isOwnedBySelf
-        ? `inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03), 0 0 8px 2px ${ownerColor}`
-        : `inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03), 0 0 12px 3px ${ownerColor}`
+        ? `inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03), 0 0 4px 1px ${ownerColor}`
+        : `inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03), 0 0 6px 2px ${ownerColor}`
       : "inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.03)",
   }), [ownerColor, isOwnedBySelf]);
 
@@ -343,14 +345,14 @@ const Crossfader = memo(function Crossfader({
   // Initial thumb position
   const initialThumbStyle = useMemo<React.CSSProperties>(() => ({
     position: "absolute",
-    left: 0,
+    left: `${stateRef.current.visual * 100}%`,
     top: "50%",
-    transform: `translate3d(calc(${stateRef.current.visual * 100}% - 50%), -50%, 0)`,
+    transform: `translate3d(-50%, -50%, 0)`,
     width: 60,
     height: 30,
     pointerEvents: "none",
     filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
-    willChange: "transform",
+    willChange: "transform, left",
     backfaceVisibility: "hidden",
   }), []);
 

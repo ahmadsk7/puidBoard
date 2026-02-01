@@ -48,6 +48,8 @@ export default function DeckTransport({
     const localTrackId = deck.state.trackId;
 
     if (serverTrackId && serverTrackId !== localTrackId) {
+      console.log(`[DeckTransport-${deckId}] Loading track ${serverTrackId} (current: ${localTrackId})`);
+
       // Fetch the track URL from the realtime server API
       const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
 
@@ -58,26 +60,30 @@ export default function DeckTransport({
         })
         .then((data) => {
           // Load the track with the URL from the server
+          console.log(`[DeckTransport-${deckId}] Fetched URL for ${serverTrackId}, loading...`);
           return deck.loadTrack(serverTrackId, data.url);
         })
         .catch((err) => {
           console.error(`[DeckTransport-${deckId}] Failed to load track:`, err);
         });
     }
-  }, [audioEnabled, serverState.loadedTrackId, deck, deckId]);
+  }, [audioEnabled, serverState.loadedTrackId, deck.state.trackId, deckId, deck]);
 
   // Sync play state with server
   useEffect(() => {
     if (!audioEnabled || !deck.isLoaded) return;
 
     if (serverState.playState === "playing" && !deck.isPlaying) {
+      console.log(`[DeckTransport-${deckId}] Syncing play state: playing`);
       deck.play();
     } else if (serverState.playState === "paused" && deck.isPlaying) {
+      console.log(`[DeckTransport-${deckId}] Syncing play state: paused`);
       deck.pause();
     } else if (serverState.playState === "stopped" && deck.isPlaying) {
+      console.log(`[DeckTransport-${deckId}] Syncing play state: stopped`);
       deck.stop();
     }
-  }, [audioEnabled, serverState.playState, deck]);
+  }, [audioEnabled, serverState.playState, deck.isLoaded, deck.isPlaying, deckId, deck]);
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(() => {
