@@ -1,6 +1,9 @@
 /**
  * Drift Detection and Correction (Simplified)
  *
+ * @deprecated This module is part of the legacy SYNC_TICK (2s interval) system.
+ * The new BEACON_TICK system uses DeckEngine with PLL-based smooth correction.
+ *
  * This module provides utilities for measuring drift between local and server
  * playhead positions. Drift correction is DISABLED by default because:
  *
@@ -17,6 +20,8 @@
  * - No separate "userBaseRate" tracking - that was confusing
  * - Drift measurement is provided for UI display purposes
  * - Actual corrections are done via snap-to-position, not rate changes
+ *
+ * **New System:** DeckEngine + PLL (see /audio/DeckEngine.ts, /audio/sync/pll.ts)
  */
 
 import type { DeckId } from "@puid-board/shared";

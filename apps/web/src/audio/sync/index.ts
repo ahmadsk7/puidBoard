@@ -15,6 +15,7 @@ export {
   getAudioTimeReference,
   calculateExpectedPlayhead,
   getAverageRtt,
+  getRtt95,
   resetClockSync,
   subscribeToClockSync,
 } from "./clock";

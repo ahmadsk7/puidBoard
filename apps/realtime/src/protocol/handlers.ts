@@ -23,6 +23,7 @@ import { registerTimeHandlers } from "../handlers/time.js";
 import { registerDeckHandlers } from "../handlers/deck.js";
 import { registerFxHandlers } from "../handlers/fx.js";
 import { startSyncTick, stopSyncTick } from "../timers/syncTick.js";
+import { startBeacon, stopBeacon } from "../timers/beacon.js";
 import { getPersistence } from "../rooms/persistence.js";
 import { idempotencyStore } from "./idempotency.js";
 import { rateLimiter } from "../security/index.js";
@@ -104,9 +105,10 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
         };
         io.to(leaveResult.roomId).emit("MEMBER_LEFT", memberLeft);
       }
-      // Stop sync tick if room is empty
+      // Stop sync tick and beacon if room is empty
       if (!leaveResult.room || leaveResult.room.members.length === 0) {
         stopSyncTick(leaveResult.roomId);
+        stopBeacon(leaveResult.roomId);
       }
     }
   }
@@ -132,6 +134,8 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
 
   // Start sync tick timer for this room
   startSyncTick(io, room.roomId);
+  // Start beacon timer for fast epoch-based sync
+  startBeacon(io, room.roomId);
 
   // Start persistence snapshots
   const persistence = getPersistence();
@@ -176,9 +180,10 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
         };
         io.to(leaveResult.roomId).emit("MEMBER_LEFT", memberLeft);
       }
-      // Stop sync tick if room is empty
+      // Stop sync tick and beacon if room is empty
       if (!leaveResult.room || leaveResult.room.members.length === 0) {
         stopSyncTick(leaveResult.roomId);
+        stopBeacon(leaveResult.roomId);
       }
     }
   }
@@ -237,6 +242,8 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
 
   // Ensure sync tick is running for this room (idempotent)
   startSyncTick(io, room.roomId);
+  // Ensure beacon is running for this room (idempotent)
+  startBeacon(io, room.roomId);
 
   console.log(
     `[JOIN_ROOM] joined roomId=${room.roomId} clientId=${clientId} name=${name}`
@@ -297,9 +304,10 @@ async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promi
     }
   }
 
-  // If room is now empty, stop SYNC_TICK and clean up persistence
+  // If room is now empty, stop SYNC_TICK, beacon, and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+    stopBeacon(roomId);
 
     // Clean up persistence
     const persistence = getPersistence();
@@ -371,9 +379,10 @@ async function handleDisconnect(io: Server, socket: Socket, reason: string): Pro
     }
   }
 
-  // If room is now empty, stop SYNC_TICK and clean up persistence
+  // If room is now empty, stop SYNC_TICK, beacon, and clean up persistence
   if (!room || room.members.length === 0) {
     stopSyncTick(roomId);
+    stopBeacon(roomId);
 
     // Clean up persistence
     const persistence = getPersistence();

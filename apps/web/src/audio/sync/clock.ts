@@ -83,6 +83,16 @@ export function processPong(t0: number, serverTs: number): void {
   const now = Date.now();
   const rttMs = now - t0;
 
+  // Reject RTT spikes (likely network jitter)
+  // Only reject if we have enough samples and this is clearly an outlier
+  if (clockState.samples.length >= 3) {
+    const avgRtt = clockState.averageRttMs;
+    if (rttMs > avgRtt * 2.5) {
+      console.debug(`[clock] Rejecting RTT spike: ${rttMs}ms (avg: ${avgRtt}ms)`);
+      return;
+    }
+  }
+
   // Estimate that the server timestamp was taken halfway through the RTT
   // This gives us the most likely offset between clocks
   const oneWayMs = rttMs / 2;
@@ -238,6 +248,24 @@ export function calculateExpectedPlayhead(
  */
 export function getAverageRtt(): number {
   return clockState.averageRttMs;
+}
+
+/**
+ * Get the 95th percentile RTT for safety margins.
+ * More conservative than average, accounts for occasional spikes.
+ */
+export function getRtt95(): number {
+  if (clockState.samples.length < 3) {
+    // Not enough samples, use average * 1.5 as fallback
+    return clockState.averageRttMs * 1.5;
+  }
+
+  const sorted = [...clockState.samples]
+    .map((s) => s.rttMs)
+    .sort((a, b) => a - b);
+
+  const idx = Math.floor(sorted.length * 0.95);
+  return sorted[idx] ?? clockState.averageRttMs;
 }
 
 /**

@@ -128,6 +128,8 @@ export {
   FxTogglePayloadSchema,
   FxToggleEventSchema,
   // Server events
+  DeckBeaconPayloadSchema,
+  BeaconTickEventSchema,
   SyncTickDeckStateSchema,
   SyncTickPayloadSchema,
   SyncTickEventSchema,
@@ -187,6 +189,8 @@ export type {
   FxSetEvent,
   FxTogglePayload,
   FxToggleEvent,
+  DeckBeaconPayload,
+  BeaconTickEvent,
   SyncTickDeckState,
   SyncTickPayload,
   SyncTickEvent,

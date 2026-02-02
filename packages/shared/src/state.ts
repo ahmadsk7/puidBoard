@@ -120,6 +120,7 @@ export const DeckStateSchema = z.object({
    * Server timestamp when playback started.
    * Used with clock sync to compute expected playhead.
    * Null if not playing.
+   * @deprecated Use epochStartTimeMs instead
    */
   serverStartTime: z.number().nullable(),
   /**
@@ -133,6 +134,26 @@ export const DeckStateSchema = z.object({
   durationSec: z.number().nonnegative().nullable(),
   /** Playback rate (0.92 to 1.08 for ±8% tempo range, default 1.0) */
   playbackRate: z.number().min(0.5).max(2.0).default(1.0),
+  /**
+   * Epoch ID - changes on any discontinuity (play, seek, tempo, scrub).
+   * Used to detect stale sync messages and reset PLL.
+   */
+  epochId: z.string(),
+  /**
+   * Epoch sequence number - incremented on each beacon tick for playing decks.
+   * Used to detect out-of-order or duplicate messages.
+   */
+  epochSeq: z.number().int().nonnegative(),
+  /**
+   * Playhead position (in seconds) when this epoch started.
+   * Combined with epochStartTimeMs to calculate current position.
+   */
+  epochStartPlayheadSec: z.number().nonnegative(),
+  /**
+   * Server timestamp (ms) when this epoch started.
+   * Combined with epochStartPlayheadSec to calculate current position.
+   */
+  epochStartTimeMs: z.number(),
 });
 export type DeckState = z.infer<typeof DeckStateSchema>;
 
@@ -293,5 +314,10 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     cuePointSec: null,
     durationSec: null,
     playbackRate: 1.0,
+    // Epoch tracking fields
+    epochId: crypto.randomUUID(),
+    epochSeq: 0,
+    epochStartPlayheadSec: 0,
+    epochStartTimeMs: Date.now(),
   };
 }

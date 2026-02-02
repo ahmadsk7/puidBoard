@@ -28,6 +28,10 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     cuePointSec: null,
     durationSec: 180, // 3 minutes
     playbackRate: 1.0,
+    epochId: crypto.randomUUID(),
+    epochSeq: 0,
+    epochStartPlayheadSec: 0,
+    epochStartTimeMs: Date.now(),
     ...overrides,
   };
 }

@@ -21,7 +21,8 @@ import {
   resetDriftState,
   resetClockSync,
 } from "../audio/sync";
-import { getDeck } from "../audio/useDeck";
+import { getDeck, getDeckEngine } from "../audio/useDeck";
+import type { BeaconTickEvent } from "@puid-board/shared";
 
 const REALTIME_URL =
   process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
@@ -529,15 +530,9 @@ export class RealtimeClient {
       const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
       deck.playbackRate = playbackRate;
 
-      // Apply to local audio deck as well
-      try {
-        const localDeck = getDeck(deckId);
-        if (localDeck) {
-          localDeck.setPlaybackRate(playbackRate);
-        }
-      } catch (error) {
-        console.debug(`[RealtimeClient] Could not apply tempo to local deck:`, error);
-      }
+      // NOTE: We do NOT directly apply to local audio deck here.
+      // The BEACON_TICK handler will apply rate changes via DeckEngine,
+      // which prevents race conditions and ensures epoch-based sync.
 
       this.state = {
         ...this.state,
@@ -546,7 +541,10 @@ export class RealtimeClient {
       this.notifyStateListeners();
     });
 
-    // SYNC_TICK for playback synchronization
+    // SYNC_TICK for playback synchronization (2s interval)
+    // @deprecated This is the legacy sync system. BEACON_TICK (250ms) is now
+    // the primary sync mechanism. SYNC_TICK is kept for backwards compatibility
+    // and fallback, but will be phased out in future versions.
     this.socket.on("SYNC_TICK", (event: {
       roomId: string;
       payload: {
@@ -558,6 +556,7 @@ export class RealtimeClient {
     }) => {
       if (!this.state) return;
 
+      // Update legacy state fields for backwards compatibility
       const { deckA, deckB } = event.payload;
       this.state = {
         ...this.state,
@@ -575,11 +574,51 @@ export class RealtimeClient {
         },
       };
 
-      // Apply drift correction for each deck
+      // Apply drift correction for each deck (legacy snap-based system)
+      // NOTE: BEACON_TICK uses PLL-based correction which is smoother
       this.applyDriftCorrection("A", deckA);
       this.applyDriftCorrection("B", deckB);
 
       this.notifyStateListeners();
+    });
+
+    // BEACON_TICK for fast epoch-based synchronization (250ms interval)
+    this.socket.on("BEACON_TICK", (event: BeaconTickEvent) => {
+      if (!this.state) return;
+
+      // Feed beacons to DeckEngines for PLL-based sync
+      try {
+        const deckEngineA = getDeckEngine("A");
+        const deckEngineB = getDeckEngine("B");
+
+        deckEngineA.applyServerBeacon(event.payload.deckA);
+        deckEngineB.applyServerBeacon(event.payload.deckB);
+
+        // Update state for UI (use beacon data as source of truth)
+        this.state = {
+          ...this.state,
+          deckA: {
+            ...this.state.deckA,
+            playState: event.payload.deckA.playState,
+            playheadSec: event.payload.deckA.playheadSec,
+            playbackRate: event.payload.deckA.playbackRate,
+            epochId: event.payload.deckA.epochId,
+            epochSeq: event.payload.deckA.epochSeq,
+          },
+          deckB: {
+            ...this.state.deckB,
+            playState: event.payload.deckB.playState,
+            playheadSec: event.payload.deckB.playheadSec,
+            playbackRate: event.payload.deckB.playbackRate,
+            epochId: event.payload.deckB.epochId,
+            epochSeq: event.payload.deckB.epochSeq,
+          },
+        };
+        this.notifyStateListeners();
+      } catch (error) {
+        // DeckEngine may not be initialized yet, ignore
+        console.debug("[RealtimeClient] BEACON_TICK handler error:", error);
+      }
     });
 
     // Mixer value updates

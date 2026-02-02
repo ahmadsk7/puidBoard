@@ -2,9 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Deck, DeckState } from "./deck";
+import { DeckEngine } from "./DeckEngine";
 
 /** Singleton deck instances */
 const decks: { A: Deck | null; B: Deck | null } = { A: null, B: null };
+
+/** Singleton DeckEngine instances (manage transport state) */
+const deckEngines: { A: DeckEngine | null; B: DeckEngine | null } = {
+  A: null,
+  B: null,
+};
 
 /** Debounce helper for stable values */
 function useDebounce<T>(value: T, delay: number): T {
@@ -31,6 +38,18 @@ export function getDeck(deckId: "A" | "B"): Deck {
     decks[deckId] = new Deck(deckId);
   }
   return decks[deckId]!;
+}
+
+/**
+ * Get or create a DeckEngine instance.
+ * DeckEngine owns transport state and sync logic.
+ */
+export function getDeckEngine(deckId: "A" | "B"): DeckEngine {
+  if (!deckEngines[deckId]) {
+    const deck = getDeck(deckId);
+    deckEngines[deckId] = new DeckEngine(deck);
+  }
+  return deckEngines[deckId]!;
 }
 
 /**
@@ -260,4 +279,6 @@ export function disposeAllDecks(): void {
     decks.B.dispose();
     decks.B = null;
   }
+  deckEngines.A = null;
+  deckEngines.B = null;
 }

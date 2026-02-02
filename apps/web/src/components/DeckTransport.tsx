@@ -86,7 +86,7 @@ export default function DeckTransport({
   }, [serverState.playState, isLoaded, isPlaying, play, pause, stop]);
 
   // Sync playhead position with server (for DECK_SEEK events from other clients)
-  const { seek, setPlaybackRate } = deck;
+  const { seek } = deck;
   // Track the last server playhead we synced to (for SEEK events)
   const lastSyncedPlayheadRef = useRef(serverState.playheadSec);
 
@@ -113,30 +113,10 @@ export default function DeckTransport({
     }
   }, [serverState.playheadSec, isLoaded, isPlaying, seek, deckId]);
 
-  // Track the last server playback rate we synced to
-  // This prevents overriding local tempo changes while waiting for server confirmation
-  const lastSyncedServerRateRef = useRef(serverState.playbackRate);
-
-  // Sync playback rate with server (for DECK_TEMPO_SET events from OTHER clients)
-  // FIXED: Only sync when SERVER rate actually changes, not when local rate changes
-  // This prevents the race condition where local tempo changes get overwritten
-  useEffect(() => {
-    if (!isLoaded) return;
-
-    const serverRate = serverState.playbackRate;
-    const lastSyncedRate = lastSyncedServerRateRef.current;
-    const localRate = deck.playbackRate;
-
-    // Only sync if the SERVER rate has changed since our last sync
-    // This ignores local rate changes and only responds to server updates
-    const serverRateChanged = Math.abs(serverRate - lastSyncedRate) > 0.001;
-
-    if (serverRateChanged) {
-      console.log(`[DeckTransport-${deckId}] Server rate changed: ${lastSyncedRate.toFixed(3)} -> ${serverRate.toFixed(3)} (local: ${localRate.toFixed(3)})`);
-      lastSyncedServerRateRef.current = serverRate;
-      setPlaybackRate(serverRate);
-    }
-  }, [serverState.playbackRate, isLoaded, setPlaybackRate, deckId, deck.playbackRate]);
+  // NOTE: Playback rate sync is now handled by DeckEngine via BEACON_TICK.
+  // The old rate sync effect has been removed to prevent race conditions.
+  // DeckEngine is the single writer for transport state and applies rate changes
+  // smoothly via PLL-based drift correction.
 
   // Send DECK_PLAY event
   const handlePlay = useCallback(async () => {

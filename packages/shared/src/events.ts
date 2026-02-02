@@ -280,6 +280,31 @@ export type FxToggleEvent = z.infer<typeof FxToggleEventSchema>;
 // Server → Client Events
 // ============================================================================
 
+/** Deck beacon payload for 250ms sync beacon */
+export const DeckBeaconPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  epochId: z.string(),
+  epochSeq: z.number().int().nonnegative(),
+  serverTs: z.number(),
+  playheadSec: z.number().nonnegative(),
+  playbackRate: z.number().min(0.5).max(2.0),
+  playState: z.enum(["stopped", "playing", "paused", "cued"]),
+});
+export type DeckBeaconPayload = z.infer<typeof DeckBeaconPayloadSchema>;
+
+/** Beacon tick event - 250ms sync broadcast */
+export const BeaconTickEventSchema = z.object({
+  type: z.literal("BEACON_TICK"),
+  roomId: RoomIdSchema,
+  payload: z.object({
+    serverTs: z.number(),
+    version: z.number().int().nonnegative(),
+    deckA: DeckBeaconPayloadSchema,
+    deckB: DeckBeaconPayloadSchema,
+  }),
+});
+export type BeaconTickEvent = z.infer<typeof BeaconTickEventSchema>;
+
 /** Deck state for sync tick (subset of full state) */
 export const SyncTickDeckStateSchema = z.object({
   deckId: DeckIdSchema,
@@ -443,6 +468,7 @@ export type ClientEvent = z.infer<typeof ClientEventSchema>;
 /** All server → client events */
 export const ServerEventSchema = z.discriminatedUnion("type", [
   SyncTickEventSchema,
+  BeaconTickEventSchema,
   RoomSnapshotEventSchema,
   TimePongEventSchema,
   MemberJoinedEventSchema,

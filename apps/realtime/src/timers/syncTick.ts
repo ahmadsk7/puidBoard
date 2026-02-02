@@ -3,6 +3,10 @@
  *
  * Broadcasts authoritative deck state to all room members every ~2 seconds.
  * This is the foundation for synchronized playback across clients.
+ *
+ * @deprecated This system is being replaced by BEACON_TICK (250ms interval)
+ * with epoch-based sync. SYNC_TICK is kept running temporarily for backwards
+ * compatibility and as a fallback. Future versions will phase this out entirely.
  */
 
 import type { Server } from "socket.io";

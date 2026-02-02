@@ -52,6 +52,33 @@ function getDeck(room: ReturnType<typeof roomStore.getRoom>, deckId: DeckId) {
 }
 
 /**
+ * Create a new epoch for a deck.
+ * This resets the epoch ID and tracking fields, used on discontinuities:
+ * - Play/pause/stop
+ * - Seek
+ * - Tempo change
+ * - Cue
+ * - Load
+ */
+function createNewEpoch(
+  deck: ReturnType<typeof getDeck>,
+  serverTs: number,
+  newPlayhead: number,
+  newRate?: number
+): void {
+  if (!deck) return;
+
+  deck.epochId = crypto.randomUUID();
+  deck.epochSeq = 0;
+  deck.epochStartPlayheadSec = newPlayhead;
+  deck.epochStartTimeMs = serverTs;
+
+  if (newRate !== undefined) {
+    deck.playbackRate = newRate;
+  }
+}
+
+/**
  * Handle DECK_LOAD event.
  * Loads a track from the queue into a deck.
  */
@@ -115,6 +142,8 @@ export function handleDeckLoad(
     return;
   }
 
+  const serverTs = Date.now();
+
   // Update deck state
   deck.loadedTrackId = trackId;
   deck.loadedQueueItemId = queueItemId;
@@ -123,13 +152,15 @@ export function handleDeckLoad(
   deck.playheadSec = 0;
   deck.durationSec = queueItem.durationSec;
 
+  // Create new epoch on load (fresh start)
+  createNewEpoch(deck, serverTs, 0);
+
   // Update queue item status
   queueItem.status = deckId === "A" ? "loaded_A" : "loaded_B";
 
   // Increment version
   room.version++;
 
-  const serverTs = Date.now();
   const eventId = `${room.roomId}-${room.version}`;
 
   // Broadcast to all clients in room
@@ -150,7 +181,7 @@ export function handleDeckLoad(
   sendAcceptedAck(socket, event.clientSeq, eventId);
 
   console.log(
-    `[DECK_LOAD] deck=${deckId} trackId=${trackId} queueItemId=${queueItemId} roomId=${room.roomId}`
+    `[DECK_LOAD] deck=${deckId} trackId=${trackId} queueItemId=${queueItemId} roomId=${room.roomId} epochId=${deck.epochId}`
   );
 }
 
@@ -212,6 +243,9 @@ export function handleDeckPlay(
   const serverTs = Date.now();
   deck.serverStartTime = serverTs;
   deck.playState = "playing";
+
+  // Create new epoch on play (discontinuity)
+  createNewEpoch(deck, serverTs, deck.playheadSec);
 
   // Update queue item status
   const queueItem = room.queue.find(
@@ -417,20 +451,18 @@ export function handleDeckCue(
   }
 
   // Jump to cue point
-  if (deck.cuePointSec !== null) {
-    deck.playheadSec = deck.cuePointSec;
-  } else {
-    // If no cue point set, default to 0
-    deck.playheadSec = 0;
-  }
-
+  const targetPlayhead = deck.cuePointSec !== null ? deck.cuePointSec : 0;
+  deck.playheadSec = targetPlayhead;
   deck.playState = "cued";
   deck.serverStartTime = null;
+
+  // Create new epoch on cue (discontinuity)
+  const serverTs = Date.now();
+  createNewEpoch(deck, serverTs, targetPlayhead);
 
   // Increment version
   room.version++;
 
-  const serverTs = Date.now();
   const eventId = `${room.roomId}-${room.version}`;
 
   // Broadcast to all clients in room
@@ -451,7 +483,7 @@ export function handleDeckCue(
   sendAcceptedAck(socket, event.clientSeq, eventId);
 
   console.log(
-    `[DECK_CUE] deck=${deckId} cuePoint=${deck.cuePointSec}s playhead=${deck.playheadSec}s roomId=${room.roomId}`
+    `[DECK_CUE] deck=${deckId} cuePoint=${deck.cuePointSec}s playhead=${deck.playheadSec}s epochId=${deck.epochId} roomId=${room.roomId}`
   );
 }
 
@@ -520,15 +552,18 @@ export function handleDeckSeek(
   // Update playhead
   deck.playheadSec = positionSec;
 
+  const serverTs = Date.now();
+
   // If currently playing, update server start time to maintain sync
+  // and create new epoch (seek is a discontinuity)
   if (deck.playState === "playing") {
-    deck.serverStartTime = Date.now();
+    deck.serverStartTime = serverTs;
+    createNewEpoch(deck, serverTs, positionSec);
   }
 
   // Increment version
   room.version++;
 
-  const serverTs = Date.now();
   const eventId = `${room.roomId}-${room.version}`;
 
   // Broadcast to all clients in room
@@ -549,7 +584,7 @@ export function handleDeckSeek(
   sendAcceptedAck(socket, event.clientSeq, eventId);
 
   console.log(
-    `[DECK_SEEK] deck=${deckId} position=${positionSec.toFixed(2)}s playing=${deck.playState === "playing"} roomId=${room.roomId}`
+    `[DECK_SEEK] deck=${deckId} position=${positionSec.toFixed(2)}s playing=${deck.playState === "playing"} epochId=${deck.epochId} roomId=${room.roomId}`
   );
 }
 
@@ -602,22 +637,27 @@ export function handleDeckTempoSet(
   const serverTs = Date.now();
 
   // CRITICAL: When tempo changes, we must recalculate the current playhead position
-  // and reset the serverStartTime reference. Otherwise, SYNC_TICK will retroactively
-  // apply the new rate to all elapsed time, causing incorrect playhead calculations
-  // and drift correction to skip the playhead around.
+  // with the OLD rate, then create a new epoch with the NEW rate.
+  // This prevents retroactive rate application which causes playhead jumps.
   if (deck.playState === "playing" && deck.serverStartTime !== null) {
     // Calculate current playhead using the OLD rate
-    const elapsedMs = serverTs - deck.serverStartTime;
+    const elapsedMs = serverTs - deck.epochStartTimeMs;
     const elapsedSec = elapsedMs / 1000;
-    const currentPlayhead = deck.playheadSec + (elapsedSec * deck.playbackRate);
+    const currentPlayhead = deck.epochStartPlayheadSec + (elapsedSec * deck.playbackRate);
 
-    // Update playhead to current position and reset time reference
-    deck.playheadSec = Math.min(currentPlayhead, deck.durationSec ?? currentPlayhead);
+    // Clamp to track duration
+    const clampedPlayhead = Math.min(currentPlayhead, deck.durationSec ?? currentPlayhead);
+
+    // Update legacy serverStartTime for backwards compatibility
+    deck.playheadSec = clampedPlayhead;
     deck.serverStartTime = serverTs;
-  }
 
-  // Update playback rate
-  deck.playbackRate = clampedRate;
+    // Create new epoch with current playhead and new rate
+    createNewEpoch(deck, serverTs, clampedPlayhead, clampedRate);
+  } else {
+    // Not playing, just update the rate for next play
+    deck.playbackRate = clampedRate;
+  }
 
   // Increment version
   room.version++;
@@ -642,7 +682,7 @@ export function handleDeckTempoSet(
   sendAcceptedAck(socket, event.clientSeq, eventId);
 
   console.log(
-    `[DECK_TEMPO_SET] deck=${deckId} rate=${clampedRate.toFixed(3)} roomId=${room.roomId}`
+    `[DECK_TEMPO_SET] deck=${deckId} rate=${clampedRate.toFixed(3)} epochId=${deck.epochId} roomId=${room.roomId}`
   );
 }
 
