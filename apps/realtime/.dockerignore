@@ -2,8 +2,8 @@
 node_modules
 .pnpm-store
 
-# Build output (will be rebuilt)
-dist
+# Build output - MUST be built locally first (pnpm build)
+# dist should NOT be ignored - it's copied into the image
 
 # Development files
 *.test.ts
