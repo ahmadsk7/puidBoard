@@ -12,16 +12,20 @@ import type {
   MemberLeftEvent,
   TimePongEvent,
   Member,
-  DeckId,
+  // DISABLED: DeckId was used by applyDriftCorrection (old SYNC_TICK system)
+  // DeckId,
 } from "@puid-board/shared";
 import {
   processPong,
-  measureDrift,
-  recordSnapCorrection,
+  // DISABLED: These were used by applyDriftCorrection (old SYNC_TICK system)
+  // measureDrift,
+  // recordSnapCorrection,
   resetDriftState,
   resetClockSync,
 } from "../audio/sync";
-import { getDeck, getDeckEngine } from "../audio/useDeck";
+// DISABLED: getDeck was used by applyDriftCorrection (old SYNC_TICK system)
+// import { getDeck, getDeckEngine } from "../audio/useDeck";
+import { getDeckEngine } from "../audio/useDeck";
 import type { BeaconTickEvent } from "@puid-board/shared";
 
 const REALTIME_URL =
@@ -574,10 +578,11 @@ export class RealtimeClient {
         },
       };
 
-      // Apply drift correction for each deck (legacy snap-based system)
-      // NOTE: BEACON_TICK uses PLL-based correction which is smoother
-      this.applyDriftCorrection("A", deckA);
-      this.applyDriftCorrection("B", deckB);
+      // DISABLED: Old SYNC_TICK drift correction was fighting with BEACON_TICK PLL.
+      // BEACON_TICK (250ms) is now the sole sync mechanism.
+      // See: https://github.com/puidBoard/issues/XXX - "Multiple sync systems fighting"
+      // this.applyDriftCorrection("A", deckA);
+      // this.applyDriftCorrection("B", deckB);
 
       this.notifyStateListeners();
     });
@@ -772,10 +777,11 @@ export class RealtimeClient {
     });
   }
 
-  /**
-   * Apply drift correction for a deck based on server sync tick data.
-   * Uses the simplified drift measurement API - only snap corrections, no rate changes.
-   */
+  // DISABLED: applyDriftCorrection was part of the old SYNC_TICK system.
+  // BEACON_TICK + DeckEngine PLL is now the sole sync mechanism.
+  // Keeping the code commented out for reference.
+  // See: https://github.com/puidBoard/issues/XXX - "Multiple sync systems fighting"
+  /*
   private applyDriftCorrection(
     deckId: DeckId,
     serverDeckState: {
@@ -828,6 +834,7 @@ export class RealtimeClient {
       console.debug(`[sync-${deckId}] Could not apply drift correction:`, error);
     }
   }
+  */
 
   private startPing(): void {
     this.stopPing();

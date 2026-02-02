@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
-import { useDeck, syncDeckBPM, getDeck } from "@/audio/useDeck";
+import { useDeck, syncDeckBPM } from "@/audio/useDeck";
+// DISABLED: getDeck was used for seekSmooth during playback, now handled by DeckEngine
+// import { getDeck } from "@/audio/useDeck";
 import { DeckControlPanel } from "./displays";
 import { initAudioEngine } from "@/audio/engine";
 
@@ -73,19 +75,50 @@ export default function DeckTransport({
   const isPlaying = deck.isPlaying;
   const { play, pause, stop } = deck;
 
+  // Track if the track was just loaded (to prevent auto-play)
+  const justLoadedRef = useRef(false);
+  const prevLoadedTrackIdRef = useRef<string | null>(null);
+
+  // Detect when a new track is loaded
+  useEffect(() => {
+    if (serverState.loadedTrackId !== prevLoadedTrackIdRef.current) {
+      prevLoadedTrackIdRef.current = serverState.loadedTrackId;
+      if (serverState.loadedTrackId) {
+        justLoadedRef.current = true;
+        // Reset after a short delay - if server says play within 500ms of load, it's auto-play
+        const timer = setTimeout(() => {
+          justLoadedRef.current = false;
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [serverState.loadedTrackId]);
+
   useEffect(() => {
     if (!isLoaded) return;
 
+    // FIXED: Prevent auto-play when track is first loaded.
+    // Only respond to play commands that come AFTER the track is fully loaded.
+    // This prevents the race condition where server state says "playing" but
+    // the track was just added to the queue.
     if (serverState.playState === "playing" && !isPlaying) {
+      // Skip auto-play if track was just loaded
+      if (justLoadedRef.current) {
+        console.log(`[DeckTransport-${deckId}] Skipping auto-play - track just loaded`);
+        return;
+      }
       play();
     } else if (serverState.playState === "paused" && isPlaying) {
       pause();
     } else if (serverState.playState === "stopped" && isPlaying) {
       stop();
     }
-  }, [serverState.playState, isLoaded, isPlaying, play, pause, stop]);
+  }, [serverState.playState, isLoaded, isPlaying, play, pause, stop, deckId]);
 
-  // Sync playhead position with server (for DECK_SEEK events from other clients)
+  // DISABLED: This playhead sync effect was fighting with BEACON_TICK PLL-based sync.
+  // DeckEngine now handles all playhead synchronization via BEACON_TICK (250ms).
+  // Keeping the ref for potential future use but removing the seek calls.
+  // See: https://github.com/puidBoard/issues/XXX - "Multiple sync systems fighting"
   const { seek } = deck;
   // Track the last server playhead we synced to (for SEEK events)
   const lastSyncedPlayheadRef = useRef(serverState.playheadSec);
@@ -101,13 +134,18 @@ export default function DeckTransport({
       console.log(`[DeckTransport-${deckId}] Server playhead jumped: ${lastSyncedPlayheadRef.current.toFixed(2)}s -> ${serverState.playheadSec.toFixed(2)}s`);
       lastSyncedPlayheadRef.current = serverState.playheadSec;
 
-      // IMPROVED: Sync during playback too, not just when paused
-      // Use seekSmooth for playing tracks to avoid audio glitches
-      if (isPlaying) {
-        // Get the deck instance and use seekSmooth for smooth playback correction
-        const deckInstance = getDeck(deckId);
-        deckInstance.seekSmooth(serverState.playheadSec, 50);
-      } else {
+      // DISABLED: These seek calls were causing constant skipping during playback.
+      // DeckEngine handles sync via BEACON_TICK PLL-based corrections.
+      // Only seek when NOT playing (e.g., user scrubbed while paused on another client)
+      // if (isPlaying) {
+      //   // Get the deck instance and use seekSmooth for smooth playback correction
+      //   const deckInstance = getDeck(deckId);
+      //   deckInstance.seekSmooth(serverState.playheadSec, 50);
+      // } else {
+      //   seek(serverState.playheadSec);
+      // }
+      if (!isPlaying) {
+        // Only sync seek when paused/stopped (user scrubbed on another client)
         seek(serverState.playheadSec);
       }
     }
