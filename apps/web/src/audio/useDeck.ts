@@ -76,7 +76,6 @@ export function useDeck(deckId: "A" | "B") {
       const trackChanged = newState.trackId !== lastTrackId;
 
       if (bpmChanged || statusChanged || trackChanged) {
-        console.log(`[useDeck-${deckId}] State update - BPM: ${newState.analysis.bpm}, status: ${newState.analysis.status}, trackId: ${newState.trackId}`);
         lastBpm = newState.analysis.bpm;
         lastStatus = newState.analysis.status;
         lastTrackId = newState.trackId;
@@ -87,7 +86,6 @@ export function useDeck(deckId: "A" | "B") {
 
     // Initial state
     const initialState = deck.getState();
-    console.log(`[useDeck-${deckId}] Initial state - BPM: ${initialState.analysis.bpm}, status: ${initialState.analysis.status}`);
     lastBpm = initialState.analysis.bpm;
     lastStatus = initialState.analysis.status;
     lastTrackId = initialState.trackId;

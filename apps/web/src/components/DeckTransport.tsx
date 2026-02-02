@@ -48,7 +48,6 @@ export default function DeckTransport({
 
   // Sync with server state - load track when server says to
   useEffect(() => {
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
     console.log(`[DeckTransport-${deckId}] TRACK LOAD SYNC EFFECT`);
     console.log(`[DeckTransport-${deckId}]   - serverState.loadedTrackId: ${serverState.loadedTrackId}`);
     console.log(`[DeckTransport-${deckId}]   - localTrackId: ${localTrackId}`);
@@ -65,18 +64,13 @@ export default function DeckTransport({
       if (!queueItem) {
         console.error(`[DeckTransport-${deckId}] ✗ Track ${serverTrackId} not found in queue`);
         console.error(`[DeckTransport-${deckId}]   Available queue items:`, queue.map(q => q.trackId));
-        console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
         return;
       }
 
-      console.log(`[DeckTransport-${deckId}]   ✓ Found queue item: "${queueItem.title}"`);
       console.log(`[DeckTransport-${deckId}]   - URL: ${queueItem.url}`);
 
       // Init audio first (will be no-op if already initialized)
-      console.log(`[DeckTransport-${deckId}]   - Initializing audio engine...`);
       initAudioEngine().then(() => {
-        console.log(`[DeckTransport-${deckId}]   ✓ Audio engine ready`);
-        console.log(`[DeckTransport-${deckId}]   - Calling loadTrack()...`);
         return loadTrack(serverTrackId, queueItem.url);
       }).then(() => {
         console.log(`[DeckTransport-${deckId}]   ✓✓✓ TRACK LOADED SUCCESSFULLY ✓✓✓`);
@@ -91,7 +85,6 @@ export default function DeckTransport({
         console.log(`[DeckTransport-${deckId}]   - Track already loaded (same as local)`);
       }
     }
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
   }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId, queue]);
 
   // Sync play state with server
@@ -185,19 +178,10 @@ export default function DeckTransport({
     const bpm = deck.state.analysis.bpm;
     const status = deck.state.analysis.status;
 
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
-    console.log(`[DeckTransport-${deckId}] BPM Send Effect Triggered:`);
-    console.log(`[DeckTransport-${deckId}]   - analysis.status: ${status}`);
-    console.log(`[DeckTransport-${deckId}]   - analysis.bpm: ${bpm}`);
-    console.log(`[DeckTransport-${deckId}]   - bpm type: ${typeof bpm}`);
-    console.log(`[DeckTransport-${deckId}]   - bpm === null: ${bpm === null}`);
-    console.log(`[DeckTransport-${deckId}]   - bpm > 0: ${bpm !== null && bpm > 0}`);
 
     // Only send when analysis is complete and we have a valid BPM
     if (status === "complete" && bpm !== null && bpm > 0) {
-      console.log(`[DeckTransport-${deckId}] ✓ Conditions met - sending BPM to server`);
       console.log(`[DeckTransport-${deckId}]   - Sending DECK_BPM_DETECTED event`);
-      console.log(`[DeckTransport-${deckId}]   - Event payload: { deckId: "${deckId}", bpm: ${bpm} }`);
       sendEvent({
         type: "DECK_BPM_DETECTED",
         roomId,
@@ -207,18 +191,13 @@ export default function DeckTransport({
       });
       console.log(`[DeckTransport-${deckId}] ✓ DECK_BPM_DETECTED event sent`);
     } else {
-      console.log(`[DeckTransport-${deckId}] ✗ Conditions not met - not sending`);
       if (status !== "complete") {
-        console.log(`[DeckTransport-${deckId}]   - Reason: status is "${status}", need "complete"`);
       }
       if (bpm === null) {
-        console.log(`[DeckTransport-${deckId}]   - Reason: bpm is null`);
       }
       if (bpm !== null && bpm <= 0) {
-        console.log(`[DeckTransport-${deckId}]   - Reason: bpm is ${bpm} (not > 0)`);
       }
     }
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
   }, [deck.state.analysis.bpm, deck.state.analysis.status, deckId, roomId, clientId, sendEvent, nextSeq]);
 
   // Send DECK_PLAY event
@@ -305,8 +284,6 @@ export default function DeckTransport({
 
   // Calculate display BPM - prefer local analysis, fall back to server state
   const displayBpm = useMemo(() => {
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
-    console.log(`[DeckTransport-${deckId}] Display BPM Calculation:`);
     console.log(`[DeckTransport-${deckId}]   - deck.bpm (local): ${deck.bpm}`);
     console.log(`[DeckTransport-${deckId}]   - serverState.detectedBpm: ${serverState.detectedBpm}`);
     console.log(`[DeckTransport-${deckId}]   - deck.playbackRate: ${deck.playbackRate}`);
@@ -314,7 +291,6 @@ export default function DeckTransport({
     // Local analysis is complete - use it (most accurate for this client)
     if (deck.bpm !== null) {
       console.log(`[DeckTransport-${deckId}]   ✓ Using local BPM: ${deck.bpm}`);
-      console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
       return deck.bpm;
     }
 
@@ -324,12 +300,10 @@ export default function DeckTransport({
       // Apply current playback rate to server BPM
       const adjustedBpm = Math.round(serverBpm * deck.playbackRate);
       console.log(`[DeckTransport-${deckId}]   ✓ Using server BPM: ${serverBpm} × ${deck.playbackRate} = ${adjustedBpm}`);
-      console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
       return adjustedBpm;
     }
 
     console.log(`[DeckTransport-${deckId}]   ✗ No BPM available (local or server)`);
-    console.log(`[DeckTransport-${deckId}] ═══════════════════════════════════════════`);
     return null;
   }, [deck.bpm, serverState.detectedBpm, deck.playbackRate, deckId]);
 
