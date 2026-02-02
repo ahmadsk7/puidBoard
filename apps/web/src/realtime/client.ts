@@ -416,6 +416,7 @@ export class RealtimeClient {
       deck.cuePointSec = null;
       deck.durationSec = item.durationSec;
       deck.serverStartTime = null;
+      deck.detectedBpm = null;
 
       const newStatus = deckId === "A" ? "loaded_A" as const : "loaded_B" as const;
       const newQueue = this.state.queue.map((q) =>
@@ -537,6 +538,25 @@ export class RealtimeClient {
       // NOTE: We do NOT directly apply to local audio deck here.
       // The BEACON_TICK handler will apply rate changes via DeckEngine,
       // which prevents race conditions and ensures epoch-based sync.
+
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("DECK_BPM_DETECTED", (event: {
+      roomId: string;
+      clientId: string;
+      payload: { deckId: "A" | "B"; bpm: number };
+    }) => {
+      if (!this.state) return;
+      console.log("[RealtimeClient] DECK_BPM_DETECTED received:", event.payload);
+
+      const { deckId, bpm } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.detectedBpm = bpm;
 
       this.state = {
         ...this.state,

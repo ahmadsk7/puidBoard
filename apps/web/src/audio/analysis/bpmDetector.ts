@@ -26,41 +26,112 @@ export interface BpmResult {
  */
 export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
   try {
-    console.log('[BPM Detector] ========== STARTING BPM DETECTION ==========');
-    console.log(`[BPM Detector] Buffer: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}, channels=${buffer.numberOfChannels}`);
-    console.log(`[BPM Detector] Total samples: ${buffer.length}`);
+    console.log('[BPM Detector] ╔════════════════════════════════════════════════════════════╗');
+    console.log('[BPM Detector] ║      STARTING BPM DETECTION - FULL DEBUG MODE            ║');
+    console.log('[BPM Detector] ╚════════════════════════════════════════════════════════════╝');
+    console.log(`[BPM Detector] Buffer properties:`);
+    console.log(`[BPM Detector]   - duration: ${buffer.duration.toFixed(2)}s`);
+    console.log(`[BPM Detector]   - sampleRate: ${buffer.sampleRate} Hz`);
+    console.log(`[BPM Detector]   - numberOfChannels: ${buffer.numberOfChannels}`);
+    console.log(`[BPM Detector]   - length (samples): ${buffer.length}`);
+    console.log(`[BPM Detector]   - buffer type: ${buffer.constructor.name}`);
 
     // Sanity check - ensure buffer has audio data
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 1: Checking audio data integrity...`);
     const rawChannelData = buffer.getChannelData(0);
+    console.log(`[BPM Detector]   - channel 0 data type: ${rawChannelData.constructor.name}`);
+    console.log(`[BPM Detector]   - channel 0 length: ${rawChannelData.length}`);
+
+    // Check multiple sections to avoid false positives from silent lead-ins
     let maxSample = 0;
-    for (let i = 0; i < Math.min(rawChannelData.length, 10000); i++) {
-      maxSample = Math.max(maxSample, Math.abs(rawChannelData[i] ?? 0));
+    let minSample = 0;
+    let sumSample = 0;
+
+    // Check 3 sections: beginning, 25% in (skip lead-in), and middle
+    const sections = [
+      { start: 0, size: Math.min(10000, rawChannelData.length) },
+      { start: Math.floor(rawChannelData.length * 0.25), size: 10000 },
+      { start: Math.floor(rawChannelData.length * 0.5), size: 10000 },
+    ];
+
+    let totalSamples = 0;
+    for (const section of sections) {
+      const endIdx = Math.min(section.start + section.size, rawChannelData.length);
+      for (let i = section.start; i < endIdx; i++) {
+        const sample = rawChannelData[i] ?? 0;
+        maxSample = Math.max(maxSample, sample);
+        minSample = Math.min(minSample, sample);
+        sumSample += Math.abs(sample);
+        totalSamples++;
+      }
     }
-    console.log(`[BPM Detector] Sample check - max amplitude in first 10k samples: ${maxSample.toFixed(4)}`);
+    const avgSample = totalSamples > 0 ? sumSample / totalSamples : 0;
+
+    console.log(`[BPM Detector]   - Analyzed ${totalSamples} samples across ${sections.length} sections:`);
+    console.log(`[BPM Detector]   - max amplitude: ${maxSample.toFixed(6)}`);
+    console.log(`[BPM Detector]   - min amplitude: ${minSample.toFixed(6)}`);
+    console.log(`[BPM Detector]   - avg absolute amplitude: ${avgSample.toFixed(6)}`);
+    console.log(`[BPM Detector]   - peak-to-peak range: ${(maxSample - minSample).toFixed(6)}`);
 
     if (maxSample < 0.001) {
-      console.warn('[BPM Detector] Audio appears silent or nearly silent');
+      console.error('[BPM Detector] ❌ FATAL: Audio appears silent or nearly silent');
+      console.error('[BPM Detector]    Max sample amplitude is below threshold (0.001)');
       return null;
     }
+    console.log(`[BPM Detector] ✓ Audio data check passed`);
 
     // Use first 30 seconds for analysis (sufficient for BPM detection)
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 2: Extracting analysis segment...`);
     const analysisDuration = Math.min(30, buffer.duration);
     const sampleCount = Math.floor(analysisDuration * buffer.sampleRate);
-    console.log(`[BPM Detector] Analyzing first ${analysisDuration.toFixed(1)}s (${sampleCount} samples)`);
+    console.log(`[BPM Detector]   - Analysis duration: ${analysisDuration.toFixed(1)}s`);
+    console.log(`[BPM Detector]   - Sample count: ${sampleCount} samples`);
+    console.log(`[BPM Detector]   - Percentage of track: ${(analysisDuration / buffer.duration * 100).toFixed(1)}%`);
 
     // Extract mono channel
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 3: Converting to mono...`);
+    console.log(`[BPM Detector]   - Source channels: ${buffer.numberOfChannels}`);
     const channelData = extractMonoChannel(buffer, sampleCount);
-    console.log(`[BPM Detector] Extracted mono channel: ${channelData.length} samples`);
+    console.log(`[BPM Detector]   - Mono channel length: ${channelData.length} samples`);
+    console.log(`[BPM Detector]   - Mono data type: ${channelData.constructor.name}`);
+
+    // Check mono data
+    let monoMax = 0;
+    for (let i = 0; i < Math.min(1000, channelData.length); i++) {
+      monoMax = Math.max(monoMax, Math.abs(channelData[i] ?? 0));
+    }
+    console.log(`[BPM Detector]   - Mono max amplitude (first 1k samples): ${monoMax.toFixed(6)}`);
 
     // Apply low-pass filter to isolate bass frequencies (improves beat detection)
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 4: Applying low-pass filter...`);
+    console.log(`[BPM Detector]   - Filter type: IIR (alpha=0.1)`);
+    console.log(`[BPM Detector]   - Target: isolate bass/kick frequencies`);
     const filtered = applyLowPassFilter(channelData);
-    console.log(`[BPM Detector] Applied low-pass filter`);
+    console.log(`[BPM Detector]   - Filtered length: ${filtered.length} samples`);
+
+    // Check filtered data
+    let filteredMax = 0;
+    for (let i = 0; i < Math.min(1000, filtered.length); i++) {
+      filteredMax = Math.max(filteredMax, Math.abs(filtered[i] ?? 0));
+    }
+    console.log(`[BPM Detector]   - Filtered max amplitude (first 1k samples): ${filteredMax.toFixed(6)}`);
 
     // Calculate energy envelope
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 5: Calculating energy envelope...`);
+    console.log(`[BPM Detector]   - Window size: 50ms`);
+    console.log(`[BPM Detector]   - Hop size: 25ms (50% overlap)`);
     const envelope = calculateEnergyEnvelope(filtered, buffer.sampleRate);
-    console.log(`[BPM Detector] Calculated energy envelope: ${envelope.length} frames`);
+    console.log(`[BPM Detector]   - Envelope frames: ${envelope.length}`);
+    console.log(`[BPM Detector]   - Envelope duration: ${(envelope.length * 25 / 1000).toFixed(2)}s`);
 
     // Log envelope stats
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 6: Analyzing envelope statistics...`);
     let envMax = 0, envMin = Infinity, envSum = 0;
     for (let i = 0; i < envelope.length; i++) {
       const v = envelope[i] ?? 0;
@@ -68,62 +139,44 @@ export async function detectBPM(buffer: AudioBuffer): Promise<number | null> {
       envMin = Math.min(envMin, v);
       envSum += v;
     }
-    console.log(`[BPM Detector] Envelope stats: min=${envMin.toFixed(4)}, max=${envMax.toFixed(4)}, avg=${(envSum / envelope.length).toFixed(4)}`);
+    const envAvg = envSum / envelope.length;
+    console.log(`[BPM Detector]   - Envelope min: ${envMin.toFixed(6)}`);
+    console.log(`[BPM Detector]   - Envelope max: ${envMax.toFixed(6)}`);
+    console.log(`[BPM Detector]   - Envelope avg: ${envAvg.toFixed(6)}`);
+    console.log(`[BPM Detector]   - Dynamic range: ${(envMax / (envMin + 0.000001)).toFixed(2)}x`);
 
-    // Try multiple thresholds (from strictest to most lenient)
-    const thresholds = [0.3, 0.2, 0.15, 0.1, 0.05];
+    // INDUSTRY STANDARD: Use autocorrelation to find tempo periodicity
+    console.log(`[BPM Detector] ─────────────────────────────────────────────────────────────`);
+    console.log(`[BPM Detector] STEP 7: Autocorrelation-based tempo detection...`);
+    console.log(`[BPM Detector]   - Method: Industry standard (Rekordbox, Serato, Essentia)`);
+    console.log(`[BPM Detector]   - Finding periodicity in energy envelope...`);
 
-    for (const thresholdPercent of thresholds) {
-      console.log(`[BPM Detector] Attempting detection with ${(thresholdPercent * 100).toFixed(0)}% threshold...`);
+    const bpm = detectBPMViaAutocorrelation(envelope);
 
-      // Find peaks in envelope (onsets)
-      const peaks = findPeaksWithThreshold(envelope, thresholdPercent);
-      console.log(`[BPM Detector] Found ${peaks.length} peaks with ${(thresholdPercent * 100).toFixed(0)}% threshold`);
-
-      if (peaks.length < 4) {
-        console.log(`[BPM Detector] Not enough peaks (need at least 4), trying lower threshold...`);
-        continue;
-      }
-
-      // Use histogram to find dominant period
-      let bpm = detectBPMFromPeaks(peaks, envelope.length, buffer.sampleRate);
-      console.log(`[BPM Detector] Calculated raw BPM: ${bpm}`);
-
-      if (bpm) {
-        // Correct BPM octave - divide if too fast, multiply if too slow
-        let correctedBpm = bpm;
-
-        // If detecting sub-beats (too fast), halve until in range
-        while (correctedBpm > 180) {
-          correctedBpm = correctedBpm / 2;
-        }
-
-        // If detecting super-beats (too slow), double until in range
-        while (correctedBpm < 60 && correctedBpm * 2 <= 180) {
-          correctedBpm = correctedBpm * 2;
-        }
-
-        // Check if correction brought it into valid range
-        if (correctedBpm >= 60 && correctedBpm <= 180) {
-          const rounded = Math.round(correctedBpm);
-          if (correctedBpm !== bpm) {
-            console.log(`[BPM Detector] Corrected ${bpm.toFixed(1)} → ${rounded} BPM (octave correction)`);
-          }
-          console.log(`[BPM Detector] ✓ Detection successful: ${rounded} BPM (threshold: ${(thresholdPercent * 100).toFixed(0)}%)`);
-          console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (SUCCESS) ==========');
-          return rounded;
-        }
-
-        console.log(`[BPM Detector] BPM ${bpm.toFixed(1)} outside valid range after correction, trying next threshold...`);
-      }
+    if (bpm && bpm >= 60 && bpm <= 180) {
+      console.log(`[BPM Detector] ╔════════════════════════════════════════════════════════════╗`);
+      console.log(`[BPM Detector] ║  ✓ DETECTION SUCCESSFUL: ${bpm} BPM                     `);
+      console.log(`[BPM Detector] ║  Method: Autocorrelation                                  ║`);
+      console.log(`[BPM Detector] ╚════════════════════════════════════════════════════════════╝`);
+      console.log(`[BPM Detector] RETURNING VALUE: ${bpm} (type: ${typeof bpm})`);
+      return bpm;
     }
 
-    console.warn('[BPM Detector] ✗ All detection attempts failed - returning null');
-    console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (FAILED) ==========');
+    console.log(`[BPM Detector] ╔════════════════════════════════════════════════════════════╗`);
+    console.log(`[BPM Detector] ║  ✗ DETECTION FAILED                                       ║`);
+    console.log(`[BPM Detector] ║  Autocorrelation returned: ${bpm}                         ║`);
+    console.log(`[BPM Detector] ╚════════════════════════════════════════════════════════════╝`);
+    console.log(`[BPM Detector] RETURNING: null`);
     return null;
   } catch (error) {
-    console.error('[BPM Detector] Detection failed with error:', error);
-    console.log('[BPM Detector] ========== BPM DETECTION COMPLETE (ERROR) ==========');
+    console.log(`[BPM Detector] ╔════════════════════════════════════════════════════════════╗`);
+    console.log(`[BPM Detector] ║  ✗ EXCEPTION THROWN DURING DETECTION                     ║`);
+    console.log(`[BPM Detector] ╚════════════════════════════════════════════════════════════╝`);
+    console.error('[BPM Detector] Error details:', error);
+    if (error instanceof Error) {
+      console.error('[BPM Detector] Stack trace:', error.stack);
+    }
+    console.log(`[BPM Detector] RETURNING: null (due to exception)`);
     return null;
   }
 }
@@ -212,126 +265,142 @@ function calculateEnergyEnvelope(data: Float32Array, sampleRate: number): Float3
 }
 
 /**
- * Find peaks in the energy envelope (onset detection).
- * A peak must be above threshold and be a local maximum.
+ * Detect BPM using autocorrelation (industry standard method).
+ *
+ * This is the method used by professional DJ software (Rekordbox, Serato, Traktor)
+ * and audio analysis libraries (Essentia/Spotify, librosa).
+ *
+ * How it works:
+ * 1. Correlate the energy envelope with itself at different time lags
+ * 2. The lag with the highest correlation is the beat period
+ * 3. Convert that period to BPM
+ *
+ * Why it's better than histogram:
+ * - Finds PERIODICITY (repeating patterns) not just common intervals
+ * - Works with complex rhythms, syncopation, ornamentation
+ * - The beat period creates the strongest self-correlation
+ *
+ * @param envelope Energy envelope of the audio
+ * @returns BPM or null if detection fails
  */
-function findPeaksWithThreshold(envelope: Float32Array, thresholdPercent: number): number[] {
-  const peaks: number[] = [];
+function detectBPMViaAutocorrelation(envelope: Float32Array): number | null {
+  const FRAME_DURATION_MS = 25; // Each frame is 25ms (from 50ms window with 50% overlap)
 
-  // Calculate dynamic threshold as percentage of max energy
-  let max = 0;
+  // BPM range to search: 60-180 BPM (standard music range)
+  const MIN_BPM = 60;
+  const MAX_BPM = 180;
+
+  // Convert BPM range to lag range (in frames)
+  // At 60 BPM: 1 beat = 1000ms = 40 frames
+  // At 180 BPM: 1 beat = 333ms = 13.3 frames
+  const minLag = Math.floor(60000 / (MAX_BPM * FRAME_DURATION_MS)); // ~13 frames
+  const maxLag = Math.floor(60000 / (MIN_BPM * FRAME_DURATION_MS));  // ~40 frames
+
+  console.log(`[BPM Detector]   - Testing lag range: ${minLag} to ${maxLag} frames`);
+  console.log(`[BPM Detector]   - Corresponds to: ${MAX_BPM} to ${MIN_BPM} BPM`);
+  console.log(`[BPM Detector]   - Envelope length: ${envelope.length} frames`);
+
+  // Normalize the envelope (important for correlation)
+  let envelopeMean = 0;
   for (let i = 0; i < envelope.length; i++) {
-    const v = envelope[i] ?? 0;
-    if (v > max) max = v;
+    envelopeMean += envelope[i] ?? 0;
   }
-  const threshold = max * thresholdPercent;
-  console.log(`[BPM Detector] Peak threshold: ${threshold.toFixed(4)} (${(thresholdPercent * 100).toFixed(0)}% of max ${max.toFixed(4)})`);
+  envelopeMean /= envelope.length;
 
-  const minPeakDistance = 5; // Minimum frames between peaks (~125ms)
+  const normalizedEnvelope = new Float32Array(envelope.length);
+  for (let i = 0; i < envelope.length; i++) {
+    normalizedEnvelope[i] = (envelope[i] ?? 0) - envelopeMean;
+  }
 
-  for (let i = 1; i < envelope.length - 1; i++) {
-    const current = envelope[i] ?? 0;
-    const prev = envelope[i - 1] ?? 0;
-    const next = envelope[i + 1] ?? 0;
+  console.log(`[BPM Detector]   - Envelope normalized (mean removed)`);
+  console.log(`[BPM Detector]   - Computing autocorrelation...`);
 
-    // Check if this is a local maximum above threshold
-    if (current > threshold && current > prev && current > next) {
-      // Ensure minimum distance from last peak
-      if (peaks.length === 0 || i - (peaks[peaks.length - 1] ?? 0) >= minPeakDistance) {
-        peaks.push(i);
-      }
+  // Compute autocorrelation for each lag
+  let bestLag = 0;
+  let maxCorrelation = -Infinity;
+  const correlations: Array<{ lag: number; correlation: number; bpm: number }> = [];
+
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let correlation = 0;
+    let count = 0;
+
+    // Correlate envelope with itself at this lag
+    for (let i = 0; i < envelope.length - lag; i++) {
+      correlation += normalizedEnvelope[i]! * normalizedEnvelope[i + lag]!;
+      count++;
+    }
+
+    // Normalize by the number of samples
+    correlation /= count;
+
+    // Calculate BPM for this lag
+    const beatDurationMs = lag * FRAME_DURATION_MS;
+    const bpm = 60000 / beatDurationMs;
+
+    correlations.push({ lag, correlation, bpm });
+
+    // Track the best correlation
+    if (correlation > maxCorrelation) {
+      maxCorrelation = correlation;
+      bestLag = lag;
     }
   }
 
-  return peaks;
-}
+  console.log(`[BPM Detector]   - Autocorrelation complete`);
+  console.log(`[BPM Detector]   - Best lag: ${bestLag} frames`);
+  console.log(`[BPM Detector]   - Correlation strength: ${maxCorrelation.toFixed(4)}`);
 
-/**
- * Detect BPM from peak intervals using histogram approach.
- * This is more robust than autocorrelation for beat detection.
- */
-function detectBPMFromPeaks(peaks: number[], _envelopeLength: number, _sampleRate: number): number | null {
-  if (peaks.length < 2) {
-    console.log('[BPM Detector] Not enough peaks for BPM calculation');
-    return null;
-  }
+  // Find peaks in autocorrelation (for octave detection)
+  correlations.sort((a, b) => b.correlation - a.correlation);
+  const topPeaks = correlations.slice(0, 5);
 
-  // Calculate intervals between consecutive peaks (in frames)
-  const intervals: number[] = [];
-  for (let i = 1; i < peaks.length; i++) {
-    intervals.push((peaks[i] ?? 0) - (peaks[i - 1] ?? 0));
-  }
-
-  console.log(`[BPM Detector] Calculated ${intervals.length} intervals between peaks`);
-
-  if (intervals.length < 3) {
-    console.log('[BPM Detector] Not enough intervals for reliable detection');
-    return null;
-  }
-
-  // Log interval statistics
-  const sortedIntervals = [...intervals].sort((a, b) => a - b);
-  const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)] ?? 0;
-  console.log(`[BPM Detector] Interval stats: min=${sortedIntervals[0]}, median=${medianInterval}, max=${sortedIntervals[sortedIntervals.length - 1]}`);
-
-  // Find dominant interval using histogram approach
-  const dominantInterval = findDominantInterval(intervals);
-  console.log(`[BPM Detector] Dominant interval: ${dominantInterval} frames`);
-
-  if (!dominantInterval || dominantInterval <= 0) {
-    console.log('[BPM Detector] Could not find dominant interval');
-    return null;
-  }
-
-  // Convert interval (in frames) to BPM
-  // Each frame is 25ms (50ms window with 50% overlap = 25ms per frame)
-  const msPerFrame = 25;
-  const msPerBeat = dominantInterval * msPerFrame;
-  const bpm = 60000 / msPerBeat;
-
-  console.log(`[BPM Detector] Calculation: ${dominantInterval} frames × ${msPerFrame}ms/frame = ${msPerBeat}ms/beat → ${bpm.toFixed(1)} BPM`);
-
-  return bpm;
-}
-
-/**
- * Find dominant interval using histogram approach.
- * Groups similar intervals together and finds the most common one.
- */
-function findDominantInterval(intervals: number[]): number | null {
-  if (intervals.length === 0) return null;
-
-  // Create histogram of intervals (rounded to nearest integer)
-  const histogram = new Map<number, number>();
-
-  for (const interval of intervals) {
-    const rounded = Math.round(interval);
-    histogram.set(rounded, (histogram.get(rounded) || 0) + 1);
-  }
-
-  console.log(`[BPM Detector] Histogram size: ${histogram.size} unique intervals`);
-
-  // Also check neighbors (to handle small timing variations)
-  const histogramWithNeighbors = new Map<number, number>();
-  histogram.forEach((count, interval) => {
-    const totalCount = count +
-      (histogram.get(interval - 1) || 0) +
-      (histogram.get(interval + 1) || 0);
-    histogramWithNeighbors.set(interval, totalCount);
+  console.log(`[BPM Detector]   - Top 5 tempo candidates:`);
+  topPeaks.forEach((peak, i) => {
+    console.log(`[BPM Detector]     ${i + 1}. ${peak.bpm.toFixed(1)} BPM (lag: ${peak.lag}, correlation: ${peak.correlation.toFixed(4)})`);
   });
 
-  // Find interval with highest count
-  let maxCount = 0;
-  let dominantInterval = 0;
+  if (bestLag === 0 || maxCorrelation <= 0) {
+    console.log(`[BPM Detector]   ✗ No significant periodicity found`);
+    return null;
+  }
 
-  histogramWithNeighbors.forEach((count, interval) => {
-    if (count > maxCount) {
-      maxCount = count;
-      dominantInterval = interval;
+  // Convert best lag to BPM
+  const beatDurationMs = bestLag * FRAME_DURATION_MS;
+  const rawBpm = 60000 / beatDurationMs;
+
+  console.log(`[BPM Detector]   - Beat period: ${beatDurationMs.toFixed(1)}ms`);
+  console.log(`[BPM Detector]   - Raw BPM: ${rawBpm.toFixed(2)}`);
+
+  // Check for octave errors (detecting 2x or 0.5x the actual tempo)
+  // Prefer tempos around 120 BPM (most common in music)
+  let finalBpm = rawBpm;
+
+  // If we have strong peaks at 2x or 0.5x, consider them
+  const doubleBpm = rawBpm * 2;
+  const halfBpm = rawBpm / 2;
+
+  const doublePeak = topPeaks.find(p => Math.abs(p.bpm - doubleBpm) < 3);
+  const halfPeak = topPeaks.find(p => Math.abs(p.bpm - halfBpm) < 3);
+
+  // Prefer the tempo closest to 120 BPM if there are octave ambiguities
+  if (halfPeak && halfPeak.correlation > maxCorrelation * 0.8) {
+    const halfDist = Math.abs(halfBpm - 120);
+    const rawDist = Math.abs(rawBpm - 120);
+    if (halfDist < rawDist) {
+      console.log(`[BPM Detector]   - Half-tempo (${halfBpm.toFixed(1)} BPM) is closer to typical range`);
+      finalBpm = halfBpm;
     }
-  });
+  } else if (doubleBpm <= 180 && doublePeak && doublePeak.correlation > maxCorrelation * 0.8) {
+    const doubleDist = Math.abs(doubleBpm - 120);
+    const rawDist = Math.abs(rawBpm - 120);
+    if (doubleDist < rawDist) {
+      console.log(`[BPM Detector]   - Double-tempo (${doubleBpm.toFixed(1)} BPM) is closer to typical range`);
+      finalBpm = doubleBpm;
+    }
+  }
 
-  console.log(`[BPM Detector] Dominant interval ${dominantInterval} appears ${maxCount} times (with neighbors)`);
+  const roundedBpm = Math.round(finalBpm);
+  console.log(`[BPM Detector]   - Final BPM: ${finalBpm.toFixed(2)} → ${roundedBpm}`);
 
-  return dominantInterval > 0 ? dominantInterval : null;
+  return roundedBpm;
 }

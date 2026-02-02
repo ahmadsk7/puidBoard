@@ -113,6 +113,8 @@ export {
   DeckSeekEventSchema,
   DeckTempoSetPayloadSchema,
   DeckTempoSetEventSchema,
+  DeckBpmDetectedPayloadSchema,
+  DeckBpmDetectedEventSchema,
   // Queue events
   QueueAddPayloadSchema,
   QueueAddEventSchema,
@@ -177,6 +179,8 @@ export type {
   DeckSeekEvent,
   DeckTempoSetPayload,
   DeckTempoSetEvent,
+  DeckBpmDetectedPayload,
+  DeckBpmDetectedEvent,
   QueueAddPayload,
   QueueAddEvent,
   QueueRemovePayload,

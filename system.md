@@ -211,6 +211,42 @@ const msPerBeat = dominantInterval * 25;
 const bpm = 60000 / msPerBeat;
 ```
 
+#### BPM Server Sync and Persistence
+
+BPM detection happens client-side, but the result is persisted and synchronized via the server:
+
+**Event Flow:**
+```typescript
+// 1. Client analyzes audio and detects BPM
+Client -> detectBPM(buffer) -> analysis.bpm = 125
+
+// 2. Client sends BPM to server
+Client -> DECK_BPM_DETECTED(deckId: "A", bpm: 125) -> Server
+
+// 3. Server stores and broadcasts
+Server -> deck.detectedBpm = 125 -> broadcast to all clients
+
+// 4. Server includes BPM in BEACON_TICK
+Server -> BEACON_TICK { deckA: { detectedBpm: 125, ... } } -> All Clients
+
+// 5. Display calculation
+UI displays: detectedBpm × playbackRate
+Example: 125 BPM × 1.08 = 135 BPM (shown to user)
+```
+
+**Key Features:**
+- First client to analyze a track sets the server BPM
+- Other clients see BPM immediately (before their own analysis completes)
+- BPM persists across page refreshes via server state
+- BEACON_TICK includes BPM for realtime synchronization
+- Display BPM = `detectedBpm × playbackRate` (updates with tempo slider)
+
+**Tempo Integration:**
+- Tempo slider adjusts `playbackRate` (0.5x to 2.0x)
+- Displayed BPM reflects current tempo: `Math.round(detectedBpm * playbackRate)`
+- Sync button matches BPM by calculating: `targetBPM / sourceBPM = newRate`
+- Jog wheel nudging temporarily adjusts rate but doesn't affect displayed BPM
+
 ### Local vs Server State Management
 
 The audio system maintains two parallel state representations:

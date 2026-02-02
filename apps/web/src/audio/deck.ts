@@ -147,57 +147,117 @@ export class Deck {
    * Load a track by URL.
    */
   async loadTrack(trackId: string, url: string): Promise<void> {
+    console.log(`[deck-${this.state.deckId}] ╔════════════════════════════════════════════════════════════╗`);
+    console.log(`[deck-${this.state.deckId}] ║  LOAD TRACK CALLED                                        ║`);
+    console.log(`[deck-${this.state.deckId}] ╚════════════════════════════════════════════════════════════╝`);
+    console.log(`[deck-${this.state.deckId}]   - trackId: ${trackId}`);
+    console.log(`[deck-${this.state.deckId}]   - url: ${url}`);
+
     // Auto-initialize audio on track load
     try {
+      console.log(`[deck-${this.state.deckId}]   - Initializing audio engine...`);
       await initAudioEngine();
+      console.log(`[deck-${this.state.deckId}]   ✓ Audio engine initialized`);
     } catch (err) {
-      console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      console.error(`[deck-${this.state.deckId}] ✗ Failed to initialize audio:`, err);
       throw new Error("Failed to initialize audio context");
     }
 
     const ctx = getAudioContext();
     if (!ctx) {
+      console.error(`[deck-${this.state.deckId}] ✗ AudioContext not initialized`);
       throw new Error("AudioContext not initialized");
     }
+    console.log(`[deck-${this.state.deckId}]   ✓ AudioContext available, state=${ctx.state}`);
 
     // Stop current playback
+    console.log(`[deck-${this.state.deckId}]   - Stopping current playback...`);
     this.stop();
 
     // Check cache first
+    console.log(`[deck-${this.state.deckId}]   - Checking cache for trackId: ${trackId}`);
     let buffer = trackCache.get(trackId);
-    
+    if (buffer) {
+      console.log(`[deck-${this.state.deckId}]   ✓ Found in cache`);
+    } else {
+      console.log(`[deck-${this.state.deckId}]   - Not in cache, will fetch`);
+    }
+
     if (!buffer) {
-      console.log(`[deck-${this.state.deckId}] Loading track: ${trackId}`);
-      
+      console.log(`[deck-${this.state.deckId}] ─────────────────────────────────────────────────────────────`);
+      console.log(`[deck-${this.state.deckId}] FETCHING TRACK FROM URL`);
+      console.log(`[deck-${this.state.deckId}]   - URL length: ${url.length} chars`);
+      console.log(`[deck-${this.state.deckId}]   - URL: ${url}`);
+
       try {
+        console.log(`[deck-${this.state.deckId}]   - Starting fetch...`);
         const response = await fetch(url);
+        console.log(`[deck-${this.state.deckId}]   - Fetch complete: status=${response.status}`);
+
         if (!response.ok) {
+          console.error(`[deck-${this.state.deckId}] ✗ Fetch failed: ${response.status}`);
           throw new Error(`Failed to fetch track: ${response.status}`);
         }
-        
+
+        console.log(`[deck-${this.state.deckId}]   - Converting to ArrayBuffer...`);
         const arrayBuffer = await response.arrayBuffer();
+        console.log(`[deck-${this.state.deckId}]   - ArrayBuffer size: ${arrayBuffer.byteLength} bytes`);
+
+        console.log(`[deck-${this.state.deckId}]   - Decoding audio data...`);
         buffer = await ctx.decodeAudioData(arrayBuffer);
-        
+        console.log(`[deck-${this.state.deckId}]   ✓ Audio decoded successfully`);
+        console.log(`[deck-${this.state.deckId}]   - Duration: ${buffer.duration.toFixed(2)}s`);
+        console.log(`[deck-${this.state.deckId}]   - Sample rate: ${buffer.sampleRate} Hz`);
+        console.log(`[deck-${this.state.deckId}]   - Channels: ${buffer.numberOfChannels}`);
+
+        // CRITICAL: Check audio data immediately after decoding
+        const checkChannel = buffer.getChannelData(0);
+        let checkMax = 0;
+        let checkMin = 0;
+        const checkCount = Math.min(10000, checkChannel.length);
+        for (let i = 0; i < checkCount; i++) {
+          const sample = checkChannel[i] ?? 0;
+          checkMax = Math.max(checkMax, sample);
+          checkMin = Math.min(checkMin, sample);
+        }
+        console.log(`[deck-${this.state.deckId}]   🔍 POST-DECODE AUDIO CHECK (first ${checkCount} samples):`);
+        console.log(`[deck-${this.state.deckId}]      - max: ${checkMax.toFixed(6)}`);
+        console.log(`[deck-${this.state.deckId}]      - min: ${checkMin.toFixed(6)}`);
+        console.log(`[deck-${this.state.deckId}]      - peak-to-peak: ${(checkMax - checkMin).toFixed(6)}`);
+        if (checkMax < 0.001) {
+          console.warn(`[deck-${this.state.deckId}]   ⚠️ Beginning of track appears very quiet (may be silent lead-in)`);
+        }
+
         // Cache the decoded buffer
         trackCache.set(trackId, buffer);
-        console.log(`[deck-${this.state.deckId}] Track loaded: ${trackId} (${buffer.duration.toFixed(1)}s)`);
+        console.log(`[deck-${this.state.deckId}]   ✓ Cached buffer for future use`);
       } catch (err) {
-        console.error(`[deck-${this.state.deckId}] Failed to load track:`, err);
+        console.error(`[deck-${this.state.deckId}] ✗✗✗ TRACK LOAD FAILED ✗✗✗`);
+        console.error(`[deck-${this.state.deckId}] Error:`, err);
         throw err;
       }
     }
 
+    console.log(`[deck-${this.state.deckId}] ─────────────────────────────────────────────────────────────`);
+    console.log(`[deck-${this.state.deckId}] UPDATING DECK STATE`);
     this.state.trackId = trackId;
     this.state.buffer = buffer;
     this.state.durationSec = buffer.duration;
     this.state.playheadSec = 0;
     this.state.cuePointSec = 0;
     this.state.playState = "stopped";
+    console.log(`[deck-${this.state.deckId}]   ✓ State updated`);
 
     // Start audio analysis
+    console.log(`[deck-${this.state.deckId}] ─────────────────────────────────────────────────────────────`);
+    console.log(`[deck-${this.state.deckId}] STARTING AUDIO ANALYSIS`);
+    console.log(`[deck-${this.state.deckId}]   - Calling analyzeAudio()...`);
     this.analyzeAudio(buffer);
 
     this.notify();
+    console.log(`[deck-${this.state.deckId}] ╔════════════════════════════════════════════════════════════╗`);
+    console.log(`[deck-${this.state.deckId}] ║  LOAD TRACK COMPLETE - ANALYSIS STARTED                   ║`);
+    console.log(`[deck-${this.state.deckId}] ╚════════════════════════════════════════════════════════════╝`);
   }
 
   /**
@@ -209,7 +269,22 @@ export class Deck {
     const analysisId = this.currentAnalysisId;
 
     console.log(`[deck-${this.state.deckId}] ========== STARTING AUDIO ANALYSIS #${analysisId} ==========`);
-    console.log(`[deck-${this.state.deckId}] Buffer info: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}`);
+    console.log(`[deck-${this.state.deckId}] Buffer info: duration=${buffer.duration.toFixed(2)}s, sampleRate=${buffer.sampleRate}, channels=${buffer.numberOfChannels}`);
+    console.log(`[deck-${this.state.deckId}] Buffer length: ${buffer.length} samples`);
+    console.log(`[deck-${this.state.deckId}] Track ID: ${this.state.trackId}`);
+
+    // Verify buffer has actual audio data
+    const channel0 = buffer.getChannelData(0);
+    let maxAmplitude = 0;
+    let sumAmplitude = 0;
+    const sampleCheckSize = Math.min(10000, channel0.length);
+    for (let i = 0; i < sampleCheckSize; i++) {
+      const amp = Math.abs(channel0[i] ?? 0);
+      maxAmplitude = Math.max(maxAmplitude, amp);
+      sumAmplitude += amp;
+    }
+    const avgAmplitude = sumAmplitude / sampleCheckSize;
+    console.log(`[deck-${this.state.deckId}] Audio data check - max: ${maxAmplitude.toFixed(4)}, avg: ${avgAmplitude.toFixed(4)}`);
 
     // Set analyzing status
     this.state.analysis = {
@@ -242,27 +317,47 @@ export class Deck {
       console.log(`[deck-${this.state.deckId}] Waveform generated for analysis #${analysisId}`);
 
       // Detect BPM (async, slower)
-      console.log(`[deck-${this.state.deckId}] Starting BPM detection for analysis #${analysisId}...`);
+      console.log(`[deck-${this.state.deckId}] ========================================`);
+      console.log(`[deck-${this.state.deckId}] STARTING BPM DETECTION for analysis #${analysisId}`);
+      console.log(`[deck-${this.state.deckId}] About to call detectBPM() with buffer:`);
+      console.log(`[deck-${this.state.deckId}]   - duration: ${buffer.duration}s`);
+      console.log(`[deck-${this.state.deckId}]   - sampleRate: ${buffer.sampleRate}`);
+      console.log(`[deck-${this.state.deckId}]   - numberOfChannels: ${buffer.numberOfChannels}`);
+      console.log(`[deck-${this.state.deckId}] ========================================`);
 
       const bpm = await detectBPM(buffer);
 
-      console.log(`[deck-${this.state.deckId}] detectBPM() returned: ${bpm} (type: ${typeof bpm})`);
+      console.log(`[deck-${this.state.deckId}] ========================================`);
+      console.log(`[deck-${this.state.deckId}] detectBPM() RETURNED:`);
+      console.log(`[deck-${this.state.deckId}]   - value: ${bpm}`);
+      console.log(`[deck-${this.state.deckId}]   - type: ${typeof bpm}`);
+      console.log(`[deck-${this.state.deckId}]   - is null: ${bpm === null}`);
+      console.log(`[deck-${this.state.deckId}]   - is undefined: ${bpm === undefined}`);
+      console.log(`[deck-${this.state.deckId}]   - exact value: ${JSON.stringify(bpm)}`);
+      console.log(`[deck-${this.state.deckId}] ========================================`);
 
       // Check if this analysis was cancelled while BPM detection was running
       if (this.currentAnalysisId !== analysisId) {
-        console.log(`[deck-${this.state.deckId}] Analysis #${analysisId} cancelled (BPM stage), got BPM=${bpm}`);
+        console.log(`[deck-${this.state.deckId}] ⚠️ Analysis #${analysisId} cancelled (BPM stage), got BPM=${bpm}`);
         // Don't update status here - a newer analysis is in progress
         return;
       }
 
       console.log(`[deck-${this.state.deckId}] Setting analysis state with BPM=${bpm}`);
+      console.log(`[deck-${this.state.deckId}] BEFORE setState: analysis.bpm = ${this.state.analysis.bpm}`);
+
       this.state.analysis = {
         ...this.state.analysis,
         bpm,
         status: "complete",
       };
-      console.log(`[deck-${this.state.deckId}] State updated. analysis.bpm is now: ${this.state.analysis.bpm}`);
+
+      console.log(`[deck-${this.state.deckId}] AFTER setState: analysis.bpm = ${this.state.analysis.bpm}`);
+      console.log(`[deck-${this.state.deckId}] AFTER setState: analysis.status = ${this.state.analysis.status}`);
+      console.log(`[deck-${this.state.deckId}] Full analysis object:`, JSON.stringify(this.state.analysis));
+
       this.notify();
+      console.log(`[deck-${this.state.deckId}] State notification sent to listeners`);
 
       console.log(`[deck-${this.state.deckId}] ========== ANALYSIS #${analysisId} COMPLETE: BPM=${bpm ?? "N/A"} ==========`);
     } catch (error) {

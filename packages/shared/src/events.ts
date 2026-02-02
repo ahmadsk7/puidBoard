@@ -186,6 +186,19 @@ export const DeckTempoSetEventSchema = ClientEventMetaSchema.extend({
 });
 export type DeckTempoSetEvent = z.infer<typeof DeckTempoSetEventSchema>;
 
+export const DeckBpmDetectedPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  /** Detected BPM from client-side audio analysis */
+  bpm: z.number().min(20).max(300),
+});
+export type DeckBpmDetectedPayload = z.infer<typeof DeckBpmDetectedPayloadSchema>;
+
+export const DeckBpmDetectedEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_BPM_DETECTED"),
+  payload: DeckBpmDetectedPayloadSchema,
+});
+export type DeckBpmDetectedEvent = z.infer<typeof DeckBpmDetectedEventSchema>;
+
 // ============================================================================
 // Queue Events
 // ============================================================================
@@ -289,6 +302,7 @@ export const DeckBeaconPayloadSchema = z.object({
   playheadSec: z.number().nonnegative(),
   playbackRate: z.number().min(0.5).max(2.0),
   playState: z.enum(["stopped", "playing", "paused", "cued"]),
+  detectedBpm: z.number().min(20).max(300).nullable(),
 });
 export type DeckBeaconPayload = z.infer<typeof DeckBeaconPayloadSchema>;
 
@@ -446,6 +460,7 @@ export const ClientMutationEventSchema = z.discriminatedUnion("type", [
   DeckCueEventSchema,
   DeckSeekEventSchema,
   DeckTempoSetEventSchema,
+  DeckBpmDetectedEventSchema,
   QueueAddEventSchema,
   QueueRemoveEventSchema,
   QueueReorderEventSchema,
@@ -490,6 +505,7 @@ export const ServerMutationEventSchema = z.intersection(
     z.object({ type: z.literal("DECK_CUE"), payload: DeckCuePayloadSchema }),
     z.object({ type: z.literal("DECK_SEEK"), payload: DeckSeekPayloadSchema }),
     z.object({ type: z.literal("DECK_TEMPO_SET"), payload: DeckTempoSetPayloadSchema }),
+    z.object({ type: z.literal("DECK_BPM_DETECTED"), payload: DeckBpmDetectedPayloadSchema }),
     z.object({ type: z.literal("QUEUE_ADD"), payload: QueueAddPayloadSchema }),
     z.object({ type: z.literal("QUEUE_REMOVE"), payload: QueueRemovePayloadSchema }),
     z.object({ type: z.literal("QUEUE_REORDER"), payload: QueueReorderPayloadSchema }),
@@ -516,6 +532,7 @@ export const MUTATION_EVENT_TYPES = [
   "DECK_CUE",
   "DECK_SEEK",
   "DECK_TEMPO_SET",
+  "DECK_BPM_DETECTED",
   "QUEUE_ADD",
   "QUEUE_REMOVE",
   "QUEUE_REORDER",

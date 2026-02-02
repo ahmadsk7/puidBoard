@@ -65,8 +65,22 @@ export default function QueuePanel({
   /** Load a track to a deck */
   const handleLoadToDeck = useCallback(
     (queueItemId: string, deckId: "A" | "B") => {
+      console.log(`[QueuePanel] ╔════════════════════════════════════════════════════════════╗`);
+      console.log(`[QueuePanel] ║  LOAD TO DECK CALLED                                      ║`);
+      console.log(`[QueuePanel] ╚════════════════════════════════════════════════════════════╝`);
+      console.log(`[QueuePanel]   - queueItemId: ${queueItemId}`);
+      console.log(`[QueuePanel]   - deckId: ${deckId}`);
+
       const item = queue.find((q) => q.id === queueItemId);
-      if (!item) return;
+      if (!item) {
+        console.error(`[QueuePanel] ✗ Queue item not found: ${queueItemId}`);
+        return;
+      }
+
+      console.log(`[QueuePanel]   - Found item: "${item.title}"`);
+      console.log(`[QueuePanel]   - trackId: ${item.trackId}`);
+      console.log(`[QueuePanel]   - Sending DECK_LOAD event...`);
+
       sendEvent({
         type: "DECK_LOAD",
         roomId,
@@ -78,6 +92,9 @@ export default function QueuePanel({
           queueItemId,
         },
       });
+
+      console.log(`[QueuePanel]   ✓ DECK_LOAD event sent`);
+      console.log(`[QueuePanel] ╚════════════════════════════════════════════════════════════╝`);
     },
     [sendEvent, roomId, clientId, nextSeq, queue]
   );

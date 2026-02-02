@@ -88,6 +88,7 @@ function broadcastBeacon(io: Server, roomId: string): void {
     playheadSec: calcPlayhead(room.deckA),
     playbackRate: room.deckA.playbackRate,
     playState: room.deckA.playState,
+    detectedBpm: room.deckA.detectedBpm,
   };
 
   const deckB: DeckBeaconPayload = {
@@ -98,6 +99,7 @@ function broadcastBeacon(io: Server, roomId: string): void {
     playheadSec: calcPlayhead(room.deckB),
     playbackRate: room.deckB.playbackRate,
     playState: room.deckB.playState,
+    detectedBpm: room.deckB.detectedBpm,
   };
 
   const beaconTick: BeaconTickEvent = {

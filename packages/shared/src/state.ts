@@ -135,6 +135,12 @@ export const DeckStateSchema = z.object({
   /** Playback rate (0.92 to 1.08 for ±8% tempo range, default 1.0) */
   playbackRate: z.number().min(0.5).max(2.0).default(1.0),
   /**
+   * Detected BPM from client-side audio analysis.
+   * Null if track not loaded or BPM detection failed/incomplete.
+   * This is the original detected BPM - actual BPM = detectedBpm * playbackRate.
+   */
+  detectedBpm: z.number().min(20).max(300).nullable(),
+  /**
    * Epoch ID - changes on any discontinuity (play, seek, tempo, scrub).
    * Used to detect stale sync messages and reset PLL.
    */
@@ -314,6 +320,7 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     cuePointSec: null,
     durationSec: null,
     playbackRate: 1.0,
+    detectedBpm: null,
     // Epoch tracking fields
     epochId: crypto.randomUUID(),
     epochSeq: 0,

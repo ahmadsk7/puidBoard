@@ -24,12 +24,14 @@ import {
   DeckCueEventSchema,
   DeckSeekEventSchema,
   DeckTempoSetEventSchema,
+  DeckBpmDetectedEventSchema,
   type DeckLoadEvent,
   type DeckPlayEvent,
   type DeckPauseEvent,
   type DeckCueEvent,
   type DeckSeekEvent,
   type DeckTempoSetEvent,
+  type DeckBpmDetectedEvent,
   type ServerMutationEvent,
   type DeckId,
 } from "@puid-board/shared";
@@ -687,6 +689,77 @@ export function handleDeckTempoSet(
 }
 
 /**
+ * Handle DECK_BPM_DETECTED event.
+ * Stores the BPM detected by client-side audio analysis.
+ * This is informational only - does not affect sync or playback.
+ */
+export function handleDeckBpmDetected(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckBpmDetectedEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_BPM_DETECTED] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckBpmDetectedEvent;
+  const { deckId, bpm } = event.payload;
+
+  // Get client and room
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    console.log(`[DECK_BPM_DETECTED] unauthorized socket=${socket.id}`);
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  // Get the deck
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  // Store the detected BPM
+  deck.detectedBpm = bpm;
+
+  // Increment version
+  room.version++;
+
+  const serverTs = Date.now();
+  const eventId = `${room.roomId}-${room.version}`;
+
+  // Broadcast to all clients in room
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs,
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_BPM_DETECTED",
+    payload: { deckId, bpm },
+  };
+
+  io.to(room.roomId).emit("DECK_BPM_DETECTED", serverEvent);
+
+  // Send ack
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_BPM_DETECTED] deck=${deckId} bpm=${bpm} roomId=${room.roomId}`
+  );
+}
+
+/**
  * Register deck event handlers on a socket.
  */
 export function registerDeckHandlers(io: Server, socket: Socket): void {
@@ -712,5 +785,9 @@ export function registerDeckHandlers(io: Server, socket: Socket): void {
 
   socket.on("DECK_TEMPO_SET", (data: unknown) => {
     handleDeckTempoSet(io, socket, data);
+  });
+
+  socket.on("DECK_BPM_DETECTED", (data: unknown) => {
+    handleDeckBpmDetected(io, socket, data);
   });
 }
