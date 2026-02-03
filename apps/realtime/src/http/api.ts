@@ -7,12 +7,19 @@
  * - GET /api/tracks/:id/url - Get track CDN URL
  * - GET /files/:storageKey - Serve track file
  * - GET /api/tracks/sample-pack - List sample pack tracks
+ *
+ * Sampler sound endpoints:
+ * - POST /api/sampler/upload - Upload a sampler sound
+ * - GET /api/sampler/sounds?clientId=X&roomId=Y - Get all custom sounds for client in room
+ * - DELETE /api/sampler/sounds/:id - Delete a sampler sound
+ * - POST /api/sampler/reset - Reset a slot to default
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
 import busboy from "busboy";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
+import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -152,8 +159,48 @@ function inferMimeTypeFromFilename(filename: string | null): string | null {
     aiff: "audio/aiff",
     aif: "audio/aiff",
     flac: "audio/flac",
+    ogg: "audio/ogg",
+    webm: "audio/webm",
   };
   return extToMime[ext || ""] || null;
+}
+
+/**
+ * Parse URL query parameters
+ */
+function parseQueryParams(url: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  const queryStart = url.indexOf("?");
+  if (queryStart === -1) return params;
+
+  const queryString = url.slice(queryStart + 1);
+  const pairs = queryString.split("&");
+  for (const pair of pairs) {
+    const [key, value] = pair.split("=");
+    if (key && value) {
+      params[decodeURIComponent(key)] = decodeURIComponent(value);
+    }
+  }
+  return params;
+}
+
+/**
+ * Read JSON body from request
+ */
+function readJsonBody(req: IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      try {
+        const body = Buffer.concat(chunks).toString();
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
 }
 
 /**
@@ -360,6 +407,184 @@ async function handleListSamplePack(
   }
 }
 
+// ============================================================================
+// SAMPLER SOUND ENDPOINTS
+// ============================================================================
+
+/**
+ * Handle POST /api/sampler/upload
+ */
+async function handleSamplerUpload(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    console.log("[samplerUpload] Starting sampler sound upload...");
+
+    const { fields, file, filename, mimeType: parsedMimeType } = await parseMultipartForm(req);
+
+    if (!file) {
+      console.log("[samplerUpload] No file in request");
+      sendError(res, 400, "No file uploaded");
+      return;
+    }
+
+    console.log(`[samplerUpload] Received file: ${filename} (${file.length} bytes)`);
+
+    const clientId = fields.clientId;
+    const roomId = fields.roomId;
+    const slot = parseInt(fields.slot || "-1", 10) as 0 | 1 | 2 | 3;
+
+    if (!clientId) {
+      sendError(res, 400, "Missing required field: clientId");
+      return;
+    }
+
+    if (!roomId) {
+      sendError(res, 400, "Missing required field: roomId");
+      return;
+    }
+
+    if (slot < 0 || slot > 3) {
+      sendError(res, 400, "Invalid slot: must be 0, 1, 2, or 3");
+      return;
+    }
+
+    // Infer mime type if needed
+    const inferredMimeType = inferMimeTypeFromFilename(filename);
+    let mimeType = parsedMimeType || fields.mimeType;
+    if (!mimeType || mimeType === "application/octet-stream") {
+      mimeType = inferredMimeType || mimeType;
+    }
+
+    if (!mimeType) {
+      sendError(res, 400, "Could not determine file type");
+      return;
+    }
+
+    const result = await samplerSoundsService.upload({
+      buffer: file,
+      filename: filename || "sample",
+      mimeType,
+      clientId,
+      roomId,
+      slot,
+    });
+
+    console.log(`[samplerUpload] Success: soundId=${result.soundId}`);
+
+    sendJson(res, 200, {
+      soundId: result.soundId,
+      url: result.url,
+      fileName: result.fileName,
+      slot,
+    });
+  } catch (error) {
+    if (error instanceof SamplerSoundValidationError) {
+      console.log("[samplerUpload] Validation error:", error.message);
+      sendError(res, 400, error.message);
+    } else {
+      console.error("[samplerUpload] Server error:", error);
+      sendError(res, 500, error instanceof Error ? error.message : "Internal server error");
+    }
+  }
+}
+
+/**
+ * Handle GET /api/sampler/sounds?clientId=X&roomId=Y
+ */
+async function handleGetSamplerSounds(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    const params = parseQueryParams(req.url || "");
+    const clientId = params.clientId;
+    const roomId = params.roomId;
+
+    if (!clientId || !roomId) {
+      sendError(res, 400, "Missing required query params: clientId and roomId");
+      return;
+    }
+
+    console.log(`[getSamplerSounds] Getting sounds for client=${clientId}, room=${roomId}`);
+
+    const sounds = await samplerSoundsService.getClientRoomSounds(clientId, roomId);
+
+    sendJson(res, 200, {
+      sounds: sounds.map((s) => ({
+        id: s.id,
+        slot: s.slot,
+        fileName: s.fileName,
+        url: s.fileUrl,
+        isDefault: s.isDefault,
+        createdAt: s.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error("[getSamplerSounds] error:", error);
+    sendError(res, 500, "Internal server error");
+  }
+}
+
+/**
+ * Handle DELETE /api/sampler/sounds/:id
+ */
+async function handleDeleteSamplerSound(
+  _req: IncomingMessage,
+  res: ServerResponse,
+  soundId: string
+): Promise<void> {
+  try {
+    console.log(`[deleteSamplerSound] Deleting sound: ${soundId}`);
+
+    const deleted = await samplerSoundsService.delete(soundId);
+
+    if (!deleted) {
+      sendError(res, 404, "Sound not found");
+      return;
+    }
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    console.error("[deleteSamplerSound] error:", error);
+    sendError(res, 500, "Internal server error");
+  }
+}
+
+/**
+ * Handle POST /api/sampler/reset
+ * Body: { clientId, roomId, slot }
+ */
+async function handleResetSamplerSlot(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    const body = await readJsonBody(req);
+    const { clientId, roomId, slot } = body;
+
+    if (!clientId || !roomId || slot === undefined) {
+      sendError(res, 400, "Missing required fields: clientId, roomId, slot");
+      return;
+    }
+
+    if (slot < 0 || slot > 3) {
+      sendError(res, 400, "Invalid slot: must be 0, 1, 2, or 3");
+      return;
+    }
+
+    console.log(`[resetSamplerSlot] Resetting slot ${slot} for client=${clientId}, room=${roomId}`);
+
+    await samplerSoundsService.resetSlot(clientId, roomId, slot);
+
+    sendJson(res, 200, { success: true, slot });
+  } catch (error) {
+    console.error("[resetSamplerSlot] error:", error);
+    sendError(res, 500, "Internal server error");
+  }
+}
+
 /**
  * Main HTTP request handler for track API.
  */
@@ -400,6 +625,35 @@ export async function handleTrackApiRequest(
   const fileMatch = url.match(/^\/files\/(.+)$/);
   if ((method === "GET" || method === "HEAD") && fileMatch && fileMatch[1]) {
     await handleServeFile(req, res, fileMatch[1], method === "HEAD");
+    return true;
+  }
+
+  // ============================================================================
+  // SAMPLER SOUND ROUTES
+  // ============================================================================
+
+  // POST /api/sampler/upload
+  if (method === "POST" && url === "/api/sampler/upload") {
+    await handleSamplerUpload(req, res);
+    return true;
+  }
+
+  // GET /api/sampler/sounds?clientId=X&roomId=Y
+  if (method === "GET" && url.startsWith("/api/sampler/sounds")) {
+    await handleGetSamplerSounds(req, res);
+    return true;
+  }
+
+  // DELETE /api/sampler/sounds/:id
+  const samplerDeleteMatch = url.match(/^\/api\/sampler\/sounds\/([^/?]+)$/);
+  if (method === "DELETE" && samplerDeleteMatch && samplerDeleteMatch[1]) {
+    await handleDeleteSamplerSound(req, res, samplerDeleteMatch[1]);
+    return true;
+  }
+
+  // POST /api/sampler/reset
+  if (method === "POST" && url === "/api/sampler/reset") {
+    await handleResetSamplerSlot(req, res);
     return true;
   }
 

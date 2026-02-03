@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect, memo } from "react";
+import { useRef, useCallback, useEffect, memo, useState } from "react";
 import type {
   ClientMutationEvent,
   RoomState,
@@ -14,12 +14,15 @@ import { buildMemberColorMap } from "./CursorsLayer";
 import DeckTransport from "./DeckTransport";
 // import ClippingIndicator from "./ClippingIndicator"; // TODO: add clipping indicator later
 import FXControlPanel from "./FXControlPanel";
+import SamplerPanel from "./SamplerPanel";
+import PerformancePadPanel from "./PerformancePadPanel";
 import { useMixerSync } from "@/audio/useMixer";
 import { useDeck, getDeck } from "@/audio/useDeck";
 import { setUserBaseRate } from "@/audio/sync/drift";
 import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
 import QueuePanel from "./QueuePanel";
+import SamplerSettings from "./SamplerSettings";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -40,14 +43,20 @@ const QUEUE_WIDTH = 340;
 const DECK_A = {
   waveform: { x: 110, y: 138, width: 492, height: 92 },
   jogWheel: { cx: 290, cy: 350, r: 150 }, // From SVG: <circle cx="290" cy="350" r="150"/>
-  controls: { x: 430, y: 312, width: 160, height: 132 }, // From SVG: <rect x="430" y="312" width="160" height="132"/>
+  controls: { x: 430, y: 240, width: 160, height: 132 }, // From SVG: <rect x="430" y="240" width="160" height="132"/>
+  // Performance pads - 2x2 grid, aligned with inner edge of controls (closer to center), shifted up 0.1"
+  // 0.1 inch = ~10px, 2x2 grid = 92px wide (46+46, no gap), align right edge with controls right edge (430+160=590)
+  performancePads: { x: 498, y: 390 },
 };
 
 // Deck B positions (right side)
 const DECK_B = {
   waveform: { x: 998, y: 138, width: 492, height: 92 },
   jogWheel: { cx: 1310, cy: 350, r: 150 }, // From SVG: <circle cx="1310" cy="350" r="150"/>
-  controls: { x: 1010, y: 312, width: 160, height: 132 }, // From SVG: <rect x="1010" y="312" width="160" height="132"/>
+  controls: { x: 1010, y: 240, width: 160, height: 132 }, // From SVG: <rect x="1010" y="240" width="160" height="132"/>
+  // Performance pads - 2x2 grid, aligned with inner edge of controls (closer to center), shifted up 0.1"
+  // 0.1 inch = ~10px, 2x2 grid = 92px wide (46+46, no gap), align left edge with controls left edge
+  performancePads: { x: 1010, y: 390 },
 };
 
 // Tempo fader positions (outer edges, aligned with jog wheels)
@@ -80,6 +89,9 @@ const MIXER = {
   channelB: { x: 852, y: 384, width: 18, height: 84 }, // From SVG: <rect x="852" y="384" width="18" height="84"/>
   // Crossfader
   crossfader: { x: 552, y: 534, width: 496, height: 34 }, // From SVG: <rect x="552" y="534" width="496" height="34"/>
+  // Sampler panel - positioned above crossfader (y=534), centered in mixer
+  // 4 buttons at 46px each = 184px total width, centered at x=800 means x=708
+  sampler: { x: 708, y: 484, width: 184 }, // Border-to-border buttons above crossfader
 };
 
 // NOTE: Decorative screws are already rendered in the SVG background
@@ -258,7 +270,7 @@ function PositionedJogWheel({
         transform: "translate(-50%, -50%)",
         width: size,
         height: size,
-        zIndex: 50,
+        zIndex: 150,
       }}
     >
       <JogWheel
@@ -978,6 +990,9 @@ export default function DJBoard({
 }: DJBoardProps) {
   const memberColors = buildMemberColorMap(state.members);
 
+  // Sampler settings modal state
+  const [isSamplerSettingsOpen, setIsSamplerSettingsOpen] = useState(false);
+
   // Calculate responsive scale - board + queue together fill viewport
   const scale = useBoardScale(BOARD_WIDTH + QUEUE_WIDTH, BOARD_HEIGHT, 0.90);
 
@@ -1084,6 +1099,22 @@ export default function DJBoard({
           memberColors={memberColors}
         />
 
+        {/* Deck A Performance Pads */}
+        <div
+          style={{
+            position: "absolute",
+            left: DECK_A.performancePads.x,
+            top: DECK_A.performancePads.y,
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
+        >
+          <PerformancePadPanel
+            deckId="A"
+            keybinds={["1", "2", "3", "4"]}
+          />
+        </div>
+
         {/* === MIXER (Center) === */}
         <MixerKnobs
           mixer={state.mixer}
@@ -1104,6 +1135,20 @@ export default function DJBoard({
           controlOwners={state.controlOwners}
           memberColors={memberColors}
         />
+
+        {/* Sampler Panel - positioned between faders and crossfader, centered between screws */}
+        <div
+          style={{
+            position: "absolute",
+            left: MIXER.sampler.x,
+            top: MIXER.sampler.y,
+            width: MIXER.sampler.width,
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
+        >
+          <SamplerPanel width={MIXER.sampler.width} />
+        </div>
 
         <CrossfaderSection
           mixer={state.mixer}
@@ -1163,6 +1208,22 @@ export default function DJBoard({
           memberColors={memberColors}
         />
 
+        {/* Deck B Performance Pads */}
+        <div
+          style={{
+            position: "absolute",
+            left: DECK_B.performancePads.x,
+            top: DECK_B.performancePads.y,
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
+        >
+          <PerformancePadPanel
+            deckId="B"
+            keybinds={["7", "8", "9", "0"]}
+          />
+        </div>
+
           {/* NOTE: Decorative screws are rendered in the SVG background */}
 
           {/* Version badge */}
@@ -1190,6 +1251,46 @@ export default function DJBoard({
             flexDirection: "column",
           }}
         >
+          {/* Sampler Settings Button */}
+          <div
+            style={{
+              padding: "8px 16px",
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              onClick={() => setIsSamplerSettingsOpen(true)}
+              style={{
+                padding: "6px 12px",
+                fontSize: "11px",
+                fontWeight: 500,
+                background: "rgba(255, 140, 59, 0.15)",
+                color: "#FF8C3B",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255, 140, 59, 0.25)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255, 140, 59, 0.15)";
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              Sampler
+            </button>
+          </div>
+
           <QueuePanel
             queue={state.queue}
             members={state.members}
@@ -1200,6 +1301,14 @@ export default function DJBoard({
           />
         </div>
       </div>
+
+      {/* Sampler Settings Modal */}
+      <SamplerSettings
+        isOpen={isSamplerSettingsOpen}
+        onClose={() => setIsSamplerSettingsOpen(false)}
+        clientId={clientId}
+        roomId={state.roomId}
+      />
     </div>
   );
 }
