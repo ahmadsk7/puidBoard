@@ -9,12 +9,13 @@ import type { SamplerSound } from "../db/types.js";
 // Validation constants
 const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB for sampler sounds
 // Note: Duration validation happens client-side via MediaRecorder timeout
-const ALLOWED_MIME_TYPES = [
-  "audio/mpeg",
-  "audio/wav",
-  "audio/x-wav",
-  "audio/ogg",
-  "audio/webm",
+const ALLOWED_MIME_TYPE_PREFIXES = [
+  "audio/mpeg",   // MP3
+  "audio/wav",    // WAV
+  "audio/x-wav",  // WAV (alternative)
+  "audio/ogg",    // OGG
+  "audio/webm",   // WebM (from recording, may include codecs like "audio/webm;codecs=opus")
+  "audio/mp4",    // M4A/AAC
 ];
 
 export interface UploadSamplerSoundInput {
@@ -51,12 +52,19 @@ class SamplerSoundsService {
       );
     }
 
-    // Validate mime type
-    if (!ALLOWED_MIME_TYPES.includes(input.mimeType)) {
+    // Validate mime type (use startsWith to handle codec parameters like "audio/webm;codecs=opus")
+    const isValidMimeType = ALLOWED_MIME_TYPE_PREFIXES.some(prefix =>
+      input.mimeType.startsWith(prefix)
+    );
+
+    if (!isValidMimeType) {
+      console.error(`[samplerSounds] Invalid MIME type: ${input.mimeType}`);
       throw new SamplerSoundValidationError(
-        `Invalid file format. Accepted formats: MP3, WAV, OGG, WebM`
+        `Invalid file format. Accepted formats: MP3, WAV, OGG, WebM, M4A. Received: ${input.mimeType}`
       );
     }
+
+    console.log(`[samplerSounds] Valid MIME type: ${input.mimeType}`);
 
     // Upload to storage
     const uploadResult = await storageService.upload(
