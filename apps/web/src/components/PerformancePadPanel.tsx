@@ -8,6 +8,14 @@ export type PerformancePadPanelProps = {
   deckId: "A" | "B";
   /** Keybinds for the 4 pads (top-left, top-right, bottom-left, bottom-right) */
   keybinds: [string, string, string, string];
+  /** Room ID for sending events */
+  roomId: string;
+  /** Client ID */
+  clientId: string;
+  /** Send event function */
+  sendEvent: (e: import("@puid-board/shared").ClientMutationEvent) => void;
+  /** Get next sequence number */
+  nextSeq: () => number;
 };
 
 // Pad functions in order: HOT CUE, LOOP, ROLL, JUMP
@@ -28,6 +36,10 @@ const PAD_COLORS: [string, string, string, string] = [
 const PerformancePadPanel = memo(function PerformancePadPanel({
   deckId,
   keybinds,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
 }: PerformancePadPanelProps) {
   const deck = useDeck(deckId);
   const [keyPressed, setKeyPressed] = useState<Record<string, boolean>>({});
@@ -87,11 +99,24 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     // Tap: Jump to hot cue and play (if cue is set)
     if (deck.hotCuePointSec !== null) {
       console.log(`[HOT_CUE] Deck ${deckId}: Jumping to cue at ${deck.hotCuePointSec.toFixed(2)}s`);
+
+      // CRITICAL FIX: Send DECK_SEEK event to server so all clients sync
+      // Without this, only the local client jumps, then BEACON_TICK pulls it back
+      sendEvent({
+        type: "DECK_SEEK",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: { deckId, positionSec: deck.hotCuePointSec },
+      });
+      console.log(`[HOT_CUE] Deck ${deckId}: DECK_SEEK event sent to server`);
+
+      // Apply locally for immediate feedback (optimistic update)
       deck.jumpToHotCue();
     } else {
       console.log(`[HOT_CUE] Deck ${deckId}: No cue set - tap does nothing`);
     }
-  }, [deck, deckId]);
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleHotCueHold = useCallback(() => {
     console.log(`[HOT_CUE] Deck ${deckId}: Hold handler called, isLoaded=${deck.isLoaded}, playhead=${deck.playhead.toFixed(2)}s`);

@@ -1114,6 +1114,10 @@ export default function DJBoard({
           <PerformancePadPanel
             deckId="A"
             keybinds={["1", "2", "3", "4"]}
+            roomId={state.roomId}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
           />
         </div>
 
@@ -1223,6 +1227,10 @@ export default function DJBoard({
           <PerformancePadPanel
             deckId="B"
             keybinds={["7", "8", "9", "0"]}
+            roomId={state.roomId}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
           />
         </div>
 
