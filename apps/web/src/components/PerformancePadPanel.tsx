@@ -472,7 +472,7 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
                 y="6"
                 textAnchor={isLeftColumn ? "end" : "start"}
                 dominantBaseline="central"
-                fill="#6b7280"
+                fill="#00ff9f"
                 opacity="0.30"
                 style={{
                   fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
