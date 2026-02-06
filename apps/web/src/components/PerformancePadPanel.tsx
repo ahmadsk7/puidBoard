@@ -15,10 +15,10 @@ const PAD_FUNCTIONS: [PadFunction, PadFunction, PadFunction, PadFunction] = ["ho
 
 // Colors for each pad
 const PAD_COLORS: [string, string, string, string] = [
-  "#FF3B3B", // Pad 1: Hot Cue - Red
-  "#FF9F1C", // Pad 2: Loop - Orange
-  "#3B82F6", // Pad 3: Roll - Blue
-  "#8B5CF6", // Pad 4: Jump - Purple
+  "#FF9F1C", // Pad 1: Hot Cue - Orange (global)
+  "#FF3B3B", // Pad 2: Loop - Red
+  "#FF3B3B", // Pad 3: Roll - Red
+  "#FF3B3B", // Pad 4: Jump - Red
 ];
 
 /**
@@ -39,36 +39,21 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   const keysDownRef = useRef<Record<string, boolean>>({});
 
   // Store handlers in refs to prevent useEffect from re-running on every frame
+  // Initialize with no-op functions, will be updated after handlers are declared
   const handlersRef = useRef({
-    hotCueClick: handleHotCueClick,
-    hotCueHold: handleHotCueHold,
-    hotCueRelease: handleHotCueRelease,
-    loopClick: handleLoopClick,
-    loopHold: handleLoopHold,
-    loopRelease: handleLoopRelease,
-    rollClick: handleRollClick,
-    rollHold: handleRollHold,
-    rollRelease: handleRollRelease,
-    jumpClick: handleJumpClick,
-    jumpHold: handleJumpHold,
-    jumpRelease: handleJumpRelease,
+    hotCueClick: () => {},
+    hotCueHold: () => {},
+    hotCueRelease: () => {},
+    loopClick: () => {},
+    loopHold: () => {},
+    loopRelease: () => {},
+    rollClick: () => {},
+    rollHold: () => {},
+    rollRelease: () => {},
+    jumpClick: () => {},
+    jumpHold: () => {},
+    jumpRelease: () => {},
   });
-
-  // Update handler refs on each render (but don't trigger effect re-run)
-  handlersRef.current = {
-    hotCueClick: handleHotCueClick,
-    hotCueHold: handleHotCueHold,
-    hotCueRelease: handleHotCueRelease,
-    loopClick: handleLoopClick,
-    loopHold: handleLoopHold,
-    loopRelease: handleLoopRelease,
-    rollClick: handleRollClick,
-    rollHold: handleRollHold,
-    rollRelease: handleRollRelease,
-    jumpClick: handleJumpClick,
-    jumpHold: handleJumpHold,
-    jumpRelease: handleJumpRelease,
-  };
 
   // Loop state
   const loopStateRef = useRef<{
@@ -224,6 +209,22 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     // No action on release for jump
   }, []);
 
+  // Update handler refs with actual handlers (after they're declared)
+  handlersRef.current = {
+    hotCueClick: handleHotCueClick,
+    hotCueHold: handleHotCueHold,
+    hotCueRelease: handleHotCueRelease,
+    loopClick: handleLoopClick,
+    loopHold: handleLoopHold,
+    loopRelease: handleLoopRelease,
+    rollClick: handleRollClick,
+    rollHold: handleRollHold,
+    rollRelease: handleRollRelease,
+    jumpClick: handleJumpClick,
+    jumpHold: handleJumpHold,
+    jumpRelease: handleJumpRelease,
+  };
+
   // Keyboard event handling with hold detection
   // CRITICAL: Only depends on keybinds to avoid effect re-running on every frame
   useEffect(() => {
@@ -366,17 +367,88 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
         }
 
         return (
-          <PerformancePadButton
-            key={index}
-            keybind={keybind}
-            padFunction={padFunction}
-            color={color}
-            onClick={handler.onClick}
-            onHold={handler.onHold}
-            onRelease={handler.onRelease}
-            size={46}
-            externalPressed={keyPressed[keybind]}
-          />
+          <div key={index} style={{ position: "relative" }}>
+            <PerformancePadButton
+              keybind={keybind}
+              padFunction={padFunction}
+              color={color}
+              onClick={handler.onClick}
+              onHold={handler.onHold}
+              onRelease={handler.onRelease}
+              size={46}
+              externalPressed={keyPressed[keybind]}
+            />
+            {/* Etched hotkey label (3-layer SVG effect matching board aesthetic) */}
+            <svg
+              viewBox="0 0 14 14"
+              width="14"
+              height="14"
+              style={{
+                position: "absolute",
+                bottom: 1,
+                left: 1,
+                pointerEvents: "none",
+                userSelect: "none",
+              }}
+              aria-hidden="true"
+            >
+              {/* Highlight layer */}
+              <text
+                x="7"
+                y="7"
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#ffffff"
+                opacity="0.06"
+                dx="-0.4"
+                dy="-0.4"
+                style={{
+                  fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+                  fontWeight: 700,
+                  fontSize: "9px",
+                  letterSpacing: "0.10em",
+                }}
+              >
+                {keybind}
+              </text>
+              {/* Shadow layer */}
+              <text
+                x="7"
+                y="7"
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#000000"
+                opacity="0.50"
+                dx="0.5"
+                dy="0.5"
+                style={{
+                  fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+                  fontWeight: 700,
+                  fontSize: "9px",
+                  letterSpacing: "0.10em",
+                }}
+              >
+                {keybind}
+              </text>
+              {/* Face layer */}
+              <text
+                x="7"
+                y="7"
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#6b7280"
+                opacity="0.30"
+                style={{
+                  fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+                  fontWeight: 700,
+                  fontSize: "9px",
+                  letterSpacing: "0.10em",
+                }}
+              >
+                {keybind}
+              </text>
+            </svg>
+          </div>
         );
       })}
     </div>
