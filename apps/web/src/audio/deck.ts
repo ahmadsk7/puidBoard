@@ -443,7 +443,6 @@ export class Deck {
       return;
     }
 
-    const wasPlaying = this.state.playState === "playing";
     const currentRate = this.state.playbackRate;
 
     // Seek to hot cue position
