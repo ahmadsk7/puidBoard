@@ -22,6 +22,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 
+# Install ffmpeg and yt-dlp for YouTube audio processing
+RUN apk add --no-cache ffmpeg python3 py3-pip \
+    && pip3 install --no-cache-dir --break-system-packages yt-dlp
+
 # Copy production dependencies
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules

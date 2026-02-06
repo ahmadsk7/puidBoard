@@ -11,9 +11,11 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 
-// Use system-installed tools (homebrew) for reliability
-const ytDlpPath = "/opt/homebrew/bin/yt-dlp";
-const ffmpegPath = "/opt/homebrew/bin/ffmpeg";
+// Use environment variables with fallbacks for different environments:
+// - Production (Docker): uses system-installed binaries in PATH
+// - Development (macOS): uses Homebrew paths
+const ytDlpPath = process.env.YTDLP_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/yt-dlp" : "yt-dlp");
+const ffmpegPath = process.env.FFMPEG_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/ffmpeg" : "ffmpeg");
 const youtubeDl = createYtDlp(ytDlpPath);
 
 // ============================================================================
