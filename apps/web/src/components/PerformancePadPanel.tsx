@@ -15,7 +15,7 @@ const PAD_FUNCTIONS: [PadFunction, PadFunction, PadFunction, PadFunction] = ["ho
 
 // Colors for each pad
 const PAD_COLORS: [string, string, string, string] = [
-  "#FF9F1C", // Pad 1: Hot Cue - Orange (global)
+  "#FF3B3B", // Pad 1: Hot Cue - Red
   "#FF3B3B", // Pad 2: Loop - Red
   "#FF3B3B", // Pad 3: Roll - Red
   "#FF3B3B", // Pad 4: Jump - Red
@@ -346,6 +346,9 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     { onClick: handleJumpClick, onHold: handleJumpHold, onRelease: handleJumpRelease },
   ];
 
+  // Function labels in display format
+  const FUNCTION_LABELS = ["HOT CUE", "LOOP", "ROLL", "JUMP"];
+
   return (
     <div
       style={{
@@ -360,11 +363,17 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
         const handler = handlers[index];
         const padFunction = PAD_FUNCTIONS[index];
         const color = PAD_COLORS[index];
+        const label = FUNCTION_LABELS[index];
 
         if (!handler || !padFunction || !color) {
           console.error(`Missing handler/function/color for pad ${index}`);
           return null;
         }
+
+        // Determine label position based on grid position
+        // Left column (index 0,2): labels go to left of button
+        // Right column (index 1,3): labels go to right of button
+        const isLeftColumn = index % 2 === 0;
 
         return (
           <div key={index} style={{ position: "relative" }}>
@@ -378,15 +387,17 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
               size={46}
               externalPressed={keyPressed[keybind]}
             />
-            {/* Etched hotkey label (3-layer SVG effect matching board aesthetic) */}
+            {/* Etched function label (3-layer SVG effect matching board aesthetic) */}
             <svg
-              viewBox="0 0 14 14"
-              width="14"
-              height="14"
+              viewBox="0 0 60 12"
+              width="60"
+              height="12"
               style={{
                 position: "absolute",
-                bottom: 1,
-                left: 1,
+                top: "50%",
+                transform: "translateY(-50%)",
+                left: isLeftColumn ? -62 : undefined,
+                right: isLeftColumn ? undefined : -62,
                 pointerEvents: "none",
                 userSelect: "none",
               }}
@@ -394,9 +405,9 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
             >
               {/* Highlight layer */}
               <text
-                x="7"
-                y="7"
-                textAnchor="middle"
+                x={isLeftColumn ? "58" : "2"}
+                y="6"
+                textAnchor={isLeftColumn ? "end" : "start"}
                 dominantBaseline="central"
                 fill="#ffffff"
                 opacity="0.06"
@@ -405,17 +416,17 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
                 style={{
                   fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
                   fontWeight: 700,
-                  fontSize: "9px",
+                  fontSize: "7px",
                   letterSpacing: "0.10em",
                 }}
               >
-                {keybind}
+                {label}
               </text>
               {/* Shadow layer */}
               <text
-                x="7"
-                y="7"
-                textAnchor="middle"
+                x={isLeftColumn ? "58" : "2"}
+                y="6"
+                textAnchor={isLeftColumn ? "end" : "start"}
                 dominantBaseline="central"
                 fill="#000000"
                 opacity="0.50"
@@ -424,28 +435,28 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
                 style={{
                   fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
                   fontWeight: 700,
-                  fontSize: "9px",
+                  fontSize: "7px",
                   letterSpacing: "0.10em",
                 }}
               >
-                {keybind}
+                {label}
               </text>
               {/* Face layer */}
               <text
-                x="7"
-                y="7"
-                textAnchor="middle"
+                x={isLeftColumn ? "58" : "2"}
+                y="6"
+                textAnchor={isLeftColumn ? "end" : "start"}
                 dominantBaseline="central"
                 fill="#6b7280"
                 opacity="0.30"
                 style={{
                   fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
                   fontWeight: 700,
-                  fontSize: "9px",
+                  fontSize: "7px",
                   letterSpacing: "0.10em",
                 }}
               >
-                {keybind}
+                {label}
               </text>
             </svg>
           </div>
