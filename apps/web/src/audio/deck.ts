@@ -426,8 +426,9 @@ export class Deck {
   setHotCue(): void {
     const currentPlayhead = this.getCurrentPlayhead();
     this.state.hotCuePointSec = Math.max(0, Math.min(currentPlayhead, this.state.durationSec));
+    console.log(`[HOT_CUE] Deck ${this.state.deckId}: Hot cue SET at ${this.state.hotCuePointSec.toFixed(2)}s`);
     this.notify();
-    console.log(`[deck-${this.state.deckId}] Hot cue set at ${this.state.hotCuePointSec.toFixed(2)}s`);
+    console.log(`[HOT_CUE] Deck ${this.state.deckId}: State notified, hotCuePointSec=${this.state.hotCuePointSec.toFixed(2)}s`);
   }
 
   /**
@@ -435,8 +436,10 @@ export class Deck {
    * If no hot cue is set, does nothing.
    */
   async jumpToHotCue(): Promise<void> {
+    console.log(`[HOT_CUE] Deck ${this.state.deckId}: jumpToHotCue called, hotCuePointSec=${this.state.hotCuePointSec}`);
+
     if (this.state.hotCuePointSec === null) {
-      console.warn(`[deck-${this.state.deckId}] No hot cue set`);
+      console.warn(`[HOT_CUE] Deck ${this.state.deckId}: Cannot jump - no hot cue set`);
       return;
     }
 
@@ -447,10 +450,12 @@ export class Deck {
     this.state.playheadSec = this.state.hotCuePointSec;
     this.stopSource();
 
+    console.log(`[HOT_CUE] Deck ${this.state.deckId}: Jumping to ${this.state.hotCuePointSec.toFixed(2)}s and starting playback`);
+
     // Always start playing after jumping to hot cue (full override)
     await this.playWithRate(currentRate);
 
-    console.log(`[deck-${this.state.deckId}] Jumped to hot cue at ${this.state.hotCuePointSec.toFixed(2)}s and ${wasPlaying ? "resumed" : "started"} playing`);
+    console.log(`[HOT_CUE] Deck ${this.state.deckId}: Jump complete, now playing from ${this.state.hotCuePointSec.toFixed(2)}s`);
   }
 
   /**

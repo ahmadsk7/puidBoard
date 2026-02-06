@@ -38,6 +38,38 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   // Track which keys are currently down (for repeat guard) - using ref to avoid effect re-runs
   const keysDownRef = useRef<Record<string, boolean>>({});
 
+  // Store handlers in refs to prevent useEffect from re-running on every frame
+  const handlersRef = useRef({
+    hotCueClick: handleHotCueClick,
+    hotCueHold: handleHotCueHold,
+    hotCueRelease: handleHotCueRelease,
+    loopClick: handleLoopClick,
+    loopHold: handleLoopHold,
+    loopRelease: handleLoopRelease,
+    rollClick: handleRollClick,
+    rollHold: handleRollHold,
+    rollRelease: handleRollRelease,
+    jumpClick: handleJumpClick,
+    jumpHold: handleJumpHold,
+    jumpRelease: handleJumpRelease,
+  });
+
+  // Update handler refs on each render (but don't trigger effect re-run)
+  handlersRef.current = {
+    hotCueClick: handleHotCueClick,
+    hotCueHold: handleHotCueHold,
+    hotCueRelease: handleHotCueRelease,
+    loopClick: handleLoopClick,
+    loopHold: handleLoopHold,
+    loopRelease: handleLoopRelease,
+    rollClick: handleRollClick,
+    rollHold: handleRollHold,
+    rollRelease: handleRollRelease,
+    jumpClick: handleJumpClick,
+    jumpHold: handleJumpHold,
+    jumpRelease: handleJumpRelease,
+  };
+
   // Loop state
   const loopStateRef = useRef<{
     enabled: boolean;
@@ -60,23 +92,33 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
 
   // --- PAD 1: HOT CUE ---
   const handleHotCueClick = useCallback(() => {
-    if (!deck.isLoaded) return;
+    console.log(`[HOT_CUE] Deck ${deckId}: Tap handler called, isLoaded=${deck.isLoaded}, hotCuePointSec=${deck.hotCuePointSec}`);
+
+    if (!deck.isLoaded) {
+      console.log(`[HOT_CUE] Deck ${deckId}: Blocked - no track loaded`);
+      return;
+    }
 
     // Tap: Jump to hot cue and play (if cue is set)
     if (deck.hotCuePointSec !== null) {
-      console.log(`[PerformancePad-${deckId}] Hot Cue: Jump to ${deck.hotCuePointSec.toFixed(2)}s and play`);
+      console.log(`[HOT_CUE] Deck ${deckId}: Jumping to cue at ${deck.hotCuePointSec.toFixed(2)}s`);
       deck.jumpToHotCue();
     } else {
-      console.log(`[PerformancePad-${deckId}] Hot Cue: No cue set (tap does nothing)`);
+      console.log(`[HOT_CUE] Deck ${deckId}: No cue set - tap does nothing`);
     }
   }, [deck, deckId]);
 
   const handleHotCueHold = useCallback(() => {
-    if (!deck.isLoaded) return;
+    console.log(`[HOT_CUE] Deck ${deckId}: Hold handler called, isLoaded=${deck.isLoaded}, playhead=${deck.playhead.toFixed(2)}s`);
+
+    if (!deck.isLoaded) {
+      console.log(`[HOT_CUE] Deck ${deckId}: Blocked - no track loaded`);
+      return;
+    }
 
     // Hold: Set hot cue at current position
+    console.log(`[HOT_CUE] Deck ${deckId}: Setting hot cue at ${deck.playhead.toFixed(2)}s`);
     deck.setHotCue();
-    console.log(`[PerformancePad-${deckId}] Hot Cue: Set at ${deck.playhead.toFixed(2)}s`);
   }, [deck, deckId]);
 
   const handleHotCueRelease = useCallback(() => {
@@ -183,13 +225,18 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   }, []);
 
   // Keyboard event handling with hold detection
+  // CRITICAL: Only depends on keybinds to avoid effect re-running on every frame
   useEffect(() => {
     const HOLD_THRESHOLD_MS = 300;
+    const PAD_NAMES = ["HOT_CUE", "LOOP", "ROLL", "JUMP"];
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const keyIndex = keybinds.indexOf(e.key);
       // Use ref for repeat guard to avoid effect re-runs
       if (keyIndex === -1 || keysDownRef.current[e.key]) return;
+
+      const padName = PAD_NAMES[keyIndex];
+      console.log(`[${padName}] Key down: "${e.key}" for Deck ${deckId}`);
 
       e.preventDefault();
       // Track in ref (for repeat guard)
@@ -205,12 +252,19 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
       // Set hold detected flag to false initially
       keyHoldTriggeredRef.current[e.key] = false;
 
-      // Get the hold handler for this pad
-      const holdHandlers = [handleHotCueHold, handleLoopHold, handleRollHold, handleJumpHold];
+      // Get the hold handler for this pad from the ref (not stale)
+      const holdHandlers = [
+        handlersRef.current.hotCueHold,
+        handlersRef.current.loopHold,
+        handlersRef.current.rollHold,
+        handlersRef.current.jumpHold
+      ];
       const holdHandler = holdHandlers[keyIndex];
 
       // Set up hold detection (same as button)
+      console.log(`[${padName}] Starting ${HOLD_THRESHOLD_MS}ms hold timer for Deck ${deckId}`);
       keyHoldTimersRef.current[e.key] = setTimeout(() => {
+        console.log(`[${padName}] Hold timer FIRED for Deck ${deckId} - calling hold handler`);
         keyHoldTriggeredRef.current[e.key] = true;
         if (holdHandler) {
           holdHandler();
@@ -221,6 +275,9 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     const handleKeyUp = (e: KeyboardEvent) => {
       const keyIndex = keybinds.indexOf(e.key);
       if (keyIndex === -1) return;
+
+      const padName = PAD_NAMES[keyIndex];
+      console.log(`[${padName}] Key up: "${e.key}" for Deck ${deckId}`);
 
       e.preventDefault();
       // Clear ref (for repeat guard)
@@ -237,15 +294,30 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
         keyHoldTimersRef.current[e.key] = null;
       }
 
-      // Get handlers for this pad
-      const clickHandlers = [handleHotCueClick, handleLoopClick, handleRollClick, handleJumpClick];
-      const releaseHandlers = [handleHotCueRelease, handleLoopRelease, handleRollRelease, handleJumpRelease];
+      // Get handlers for this pad from the ref (not stale)
+      const clickHandlers = [
+        handlersRef.current.hotCueClick,
+        handlersRef.current.loopClick,
+        handlersRef.current.rollClick,
+        handlersRef.current.jumpClick
+      ];
+      const releaseHandlers = [
+        handlersRef.current.hotCueRelease,
+        handlersRef.current.loopRelease,
+        handlersRef.current.rollRelease,
+        handlersRef.current.jumpRelease
+      ];
       const clickHandler = clickHandlers[keyIndex];
       const releaseHandler = releaseHandlers[keyIndex];
 
       // Fire onClick only if it was a quick tap (hold didn't trigger)
-      if (wasQuickTap && clickHandler) {
-        clickHandler();
+      if (wasQuickTap) {
+        console.log(`[${padName}] Quick tap detected for Deck ${deckId} - calling click handler`);
+        if (clickHandler) {
+          clickHandler();
+        }
+      } else {
+        console.log(`[${padName}] Hold was triggered for Deck ${deckId} - skipping click handler`);
       }
 
       // Always call release handler
@@ -260,14 +332,10 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
-
-      // Cleanup all timers
-      Object.values(keyHoldTimersRef.current).forEach(timer => {
-        if (timer) clearTimeout(timer);
-      });
-      keyHoldTimersRef.current = {};
+      // DO NOT clear timers here - that was causing the bug!
+      // Timers will complete naturally or be cleared by handleKeyUp
     };
-  }, [keybinds, handleHotCueClick, handleHotCueHold, handleHotCueRelease, handleLoopClick, handleLoopHold, handleLoopRelease, handleRollClick, handleRollHold, handleRollRelease, handleJumpClick, handleJumpHold, handleJumpRelease]);
+  }, [keybinds, deckId]); // Only keybinds and deckId, NOT the handler functions!
 
   // Handlers array for rendering
   const handlers = [
