@@ -7,6 +7,8 @@ export type WaveformDisplayProps = {
   accentColor: string;
   isPlaying: boolean;
   isLoading?: boolean;
+  hotCuePosition?: number | null; // position in seconds, or null if no hot cue set
+  duration?: number; // track duration in seconds, needed to calculate hot cue position
 };
 
 /**
@@ -18,6 +20,8 @@ export function WaveformDisplay({
   accentColor,
   isPlaying,
   isLoading = false,
+  hotCuePosition = null,
+  duration = 0,
 }: WaveformDisplayProps) {
   // Calculate bar heights (memoized to prevent recalculation on every render)
   const bars = useMemo(() => {
@@ -106,6 +110,25 @@ export function WaveformDisplay({
         );
       })}
 
+      {/* Hot Cue Marker */}
+      {hotCuePosition !== null && duration > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            left: `${(hotCuePosition / duration) * 100}%`,
+            top: 0,
+            bottom: 0,
+            width: "3px",
+            background: "#FF3B3B", // Red to match hot cue pad color
+            boxShadow: `0 0 8px #FF3B3B, 0 0 4px #FF3B3B`,
+            pointerEvents: "none",
+            opacity: 0.85,
+            zIndex: 1,
+          }}
+          title={`Hot Cue: ${hotCuePosition.toFixed(2)}s`}
+        />
+      )}
+
       {/* Playhead */}
       <div
         style={{
@@ -118,6 +141,7 @@ export function WaveformDisplay({
           boxShadow: `0 0 8px #ffffff, 0 0 4px ${accentColor}`,
           pointerEvents: "none",
           transition: isPlaying ? "none" : "left 0.1s ease",
+          zIndex: 2,
         }}
       />
     </div>

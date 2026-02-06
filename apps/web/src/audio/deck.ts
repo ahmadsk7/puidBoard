@@ -33,6 +33,8 @@ export interface DeckState {
   startOffset: number;
   /** Cue point position in seconds */
   cuePointSec: number;
+  /** Hot cue point position in seconds (for performance pad) */
+  hotCuePointSec: number | null;
   /** Track duration in seconds */
   durationSec: number;
   /** Gain node for this deck */
@@ -74,6 +76,7 @@ export class Deck {
       startTime: null,
       startOffset: 0,
       cuePointSec: 0,
+      hotCuePointSec: null,
       durationSec: 0,
       gainNode: null,
       source: null,
@@ -192,6 +195,7 @@ export class Deck {
     this.state.durationSec = buffer.duration;
     this.state.playheadSec = 0;
     this.state.cuePointSec = 0;
+    this.state.hotCuePointSec = null;
     this.state.playState = "stopped";
 
     this.analyzeAudio(buffer);
@@ -414,6 +418,48 @@ export class Deck {
 
     this.notify();
     console.log(`[deck-${this.state.deckId}] Cued at ${this.state.cuePointSec.toFixed(2)}s`);
+  }
+
+  /**
+   * Set hot cue point at current playhead position.
+   */
+  setHotCue(): void {
+    const currentPlayhead = this.getCurrentPlayhead();
+    this.state.hotCuePointSec = Math.max(0, Math.min(currentPlayhead, this.state.durationSec));
+    this.notify();
+    console.log(`[deck-${this.state.deckId}] Hot cue set at ${this.state.hotCuePointSec.toFixed(2)}s`);
+  }
+
+  /**
+   * Jump to hot cue point and start playing.
+   * If no hot cue is set, does nothing.
+   */
+  async jumpToHotCue(): Promise<void> {
+    if (this.state.hotCuePointSec === null) {
+      console.warn(`[deck-${this.state.deckId}] No hot cue set`);
+      return;
+    }
+
+    const wasPlaying = this.state.playState === "playing";
+    const currentRate = this.state.playbackRate;
+
+    // Seek to hot cue position
+    this.state.playheadSec = this.state.hotCuePointSec;
+    this.stopSource();
+
+    // Always start playing after jumping to hot cue (full override)
+    await this.playWithRate(currentRate);
+
+    console.log(`[deck-${this.state.deckId}] Jumped to hot cue at ${this.state.hotCuePointSec.toFixed(2)}s and ${wasPlaying ? "resumed" : "started"} playing`);
+  }
+
+  /**
+   * Clear hot cue point.
+   */
+  clearHotCue(): void {
+    this.state.hotCuePointSec = null;
+    this.notify();
+    console.log(`[deck-${this.state.deckId}] Hot cue cleared`);
   }
 
   /**

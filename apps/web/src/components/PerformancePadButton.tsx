@@ -128,18 +128,19 @@ const PerformancePadButton = memo(function PerformancePadButton({
     setInternalPressed(true);
     isHoldTriggeredRef.current = false;
 
-    // Trigger click immediately
-    onClick();
-
     // Set up hold detection
+    // Hold will fire after threshold, tap will fire on release if hold didn't trigger
     holdTimerRef.current = setTimeout(() => {
       isHoldTriggeredRef.current = true;
       onHold();
     }, HOLD_THRESHOLD_MS);
-  }, [onClick, onHold]);
+  }, [onHold]);
 
   const handlePointerUp = useCallback(() => {
     setInternalPressed(false);
+
+    // If hold timer is still running, this was a quick tap
+    const wasQuickTap = holdTimerRef.current !== null && !isHoldTriggeredRef.current;
 
     // Clear hold timer
     if (holdTimerRef.current) {
@@ -147,9 +148,14 @@ const PerformancePadButton = memo(function PerformancePadButton({
       holdTimerRef.current = null;
     }
 
+    // Fire onClick only if it was a quick tap (hold didn't trigger)
+    if (wasQuickTap) {
+      onClick();
+    }
+
     // Call release handler
     onRelease();
-  }, [onRelease]);
+  }, [onClick, onRelease]);
 
   const handlePointerLeave = useCallback(() => {
     if (internalPressed) {

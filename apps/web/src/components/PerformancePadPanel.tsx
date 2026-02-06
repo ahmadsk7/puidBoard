@@ -32,8 +32,9 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   const deck = useDeck(deckId);
   const [keyPressed, setKeyPressed] = useState<Record<string, boolean>>({});
 
-  // Storage for hot cue points (pad index -> position in seconds)
-  const hotCuesRef = useRef<Record<number, number | null>>({ 0: null });
+  // Keyboard hold detection (track key down times for hold detection)
+  const keyHoldTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
+  const keyHoldTriggeredRef = useRef<Record<string, boolean>>({});
 
   // Loop state
   const loopStateRef = useRef<{
@@ -59,26 +60,21 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   const handleHotCueClick = useCallback(() => {
     if (!deck.isLoaded) return;
 
-    const cuePos = hotCuesRef.current[0];
-    if (cuePos !== null && cuePos !== undefined) {
-      // Cue exists - jump to it
-      console.log(`[PerformancePad-${deckId}] Hot Cue: Jump to ${cuePos.toFixed(2)}s`);
-      deck.seek(cuePos);
+    // Tap: Jump to hot cue and play (if cue is set)
+    if (deck.hotCuePointSec !== null) {
+      console.log(`[PerformancePad-${deckId}] Hot Cue: Jump to ${deck.hotCuePointSec.toFixed(2)}s and play`);
+      deck.jumpToHotCue();
     } else {
-      // No cue set - set it at current position
-      const currentPos = deck.playhead;
-      hotCuesRef.current[0] = currentPos;
-      console.log(`[PerformancePad-${deckId}] Hot Cue: Set at ${currentPos.toFixed(2)}s`);
+      console.log(`[PerformancePad-${deckId}] Hot Cue: No cue set (tap does nothing)`);
     }
   }, [deck, deckId]);
 
   const handleHotCueHold = useCallback(() => {
     if (!deck.isLoaded) return;
 
-    // Hold to override/re-set cue at current position (safer than delete)
-    const currentPos = deck.playhead;
-    hotCuesRef.current[0] = currentPos;
-    console.log(`[PerformancePad-${deckId}] Hot Cue: Override/re-set at ${currentPos.toFixed(2)}s`);
+    // Hold: Set hot cue at current position
+    deck.setHotCue();
+    console.log(`[PerformancePad-${deckId}] Hot Cue: Set at ${deck.playhead.toFixed(2)}s`);
   }, [deck, deckId]);
 
   const handleHotCueRelease = useCallback(() => {
@@ -184,8 +180,10 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     // No action on release for jump
   }, []);
 
-  // Keyboard event handling
+  // Keyboard event handling with hold detection
   useEffect(() => {
+    const HOLD_THRESHOLD_MS = 300;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const keyIndex = keybinds.indexOf(e.key);
       if (keyIndex === -1 || keyPressed[e.key]) return;
@@ -193,13 +191,25 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
       e.preventDefault();
       setKeyPressed(prev => ({ ...prev, [e.key]: true }));
 
-      // Call the appropriate handler based on pad index
-      switch (keyIndex) {
-        case 0: handleHotCueClick(); break;
-        case 1: handleLoopClick(); break;
-        case 2: handleRollClick(); break;
-        case 3: handleJumpClick(); break;
+      // Clear any existing timer for this key
+      if (keyHoldTimersRef.current[e.key]) {
+        clearTimeout(keyHoldTimersRef.current[e.key]!);
       }
+
+      // Set hold detected flag to false initially
+      keyHoldTriggeredRef.current[e.key] = false;
+
+      // Get the hold handler for this pad
+      const holdHandlers = [handleHotCueHold, handleLoopHold, handleRollHold, handleJumpHold];
+      const holdHandler = holdHandlers[keyIndex];
+
+      // Set up hold detection (same as button)
+      keyHoldTimersRef.current[e.key] = setTimeout(() => {
+        keyHoldTriggeredRef.current[e.key] = true;
+        if (holdHandler) {
+          holdHandler();
+        }
+      }, HOLD_THRESHOLD_MS);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -209,12 +219,29 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
       e.preventDefault();
       setKeyPressed(prev => ({ ...prev, [e.key]: false }));
 
-      // Call the appropriate release handler based on pad index
-      switch (keyIndex) {
-        case 0: handleHotCueRelease(); break;
-        case 1: handleLoopRelease(); break;
-        case 2: handleRollRelease(); break;
-        case 3: handleJumpRelease(); break;
+      // If hold timer is still running, this was a quick tap
+      const wasQuickTap = keyHoldTimersRef.current[e.key] !== null && !keyHoldTriggeredRef.current[e.key];
+
+      // Clear hold timer
+      if (keyHoldTimersRef.current[e.key]) {
+        clearTimeout(keyHoldTimersRef.current[e.key]!);
+        keyHoldTimersRef.current[e.key] = null;
+      }
+
+      // Get handlers for this pad
+      const clickHandlers = [handleHotCueClick, handleLoopClick, handleRollClick, handleJumpClick];
+      const releaseHandlers = [handleHotCueRelease, handleLoopRelease, handleRollRelease, handleJumpRelease];
+      const clickHandler = clickHandlers[keyIndex];
+      const releaseHandler = releaseHandlers[keyIndex];
+
+      // Fire onClick only if it was a quick tap (hold didn't trigger)
+      if (wasQuickTap && clickHandler) {
+        clickHandler();
+      }
+
+      // Always call release handler
+      if (releaseHandler) {
+        releaseHandler();
       }
     };
 
@@ -224,8 +251,14 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+
+      // Cleanup all timers
+      Object.values(keyHoldTimersRef.current).forEach(timer => {
+        if (timer) clearTimeout(timer);
+      });
+      keyHoldTimersRef.current = {};
     };
-  }, [keybinds, keyPressed, handleHotCueClick, handleHotCueRelease, handleLoopClick, handleLoopRelease, handleRollClick, handleRollRelease, handleJumpClick, handleJumpRelease]);
+  }, [keybinds, keyPressed, handleHotCueClick, handleHotCueHold, handleHotCueRelease, handleLoopClick, handleLoopHold, handleLoopRelease, handleRollClick, handleRollHold, handleRollRelease, handleJumpClick, handleJumpHold, handleJumpRelease]);
 
   // Handlers array for rendering
   const handlers = [

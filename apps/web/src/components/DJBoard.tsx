@@ -182,6 +182,8 @@ function DeckDisplay({
           accentColor={accentColor}
           isPlaying={localDeck.isPlaying}
           isLoading={localDeck.isAnalyzing}
+          hotCuePosition={localDeck.hotCuePointSec}
+          duration={localDeck.duration}
         />
         <TimeDisplay
           currentTime={localDeck.playhead}

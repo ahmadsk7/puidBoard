@@ -148,6 +148,18 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.resetPlaybackRate();
   }, []);
 
+  const setHotCue = useCallback(() => {
+    deckRef.current.setHotCue();
+  }, []);
+
+  const jumpToHotCue = useCallback(async () => {
+    await deckRef.current.jumpToHotCue();
+  }, []);
+
+  const clearHotCue = useCallback(() => {
+    deckRef.current.clearHotCue();
+  }, []);
+
   // Calculate current BPM (original BPM × playback rate)
   const originalBpm = state.analysis.bpm;
   const rawCurrentBpm = originalBpm !== null
@@ -176,6 +188,9 @@ export function useDeck(deckId: "A" | "B") {
     releaseNudge,
     setPlaybackRate,
     resetPlaybackRate,
+    setHotCue,
+    jumpToHotCue,
+    clearHotCue,
     /** Current playhead in seconds */
     playhead: state.playheadSec,
     /** Track duration in seconds */
@@ -192,6 +207,8 @@ export function useDeck(deckId: "A" | "B") {
     playbackRate: state.playbackRate,
     /** Is analyzing audio */
     isAnalyzing: state.analysis.status === "analyzing",
+    /** Hot cue point position in seconds (null if not set) */
+    hotCuePointSec: state.hotCuePointSec,
   };
 }
 
