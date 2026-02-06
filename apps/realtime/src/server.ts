@@ -20,9 +20,26 @@ const PORT = process.env.PORT ?? 3001;
 
 // Parse CORS origins from environment variable
 // Supports comma-separated list: "http://localhost:3000,https://puidboard.com"
-const CORS_ORIGINS = process.env.CORS_ORIGINS
+// Automatically includes both www and non-www versions of each origin
+const baseCorsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
   : ["http://localhost:3000"];
+
+// Expand to include both www and non-www versions
+const CORS_ORIGINS: string[] = [];
+baseCorsOrigins.forEach((origin) => {
+  CORS_ORIGINS.push(origin);
+  // Add www version if origin doesn't have it
+  if (!origin.includes("www.")) {
+    const wwwVersion = origin.replace("://", "://www.");
+    CORS_ORIGINS.push(wwwVersion);
+  }
+  // Add non-www version if origin has www
+  if (origin.includes("www.")) {
+    const nonWwwVersion = origin.replace("://www.", "://");
+    CORS_ORIGINS.push(nonWwwVersion);
+  }
+});
 
 console.log(`[realtime] CORS origins: ${CORS_ORIGINS.join(", ")}`);
 
