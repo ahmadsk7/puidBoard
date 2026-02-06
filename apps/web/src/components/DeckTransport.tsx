@@ -24,7 +24,14 @@ export type DeckTransportProps = {
   /** Accent color for this deck */
   accentColor: string;
   /** Queue items (for loading tracks) */
-  queue: Array<{ id: string; trackId: string; title: string; url: string }>;
+  queue: Array<{
+    id: string;
+    trackId: string;
+    title: string;
+    url: string;
+    source?: "upload" | "youtube";
+    youtubeVideoId?: string | null;
+  }>;
 };
 
 /**
@@ -45,6 +52,12 @@ export default function DeckTransport({
   // Extract values for stable dependencies
   const localTrackId = deck.state.trackId;
   const { loadTrack } = deck;
+
+  // Get realtime URL for YouTube audio refresh
+  const realtimeUrl =
+    typeof window !== "undefined"
+      ? process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001"
+      : "http://localhost:3001";
 
   // Sync with server state - load track when server says to
   useEffect(() => {
@@ -68,16 +81,36 @@ export default function DeckTransport({
       }
 
       console.log(`[DeckTransport-${deckId}]   - URL: ${queueItem.url}`);
+      console.log(`[DeckTransport-${deckId}]   - Source: ${queueItem.source}`);
+      console.log(`[DeckTransport-${deckId}]   - youtubeVideoId: ${queueItem.youtubeVideoId}`);
+      console.log(`[DeckTransport-${deckId}]   - Full queueItem:`, JSON.stringify(queueItem, null, 2));
+
+      // Helper function to get the audio URL (refreshes for YouTube)
+      const getAudioUrl = async (): Promise<string> => {
+        // For YouTube tracks, use the stream proxy endpoint to avoid CORS
+        const isYouTube = queueItem.source === "youtube" && queueItem.youtubeVideoId;
+        console.log(`[DeckTransport-${deckId}]   - isYouTube check: source="${queueItem.source}" videoId="${queueItem.youtubeVideoId}" => ${isYouTube}`);
+        
+        if (isYouTube) {
+          const proxyUrl = `${realtimeUrl}/api/youtube/stream/${queueItem.youtubeVideoId}`;
+          console.log(`[DeckTransport-${deckId}]   - Using YouTube stream proxy: ${proxyUrl}`);
+          return proxyUrl;
+        }
+        console.log(`[DeckTransport-${deckId}]   - Using direct URL: ${queueItem.url}`);
+        return queueItem.url;
+      };
 
       // Init audio first (will be no-op if already initialized)
-      initAudioEngine().then(() => {
-        return loadTrack(serverTrackId, queueItem.url);
-      }).then(() => {
-        console.log(`[DeckTransport-${deckId}]   ✓✓✓ TRACK LOADED SUCCESSFULLY ✓✓✓`);
-      }).catch((err) => {
-        console.error(`[DeckTransport-${deckId}] ✗✗✗ TRACK LOAD FAILED ✗✗✗`);
-        console.error(`[DeckTransport-${deckId}] Error:`, err);
-      });
+      initAudioEngine()
+        .then(() => getAudioUrl())
+        .then((audioUrl) => loadTrack(serverTrackId, audioUrl))
+        .then(() => {
+          console.log(`[DeckTransport-${deckId}]   ✓✓✓ TRACK LOADED SUCCESSFULLY ✓✓✓`);
+        })
+        .catch((err) => {
+          console.error(`[DeckTransport-${deckId}] ✗✗✗ TRACK LOAD FAILED ✗✗✗`);
+          console.error(`[DeckTransport-${deckId}] Error:`, err);
+        });
     } else {
       if (!serverTrackId) {
         console.log(`[DeckTransport-${deckId}]   - Server has no track loaded`);
@@ -85,7 +118,7 @@ export default function DeckTransport({
         console.log(`[DeckTransport-${deckId}]   - Track already loaded (same as local)`);
       }
     }
-  }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId, queue]);
+  }, [serverState.loadedTrackId, localTrackId, loadTrack, deckId, queue, realtimeUrl]);
 
   // Sync play state with server
   const isLoaded = deck.isLoaded;
@@ -124,13 +157,20 @@ export default function DeckTransport({
         console.log(`[DeckTransport-${deckId}] Skipping auto-play - track just loaded`);
         return;
       }
+      // For streaming tracks, check if the audio element is actually paused
+      // This prevents race conditions where stale server state could restart paused audio
+      const deckState = deck.state;
+      if (deckState.isStreaming && deckState.audioElement?.paused) {
+        console.log(`[DeckTransport-${deckId}] Skipping play sync - streaming audio is paused locally`);
+        return;
+      }
       play();
     } else if (serverState.playState === "paused" && isPlaying) {
       pause();
     } else if (serverState.playState === "stopped" && isPlaying) {
       stop();
     }
-  }, [serverState.playState, isLoaded, isPlaying, play, pause, stop, deckId]);
+  }, [serverState.playState, isLoaded, isPlaying, play, pause, stop, deckId, deck.state]);
 
   // DISABLED: This playhead sync effect was fighting with BEACON_TICK PLL-based sync.
   // DeckEngine now handles all playhead synchronization via BEACON_TICK (250ms).

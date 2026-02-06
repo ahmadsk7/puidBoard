@@ -171,7 +171,7 @@ export function applyMutation(
     }
 
     case "QUEUE_ADD": {
-      const { trackId, title, durationSec, url, insertAt } = event.payload;
+      const { trackId, title, durationSec, url, insertAt, source, youtubeVideoId, thumbnailUrl } = event.payload;
       const id = `q-${serverTs}-${Math.random().toString(36).slice(2, 9)}`;
       const item = {
         id,
@@ -182,6 +182,9 @@ export function applyMutation(
         addedBy: event.clientId,
         addedAt: serverTs,
         status: "queued" as const,
+        source: source ?? "upload",
+        youtubeVideoId: youtubeVideoId ?? null,
+        thumbnailUrl: thumbnailUrl ?? null,
       };
       const idx = insertAt ?? base.queue.length;
       base.queue = [...base.queue.slice(0, idx), item, ...base.queue.slice(idx)];

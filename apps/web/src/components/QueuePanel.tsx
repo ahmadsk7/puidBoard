@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import type { QueueItem, Member, ClientMutationEvent } from "@puid-board/shared";
 import QueueItemRow from "./QueueItemRow";
 import TrackUploader, { UploadResult } from "./TrackUploader";
+import YouTubeSearch, { YouTubeTrackData } from "./YouTubeSearch";
 
 export type QueuePanelProps = {
   queue: QueueItem[];
@@ -24,6 +25,7 @@ export default function QueuePanel({
 }: QueuePanelProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"upload" | "youtube">("upload");
 
   /** Add a track to the queue after upload completes */
   const handleUploadComplete = useCallback(
@@ -40,9 +42,36 @@ export default function QueuePanel({
           title: result.title,
           durationSec: result.durationSec,
           url: result.url,
+          source: "upload" as const,
         },
       };
       console.log("[QueuePanel] Sending QUEUE_ADD event:", event);
+      sendEvent(event);
+    },
+    [sendEvent, roomId, clientId, nextSeq]
+  );
+
+  /** Add a YouTube track to the queue */
+  const handleYouTubeAdd = useCallback(
+    (track: YouTubeTrackData) => {
+      console.log("[QueuePanel] YouTube track added:", track);
+      const seq = nextSeq();
+      const event = {
+        type: "QUEUE_ADD" as const,
+        roomId,
+        clientId,
+        clientSeq: seq,
+        payload: {
+          trackId: `yt-${track.videoId}`,
+          title: track.title,
+          durationSec: track.durationSec,
+          url: track.url,
+          source: "youtube" as const,
+          youtubeVideoId: track.videoId,
+          thumbnailUrl: track.thumbnailUrl,
+        },
+      };
+      console.log("[QueuePanel] Sending QUEUE_ADD event for YouTube:", event);
       sendEvent(event);
     },
     [sendEvent, roomId, clientId, nextSeq]
@@ -180,13 +209,19 @@ export default function QueuePanel({
       {/* Header */}
       <div
         style={{
-          padding: "1rem 1.25rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          padding: "0.75rem 1rem",
+          borderBottom: "1px solid #262626",
         }}
       >
-        <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+        {/* Title row */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: "0.5rem",
+            marginBottom: "0.75rem",
+          }}
+        >
           <h2
             style={{
               margin: 0,
@@ -209,7 +244,59 @@ export default function QueuePanel({
             {queue.length}
           </span>
         </div>
-        <TrackUploader onUploadComplete={handleUploadComplete} />
+
+        {/* Tabs */}
+        <div
+          style={{
+            display: "flex",
+            gap: "0.25rem",
+            marginBottom: "0.75rem",
+          }}
+        >
+          <button
+            onClick={() => setActiveTab("upload")}
+            style={{
+              flex: 1,
+              padding: "0.5rem 0.75rem",
+              background: activeTab === "upload" ? "#333" : "transparent",
+              border: "1px solid",
+              borderColor: activeTab === "upload" ? "#444" : "#333",
+              borderRadius: "4px",
+              color: activeTab === "upload" ? "#fff" : "#888",
+              fontSize: "0.75rem",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            Upload
+          </button>
+          <button
+            onClick={() => setActiveTab("youtube")}
+            style={{
+              flex: 1,
+              padding: "0.5rem 0.75rem",
+              background: activeTab === "youtube" ? "#333" : "transparent",
+              border: "1px solid",
+              borderColor: activeTab === "youtube" ? "#444" : "#333",
+              borderRadius: "4px",
+              color: activeTab === "youtube" ? "#fff" : "#888",
+              fontSize: "0.75rem",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            YouTube
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === "upload" ? (
+          <TrackUploader onUploadComplete={handleUploadComplete} />
+        ) : (
+          <YouTubeSearch onAddTrack={handleYouTubeAdd} />
+        )}
       </div>
 
       {/* Queue list */}

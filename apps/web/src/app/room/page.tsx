@@ -18,6 +18,7 @@ function RoomContent() {
         title: `Track ${state.queue.length + 1}`,
         durationSec: 180,
         url: "https://example.com/mock-track.mp3",
+        source: "upload",
       },
     };
     sendEvent(event);

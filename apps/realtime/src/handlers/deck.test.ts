@@ -47,6 +47,9 @@ function addTestQueueItem(roomId: string, clientId: string): QueueItem {
     addedBy: clientId,
     addedAt: Date.now(),
     status: "queued",
+    source: "upload",
+    youtubeVideoId: null,
+    thumbnailUrl: null,
   };
 
   room.queue.push(queueItem);

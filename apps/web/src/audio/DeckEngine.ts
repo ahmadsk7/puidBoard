@@ -195,6 +195,14 @@ export class DeckEngine {
     // Update playState
     if (currentDeckState.playState !== playState) {
       if (playState === "playing" && currentDeckState.playState !== "playing") {
+        // For streaming tracks, check if the audio element is actually paused
+        // This prevents race conditions where a stale beacon could restart paused audio
+        if (currentDeckState.isStreaming && currentDeckState.audioElement) {
+          if (currentDeckState.audioElement.paused) {
+            console.log(`[DeckEngine] Skipping play sync - streaming audio is paused locally`);
+            return;
+          }
+        }
         // Need to start playing
         if (Math.abs(currentDeckState.playheadSec - playheadSec) > 0.1) {
           this.deck.seek(playheadSec);

@@ -113,20 +113,68 @@ export default function QueueItemRow({
         ::
       </span>
 
+      {/* Thumbnail (for YouTube tracks) */}
+      {item.thumbnailUrl && (
+        <div
+          style={{
+            width: "40px",
+            height: "30px",
+            borderRadius: "4px",
+            overflow: "hidden",
+            flexShrink: 0,
+            background: "#333",
+          }}
+        >
+          <img
+            src={item.thumbnailUrl}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        </div>
+      )}
+
       {/* Track info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontWeight: 500,
-            fontSize: "0.8125rem",
-            color: isPlaying ? "#e5e5e5" : "#a3a3a3",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            lineHeight: 1.4,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
           }}
         >
-          {item.title}
+          {/* YouTube indicator */}
+          {item.source === "youtube" && (
+            <span
+              style={{
+                fontSize: "0.5625rem",
+                fontWeight: 700,
+                color: "#ff0000",
+                background: "rgba(255, 0, 0, 0.1)",
+                padding: "1px 4px",
+                borderRadius: "2px",
+                letterSpacing: "0.02em",
+              }}
+            >
+              YT
+            </span>
+          )}
+          <span
+            style={{
+              fontWeight: 500,
+              fontSize: "0.8125rem",
+              color: isPlaying ? "#e5e5e5" : "#a3a3a3",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              lineHeight: 1.4,
+            }}
+          >
+            {item.title}
+          </span>
         </div>
         <div
           style={{

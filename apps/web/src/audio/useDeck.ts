@@ -160,6 +160,14 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.clearHotCue();
   }, []);
 
+  const getAnalyser = useCallback(() => {
+    return deckRef.current.getAnalyser();
+  }, []);
+
+  const getFrequencyData = useCallback(() => {
+    return deckRef.current.getFrequencyData();
+  }, []);
+
   // Calculate current BPM (original BPM × playback rate)
   const originalBpm = state.analysis.bpm;
   const rawCurrentBpm = originalBpm !== null
@@ -197,8 +205,8 @@ export function useDeck(deckId: "A" | "B") {
     duration: state.durationSec,
     /** Is currently playing */
     isPlaying: state.playState === "playing",
-    /** Is track loaded */
-    isLoaded: state.buffer !== null,
+    /** Is track loaded (buffered or streaming) */
+    isLoaded: state.buffer !== null || (state.isStreaming && state.audioElement !== null),
     /** Waveform data */
     waveform: state.analysis.waveform,
     /** Current BPM (adjusted for playback rate) */
@@ -209,6 +217,12 @@ export function useDeck(deckId: "A" | "B") {
     isAnalyzing: state.analysis.status === "analyzing",
     /** Hot cue point position in seconds (null if not set) */
     hotCuePointSec: state.hotCuePointSec,
+    /** Get the analyser node for real-time visualization */
+    getAnalyser,
+    /** Get current frequency data (normalized 0-1) for visualization */
+    getFrequencyData,
+    /** Whether this is a streaming track (YouTube) */
+    isStreaming: state.isStreaming,
   };
 }
 

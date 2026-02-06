@@ -81,6 +81,10 @@ export type Member = z.infer<typeof MemberSchema>;
 // Queue State
 // ============================================================================
 
+/** Track source type */
+export const TrackSourceSchema = z.enum(["upload", "youtube"]);
+export type TrackSource = z.infer<typeof TrackSourceSchema>;
+
 /** A track in the queue */
 export const QueueItemSchema = z.object({
   /** Unique ID for this queue entry */
@@ -99,6 +103,12 @@ export const QueueItemSchema = z.object({
   addedAt: z.number(),
   /** Current status */
   status: QueueItemStatusSchema,
+  /** Track source type (upload or youtube) */
+  source: TrackSourceSchema.default("upload"),
+  /** YouTube video ID (only for youtube source) */
+  youtubeVideoId: z.string().nullable().default(null),
+  /** Thumbnail URL for display */
+  thumbnailUrl: z.string().url().nullable().default(null),
 });
 export type QueueItem = z.infer<typeof QueueItemSchema>;
 
