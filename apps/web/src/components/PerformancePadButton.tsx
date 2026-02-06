@@ -330,7 +330,7 @@ const PerformancePadButton = memo(function PerformancePadButton({
             y="0"
             textAnchor="middle"
             dominantBaseline="central"
-            fill="#00ff9f"
+            fill="#f0f0f0"
             opacity="0.22"
             style={{
               fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
