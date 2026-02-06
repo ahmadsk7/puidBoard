@@ -213,6 +213,12 @@ export const QueueAddPayloadSchema = z.object({
   insertAt: z.number().int().nonnegative().optional(),
   /** Server-generated queue item ID (included in mutation events) */
   queueItemId: z.string().min(1).optional(),
+  /** Track source type (defaults to "upload") */
+  source: z.enum(["upload", "youtube"]).optional().default("upload"),
+  /** YouTube video ID (only for youtube source) */
+  youtubeVideoId: z.string().optional(),
+  /** Thumbnail URL for display */
+  thumbnailUrl: z.string().url().optional(),
 });
 export type QueueAddPayload = z.infer<typeof QueueAddPayloadSchema>;
 

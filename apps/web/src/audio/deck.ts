@@ -39,6 +39,8 @@ export interface DeckState {
   durationSec: number;
   /** Gain node for this deck */
   gainNode: GainNode | null;
+  /** Analyser node for real-time visualization */
+  analyser: AnalyserNode | null;
   /** Current buffer source (recreated on each play) */
   source: AudioBufferSourceNode | null;
   /** Current playback rate (1.0 = normal) */
@@ -49,6 +51,12 @@ export interface DeckState {
     bpm: number | null;
     status: AnalysisStatus;
   };
+  /** Whether using streaming audio element (for YouTube) */
+  isStreaming: boolean;
+  /** HTML Audio element for streaming playback */
+  audioElement: HTMLAudioElement | null;
+  /** MediaElementAudioSourceNode for connecting audio element to Web Audio */
+  mediaSource: MediaElementAudioSourceNode | null;
 }
 
 /** Track loading cache (avoid re-fetching) */
@@ -79,6 +87,7 @@ export class Deck {
       hotCuePointSec: null,
       durationSec: 0,
       gainNode: null,
+      analyser: null,
       source: null,
       playbackRate: 1.0,
       analysis: {
@@ -86,6 +95,9 @@ export class Deck {
         bpm: null,
         status: "idle",
       },
+      isStreaming: false,
+      audioElement: null,
+      mediaSource: null,
     };
   }
 
@@ -96,6 +108,10 @@ export class Deck {
     return {
       ...this.state,
       analysis: { ...this.state.analysis },
+      // Don't clone DOM elements/audio nodes
+      audioElement: this.state.audioElement,
+      mediaSource: this.state.mediaSource,
+      analyser: this.state.analyser,
     };
   }
 
@@ -118,7 +134,8 @@ export class Deck {
   }
 
   /**
-   * Initialize gain node (connect to mixer graph).
+   * Initialize gain node and analyser (connect to mixer graph).
+   * Signal chain: source → analyser → gainNode → mixerInput
    */
   private ensureGainNode(): GainNode | null {
     const ctx = getAudioContext();
@@ -138,8 +155,17 @@ export class Deck {
       return null;
     }
 
+    // Create analyser for real-time visualization
+    if (!this.state.analyser) {
+      this.state.analyser = ctx.createAnalyser();
+      this.state.analyser.fftSize = 256; // 128 frequency bins
+      this.state.analyser.smoothingTimeConstant = 0.4;
+    }
+
     if (!this.state.gainNode) {
       this.state.gainNode = ctx.createGain();
+      // Connect: analyser → gainNode → mixerInput
+      this.state.analyser.connect(this.state.gainNode);
       this.state.gainNode.connect(mixerInput);
     }
 
@@ -168,6 +194,170 @@ export class Deck {
     // Stop current playback
     this.stop();
 
+    // Clean up previous streaming resources
+    this.cleanupStreaming();
+
+    // Check if this is a YouTube stream URL (uses our proxy endpoint)
+    const isYouTubeStream = url.includes("/api/youtube/stream/");
+
+    if (isYouTubeStream) {
+      // Use HTMLAudioElement for YouTube streams (better codec support)
+      await this.loadStreamingTrack(trackId, url, ctx);
+    } else {
+      // Use AudioBuffer for regular tracks
+      await this.loadBufferedTrack(trackId, url, ctx);
+    }
+  }
+
+  /**
+   * Clean up streaming resources.
+   */
+  private cleanupStreaming(): void {
+    if (this.state.audioElement) {
+      this.state.audioElement.pause();
+      this.state.audioElement.src = "";
+      this.state.audioElement.load();
+      this.state.audioElement = null;
+    }
+    if (this.state.mediaSource) {
+      try {
+        this.state.mediaSource.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      this.state.mediaSource = null;
+    }
+    this.state.isStreaming = false;
+  }
+
+  /**
+   * Load a streaming track using HTMLAudioElement (for YouTube).
+   */
+  private async loadStreamingTrack(
+    trackId: string,
+    url: string,
+    ctx: AudioContext
+  ): Promise<void> {
+    console.log(`[deck-${this.state.deckId}] Loading streaming track: ${trackId}`);
+
+    const gainNode = this.ensureGainNode();
+    if (!gainNode) {
+      throw new Error("Failed to create gain node");
+    }
+
+    // Create audio element
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+
+    // Wait for the audio to be loadable
+    const loadPromise = new Promise<void>((resolve, reject) => {
+      const onCanPlay = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error(`Failed to load audio: ${audio.error?.message || "Unknown error"}`));
+      };
+      const cleanup = () => {
+        audio.removeEventListener("canplaythrough", onCanPlay);
+        audio.removeEventListener("error", onError);
+      };
+      audio.addEventListener("canplaythrough", onCanPlay);
+      audio.addEventListener("error", onError);
+    });
+
+    audio.src = url;
+
+    try {
+      await loadPromise;
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] ✗✗✗ STREAMING TRACK LOAD FAILED ✗✗✗`);
+      console.error(`[deck-${this.state.deckId}] Error:`, err);
+      throw err;
+    }
+
+    // Create MediaElementAudioSourceNode
+    // Connect: mediaSource → analyser → gainNode → mixerInput
+    const mediaSource = ctx.createMediaElementSource(audio);
+    if (this.state.analyser) {
+      mediaSource.connect(this.state.analyser);
+    } else {
+      mediaSource.connect(gainNode);
+    }
+
+    // Set up event listeners for playback state
+    audio.addEventListener("ended", () => {
+      if (this.state.isStreaming && this.state.audioElement === audio) {
+        this.state.playState = "stopped";
+        this.state.playheadSec = 0;
+        this.notify();
+      }
+    });
+
+    audio.addEventListener("timeupdate", () => {
+      if (this.state.isStreaming && this.state.audioElement === audio) {
+        this.state.playheadSec = audio.currentTime;
+        // Don't notify on every timeupdate to avoid excessive re-renders
+      }
+    });
+
+    // Update duration when metadata loads (may not be available immediately)
+    audio.addEventListener("loadedmetadata", () => {
+      if (this.state.isStreaming && this.state.audioElement === audio) {
+        if (audio.duration && isFinite(audio.duration)) {
+          this.state.durationSec = audio.duration;
+          console.log(`[deck-${this.state.deckId}] Duration updated from metadata: ${audio.duration.toFixed(2)}s`);
+          this.notify();
+        }
+      }
+    });
+
+    // Also listen for durationchange in case it updates later
+    audio.addEventListener("durationchange", () => {
+      if (this.state.isStreaming && this.state.audioElement === audio) {
+        if (audio.duration && isFinite(audio.duration) && audio.duration !== this.state.durationSec) {
+          this.state.durationSec = audio.duration;
+          console.log(`[deck-${this.state.deckId}] Duration changed: ${audio.duration.toFixed(2)}s`);
+          this.notify();
+        }
+      }
+    });
+
+    this.state.trackId = trackId;
+    this.state.buffer = null; // No buffer for streaming playback
+    this.state.isStreaming = true;
+    this.state.audioElement = audio;
+    this.state.mediaSource = mediaSource;
+    this.state.durationSec = audio.duration || 0;
+    this.state.playheadSec = 0;
+    this.state.cuePointSec = 0;
+    this.state.hotCuePointSec = null;
+    this.state.playState = "stopped";
+
+    // Set analyzing status while we fetch for waveform
+    this.state.analysis = {
+      waveform: null,
+      bpm: null,
+      status: "analyzing",
+    };
+
+    // Fetch the audio as ArrayBuffer for waveform analysis (in background)
+    this.analyzeStreamingAudio(url, ctx);
+
+    this.notify();
+    console.log(`[deck-${this.state.deckId}] ✓ Streaming track loaded, duration: ${audio.duration?.toFixed(2)}s`);
+  }
+
+  /**
+   * Load a buffered track using fetch + decodeAudioData (for uploaded tracks).
+   */
+  private async loadBufferedTrack(
+    trackId: string,
+    url: string,
+    ctx: AudioContext
+  ): Promise<void> {
     // Check cache first
     let buffer = trackCache.get(trackId);
 
@@ -192,6 +382,7 @@ export class Deck {
 
     this.state.trackId = trackId;
     this.state.buffer = buffer;
+    this.state.isStreaming = false;
     this.state.durationSec = buffer.duration;
     this.state.playheadSec = 0;
     this.state.cuePointSec = 0;
@@ -271,10 +462,90 @@ export class Deck {
   }
 
   /**
+   * Analyze streaming audio (YouTube) by fetching and decoding for waveform.
+   * Runs in background - does not block playback.
+   */
+  private async analyzeStreamingAudio(url: string, ctx: AudioContext): Promise<void> {
+    // Cancel any previous analysis by incrementing the ID
+    this.currentAnalysisId++;
+    const analysisId = this.currentAnalysisId;
+
+    console.log(`[deck-${this.state.deckId}] Fetching streaming audio for waveform analysis...`);
+
+    try {
+      // Fetch the audio file as ArrayBuffer
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio: ${response.status}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // Check if analysis was cancelled
+      if (this.currentAnalysisId !== analysisId) {
+        console.log(`[deck-${this.state.deckId}] Streaming analysis cancelled`);
+        return;
+      }
+
+      console.log(`[deck-${this.state.deckId}] Decoding audio for analysis (${arrayBuffer.byteLength} bytes)...`);
+
+      // Decode to AudioBuffer for analysis
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      
+      // Check if analysis was cancelled
+      if (this.currentAnalysisId !== analysisId) {
+        console.log(`[deck-${this.state.deckId}] Streaming analysis cancelled after decode`);
+        return;
+      }
+
+      console.log(`[deck-${this.state.deckId}] Generating waveform for streaming track...`);
+
+      // Generate waveform
+      const waveform = generateWaveform(audioBuffer, 480);
+
+      if (this.currentAnalysisId !== analysisId) return;
+
+      this.state.analysis = {
+        ...this.state.analysis,
+        waveform,
+      };
+      this.notify();
+
+      // Detect BPM
+      const bpm = await detectBPM(audioBuffer);
+
+      if (this.currentAnalysisId !== analysisId) return;
+
+      this.state.analysis = {
+        ...this.state.analysis,
+        bpm,
+        status: "complete",
+      };
+      this.notify();
+
+      console.log(`[deck-${this.state.deckId}] Streaming track analysis complete - BPM: ${bpm ?? "N/A"}`);
+    } catch (error) {
+      if (this.currentAnalysisId !== analysisId) return;
+
+      console.error(`[deck-${this.state.deckId}] Streaming audio analysis failed:`, error);
+      this.state.analysis = {
+        ...this.state.analysis,
+        status: "error",
+      };
+      this.notify();
+    }
+  }
+
+  /**
    * Get current playhead position in seconds.
    * Accounts for playback rate when calculating elapsed time.
    */
   getCurrentPlayhead(): number {
+    // For streaming, get time directly from audio element
+    if (this.state.isStreaming && this.state.audioElement) {
+      return this.state.audioElement.currentTime;
+    }
+
     if (this.state.playState === "playing" && this.state.startTime !== null) {
       const ctx = getAudioContext();
       if (ctx) {
@@ -309,6 +580,37 @@ export class Deck {
     const ctx = getAudioContext();
     const gainNode = this.ensureGainNode();
 
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      if (!ctx || !gainNode) {
+        console.warn(`[deck-${this.state.deckId}] Cannot play: no audio context`);
+        return;
+      }
+
+      const audio = this.state.audioElement;
+      audio.currentTime = this.state.playheadSec;
+      audio.playbackRate = this.state.playbackRate;
+
+      try {
+        await audio.play();
+      } catch (err) {
+        console.error(`[deck-${this.state.deckId}] Failed to play audio element:`, err);
+        return;
+      }
+
+      this.state.startTime = ctx.currentTime;
+      this.state.startOffset = this.state.playheadSec;
+      this.state.playState = "playing";
+
+      // Start playhead update loop for streaming
+      this.startStreamingPlayheadUpdate();
+
+      this.notify();
+      console.log(`[deck-${this.state.deckId}] Streaming playback from ${this.state.playheadSec.toFixed(2)}s`);
+      return;
+    }
+
+    // Handle buffered playback (uploaded tracks)
     if (!ctx || !gainNode || !this.state.buffer) {
       console.warn(`[deck-${this.state.deckId}] Cannot play: no audio context or buffer`);
       return;
@@ -318,10 +620,15 @@ export class Deck {
     this.stopSource();
 
     // Create new buffer source
+    // Connect: source → analyser → gainNode → mixerInput
     const source = ctx.createBufferSource();
     source.buffer = this.state.buffer;
     source.playbackRate.value = this.state.playbackRate;
-    source.connect(gainNode);
+    if (this.state.analyser) {
+      source.connect(this.state.analyser);
+    } else {
+      source.connect(gainNode);
+    }
 
     // Store reference for closure comparison
     const thisSource = source;
@@ -364,6 +671,20 @@ export class Deck {
       return;
     }
 
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      const audio = this.state.audioElement;
+      this.state.playheadSec = audio.currentTime;
+      audio.pause();
+
+      this.state.playState = "paused";
+      this.stopPlayheadUpdate();
+      this.notify();
+      console.log(`[deck-${this.state.deckId}] Streaming paused at ${this.state.playheadSec.toFixed(2)}s`);
+      return;
+    }
+
+    // Handle buffered playback
     // Save current playhead position BEFORE changing state
     const savedPlayhead = this.getCurrentPlayhead();
 
@@ -385,6 +706,13 @@ export class Deck {
    * Stop playback and reset to beginning.
    */
   stop(): void {
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      const audio = this.state.audioElement;
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
     // CRITICAL: Change state BEFORE stopping source
     // This prevents the onended handler from interfering
     this.state.playState = "stopped";
@@ -404,6 +732,13 @@ export class Deck {
     if (cuePointSec !== undefined) {
       // Set new cue point
       this.state.cuePointSec = Math.max(0, Math.min(cuePointSec, this.state.durationSec));
+    }
+
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      const audio = this.state.audioElement;
+      audio.pause();
+      audio.currentTime = this.state.cuePointSec;
     }
 
     // CRITICAL: Change state BEFORE stopping source
@@ -443,6 +778,15 @@ export class Deck {
     const wasPlaying = this.state.playState === "playing";
     const currentRate = this.state.playbackRate;
 
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      this.state.audioElement.currentTime = this.state.hotCuePointSec;
+      this.state.playheadSec = this.state.hotCuePointSec;
+      await this.play();
+      console.log(`[deck-${this.state.deckId}] Jumped to hot cue at ${this.state.hotCuePointSec.toFixed(2)}s (streaming)`);
+      return;
+    }
+
     // Seek to hot cue position
     this.state.playheadSec = this.state.hotCuePointSec;
     this.stopSource();
@@ -470,6 +814,20 @@ export class Deck {
     const currentRate = this.state.playbackRate;
     const targetPosition = Math.max(0, Math.min(positionSec, this.state.durationSec));
 
+    // Handle streaming playback (YouTube)
+    if (this.state.isStreaming && this.state.audioElement) {
+      const audio = this.state.audioElement;
+      audio.currentTime = targetPosition;
+      this.state.playheadSec = targetPosition;
+
+      if (!wasPlaying) {
+        this.state.playState = "paused";
+        this.notify();
+      }
+      return;
+    }
+
+    // Handle buffered playback
     // CRITICAL: Change state BEFORE stopping source if we were playing
     // This prevents the onended handler from interfering
     if (wasPlaying) {
@@ -499,6 +857,16 @@ export class Deck {
     
     // Clamp rate to reasonable bounds
     const clampedRate = Math.max(0.5, Math.min(2.0, rate));
+
+    // Handle streaming playback (YouTube tracks)
+    if (this.state.isStreaming && this.state.audioElement) {
+      const previousRate = this.state.playbackRate;
+      this.state.playbackRate = clampedRate;
+      this.state.audioElement.playbackRate = clampedRate;
+      console.log(`[deck-${this.state.deckId}] Streaming rate changed: ${previousRate.toFixed(3)} -> ${clampedRate.toFixed(3)}`);
+      this.notify();
+      return;
+    }
 
     if (!ctx || !this.state.source) {
       // No source playing, just update state for next play
@@ -552,10 +920,15 @@ export class Deck {
     this.stopSource();
 
     // Create new buffer source
+    // Connect: source → analyser → gainNode → mixerInput
     const source = ctx.createBufferSource();
     source.buffer = this.state.buffer;
     source.playbackRate.value = rate;
-    source.connect(gainNode);
+    if (this.state.analyser) {
+      source.connect(this.state.analyser);
+    } else {
+      source.connect(gainNode);
+    }
 
     // Store reference for closure comparison
     const thisSource = source;
@@ -614,11 +987,14 @@ export class Deck {
     const crossfadeSec = crossfadeMs / 1000;
     const targetPosition = Math.max(0, Math.min(positionSec, this.state.durationSec));
 
+    // Determine output node (analyser if available, otherwise gainNode)
+    const outputNode = this.state.analyser || gainNode;
+
     // Create a temporary gain node for crossfade
     const oldSource = this.state.source;
     const fadeOutGain = ctx.createGain();
     fadeOutGain.gain.value = 1;
-    fadeOutGain.connect(gainNode);
+    fadeOutGain.connect(outputNode);
 
     // Create new source at target position
     const newSource = ctx.createBufferSource();
@@ -628,7 +1004,7 @@ export class Deck {
     const fadeInGain = ctx.createGain();
     fadeInGain.gain.value = 0;
     newSource.connect(fadeInGain);
-    fadeInGain.connect(gainNode);
+    fadeInGain.connect(outputNode);
 
     // Reconnect old source through fade out gain
     if (oldSource) {
@@ -686,7 +1062,9 @@ export class Deck {
       if (this.state.source === sourceAtCleanupTime) {
         try {
           newSource.disconnect();
-          newSource.connect(gainNode);
+          // Connect to analyser if available, otherwise gainNode
+          const finalOutput = this.state.analyser || gainNode;
+          newSource.connect(finalOutput);
           fadeInGain.disconnect();
         } catch {
           // Ignore
@@ -755,10 +1133,15 @@ export class Deck {
       this.stopSource();
 
       // Create new buffer source at new position
+      // Connect: source → analyser → gainNode → mixerInput
       const source = ctx.createBufferSource();
       source.buffer = this.state.buffer;
       source.playbackRate.value = this.state.playbackRate;
-      source.connect(gainNode);
+      if (this.state.analyser) {
+        source.connect(this.state.analyser);
+      } else {
+        source.connect(gainNode);
+      }
 
       // Store reference for closure comparison
       const thisSource = source;
@@ -881,6 +1264,25 @@ export class Deck {
   }
 
   /**
+   * Start playhead update loop for streaming tracks (reads from audio element).
+   */
+  private startStreamingPlayheadUpdate(): void {
+    if (this.animationFrameId !== null) {
+      return;
+    }
+
+    const update = () => {
+      if (this.state.playState === "playing" && this.state.audioElement) {
+        this.state.playheadSec = this.state.audioElement.currentTime;
+        this.notify();
+        this.animationFrameId = requestAnimationFrame(update);
+      }
+    };
+
+    this.animationFrameId = requestAnimationFrame(update);
+  }
+
+  /**
    * Stop playhead update animation loop.
    */
   private stopPlayheadUpdate(): void {
@@ -891,11 +1293,45 @@ export class Deck {
   }
 
   /**
+   * Get real-time frequency data from analyser for visualization.
+   * Returns normalized values (0-1) for each frequency bin.
+   */
+  getFrequencyData(): Float32Array | null {
+    if (!this.state.analyser) {
+      return null;
+    }
+    
+    const bufferLength = this.state.analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    this.state.analyser.getByteFrequencyData(dataArray);
+    
+    // Normalize to 0-1 range
+    const normalized = new Float32Array(bufferLength);
+    for (let i = 0; i < bufferLength; i++) {
+      normalized[i] = (dataArray[i] ?? 0) / 255;
+    }
+    
+    return normalized;
+  }
+
+  /**
+   * Get the analyser node directly (for use with useEffect visualization loops).
+   */
+  getAnalyser(): AnalyserNode | null {
+    return this.state.analyser;
+  }
+
+  /**
    * Cleanup (disconnect and stop).
    */
   dispose(): void {
     this.stopSource();
     this.stopPlayheadUpdate();
+    
+    if (this.state.analyser) {
+      this.state.analyser.disconnect();
+      this.state.analyser = null;
+    }
     
     if (this.state.gainNode) {
       this.state.gainNode.disconnect();

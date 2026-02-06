@@ -13,6 +13,10 @@
  * - GET /api/sampler/sounds?clientId=X&roomId=Y - Get all custom sounds for client in room
  * - DELETE /api/sampler/sounds/:id - Delete a sampler sound
  * - POST /api/sampler/reset - Reset a slot to default
+ *
+ * YouTube endpoints:
+ * - GET /api/youtube/search?q=... - Search YouTube for songs
+ * - GET /api/youtube/audio/:videoId - Get audio stream URL for a video
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
@@ -20,6 +24,7 @@ import busboy from "busboy";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
+import { searchYouTube, getYouTubeAudioUrl, getYouTubeAudioBuffer } from "../services/youtube.js";
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -585,6 +590,156 @@ async function handleResetSamplerSlot(
   }
 }
 
+// ============================================================================
+// YOUTUBE ENDPOINTS
+// ============================================================================
+
+/**
+ * Handle GET /api/youtube/search?q=...
+ */
+async function handleYouTubeSearch(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    const params = parseQueryParams(req.url || "");
+    const query = params.q;
+    const limit = parseInt(params.limit || "15", 10);
+
+    if (!query) {
+      sendError(res, 400, "Missing required query param: q");
+      return;
+    }
+
+    console.log(`[youtubeSearch] Searching for: "${query}" (limit=${limit})`);
+
+    const results = await searchYouTube(query, Math.min(limit, 25));
+
+    console.log(`[youtubeSearch] Found ${results.length} results`);
+
+    sendJson(res, 200, { results });
+  } catch (error) {
+    console.error("[youtubeSearch] error:", error);
+    sendError(res, 500, error instanceof Error ? error.message : "Search failed");
+  }
+}
+
+/**
+ * Handle GET /api/youtube/audio/:videoId
+ */
+async function handleYouTubeAudio(
+  _req: IncomingMessage,
+  res: ServerResponse,
+  videoId: string
+): Promise<void> {
+  try {
+    console.log(`[youtubeAudio] Getting audio URL for video: ${videoId}`);
+
+    const result = await getYouTubeAudioUrl(videoId);
+
+    console.log(`[youtubeAudio] Got URL (expires at ${new Date(result.expiresAt).toISOString()})`);
+
+    sendJson(res, 200, {
+      url: result.url,
+      mimeType: result.mimeType,
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    console.error("[youtubeAudio] error:", error);
+    sendError(res, 500, error instanceof Error ? error.message : "Failed to get audio URL");
+  }
+}
+
+// Cache for YouTube audio buffers to enable seeking without re-downloading
+const youtubeAudioCache = new Map<string, { buffer: Buffer; contentType: string; timestamp: number }>();
+const YOUTUBE_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Handle GET /api/youtube/stream/:videoId
+ * Streams YouTube audio through our server to avoid CORS issues.
+ * Supports range requests for seeking.
+ */
+async function handleYouTubeStream(
+  req: IncomingMessage,
+  res: ServerResponse,
+  videoId: string
+): Promise<void> {
+  try {
+    console.log(`[youtubeStream] Request for video: ${videoId}`);
+
+    // Check cache first
+    let audioData = youtubeAudioCache.get(videoId);
+    
+    // If not cached or expired, download
+    if (!audioData || Date.now() - audioData.timestamp > YOUTUBE_CACHE_TTL_MS) {
+      console.log(`[youtubeStream] Downloading audio for video: ${videoId}`);
+      const { buffer, contentType } = await getYouTubeAudioBuffer(videoId);
+      audioData = { buffer, contentType, timestamp: Date.now() };
+      youtubeAudioCache.set(videoId, audioData);
+      
+      // Clean up old cache entries
+      for (const [key, value] of youtubeAudioCache.entries()) {
+        if (Date.now() - value.timestamp > YOUTUBE_CACHE_TTL_MS) {
+          youtubeAudioCache.delete(key);
+        }
+      }
+    } else {
+      console.log(`[youtubeStream] Serving from cache: ${videoId}`);
+    }
+
+    const { buffer, contentType } = audioData;
+    const totalSize = buffer.length;
+
+    // Parse Range header for seeking support
+    const rangeHeader = req.headers.range;
+    
+    if (rangeHeader) {
+      // Handle range request (for seeking)
+      const parts = rangeHeader.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0] || "0", 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+      
+      // Validate range
+      if (start >= totalSize || end >= totalSize || start > end) {
+        res.statusCode = 416; // Range Not Satisfiable
+        res.setHeader("Content-Range", `bytes */${totalSize}`);
+        res.end();
+        return;
+      }
+      
+      const chunkSize = end - start + 1;
+      const chunk = buffer.subarray(start, end + 1);
+      
+      res.statusCode = 206; // Partial Content
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Length", chunkSize);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      
+      console.log(`[youtubeStream] Sending range ${start}-${end}/${totalSize} (${chunkSize} bytes)`);
+      res.end(chunk);
+    } else {
+      // Full file request
+      res.statusCode = 200;
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Length", totalSize);
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      
+      console.log(`[youtubeStream] Sending full file: ${totalSize} bytes (${contentType})`);
+      res.end(buffer);
+    }
+  } catch (error) {
+    console.error("[youtubeStream] error:", error);
+    if (!res.headersSent) {
+      sendError(res, 500, error instanceof Error ? error.message : "Failed to get audio");
+    }
+  }
+}
+
 /**
  * Main HTTP request handler for track API.
  */
@@ -654,6 +809,30 @@ export async function handleTrackApiRequest(
   // POST /api/sampler/reset
   if (method === "POST" && url === "/api/sampler/reset") {
     await handleResetSamplerSlot(req, res);
+    return true;
+  }
+
+  // ============================================================================
+  // YOUTUBE ROUTES
+  // ============================================================================
+
+  // GET /api/youtube/search?q=...
+  if (method === "GET" && url.startsWith("/api/youtube/search")) {
+    await handleYouTubeSearch(req, res);
+    return true;
+  }
+
+  // GET /api/youtube/audio/:videoId
+  const youtubeAudioMatch = url.match(/^\/api\/youtube\/audio\/([^/?]+)$/);
+  if (method === "GET" && youtubeAudioMatch && youtubeAudioMatch[1]) {
+    await handleYouTubeAudio(req, res, youtubeAudioMatch[1]);
+    return true;
+  }
+
+  // GET /api/youtube/stream/:videoId (proxy stream to avoid CORS)
+  const youtubeStreamMatch = url.match(/^\/api\/youtube\/stream\/([^/?]+)$/);
+  if (method === "GET" && youtubeStreamMatch && youtubeStreamMatch[1]) {
+    await handleYouTubeStream(req, res, youtubeStreamMatch[1]);
     return true;
   }
 

@@ -40,6 +40,7 @@ export {
   PlayStateSchema,
   QueueItemStatusSchema,
   FxTypeSchema,
+  TrackSourceSchema,
   // State schemas
   CursorStateSchema,
   MemberSchema,
@@ -69,6 +70,7 @@ export type {
   PlayState,
   QueueItemStatus,
   FxType,
+  TrackSource,
   CursorState,
   Member,
   QueueItem,

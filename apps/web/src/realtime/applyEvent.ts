@@ -173,7 +173,7 @@ export function applyServerEvent(
     }
 
     case "QUEUE_ADD": {
-      const { trackId, title, durationSec, url, insertAt, queueItemId } = event.payload;
+      const { trackId, title, durationSec, url, insertAt, queueItemId, source, youtubeVideoId, thumbnailUrl } = event.payload;
       // Use server-generated queue item ID (mandatory in server mutation events)
       const id = queueItemId ?? `q-${event.serverTs}-${Math.random().toString(36).slice(2, 9)}`;
       const item = {
@@ -185,6 +185,9 @@ export function applyServerEvent(
         addedBy: event.clientId,
         addedAt: event.serverTs,
         status: "queued" as const,
+        source: source ?? "upload",
+        youtubeVideoId: youtubeVideoId ?? null,
+        thumbnailUrl: thumbnailUrl ?? null,
       };
       const idx = insertAt ?? base.queue.length;
       base.queue = [...base.queue.slice(0, idx), item, ...base.queue.slice(idx)];

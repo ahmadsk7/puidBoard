@@ -312,6 +312,9 @@ export class RealtimeClient {
         url: string;
         queueItemId: string;
         insertAt?: number;
+        source?: "upload" | "youtube";
+        youtubeVideoId?: string;
+        thumbnailUrl?: string;
       };
     }) => {
       if (!this.state) return;
@@ -326,6 +329,9 @@ export class RealtimeClient {
         addedBy: event.clientId,
         addedAt: event.serverTs,
         status: "queued" as const,
+        source: event.payload.source ?? "upload",
+        youtubeVideoId: event.payload.youtubeVideoId ?? null,
+        thumbnailUrl: event.payload.thumbnailUrl ?? null,
       };
 
       const insertAt = event.payload.insertAt ?? this.state.queue.length;

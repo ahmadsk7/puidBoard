@@ -88,6 +88,9 @@ export function handleQueueAdd(
     addedBy: clientId,
     addedAt: now,
     status: "queued" as QueueItemStatus,
+    source: payload.source ?? "upload",
+    youtubeVideoId: payload.youtubeVideoId ?? null,
+    thumbnailUrl: payload.thumbnailUrl ?? null,
   };
 
   // Determine insertion position

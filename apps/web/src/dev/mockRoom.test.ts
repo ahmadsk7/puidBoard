@@ -72,6 +72,7 @@ describe("mockRoom", () => {
             title: "Test Track",
             durationSec: 120,
             url: "https://example.com/track-1.mp3",
+            source: "upload",
           },
         },
         Date.now(),
@@ -193,6 +194,7 @@ describe("mockRoom", () => {
           title: "Track 1",
           durationSec: 60,
           url: "https://example.com/t1.mp3",
+          source: "upload",
         },
       });
 

@@ -455,6 +455,103 @@ After upload, a track enters the queue via the `QUEUE_ADD` event. When a user lo
 4. `DeckTransport` calls `deck.loadTrack(trackId, url)` which fetches the audio, decodes it, caches the buffer, and triggers analysis (waveform + BPM)
 5. The deck is now ready for play/pause/cue
 
+### 3.5 YouTube Search and Streaming
+
+Users can search for and add YouTube tracks directly from the UI, enabling access to virtually any song without file uploads.
+
+**UI Component:** `apps/web/src/components/YouTubeSearch.tsx` provides:
+- Search input with debounced queries
+- 15 results displayed with thumbnails, titles, and durations
+- One-click "Add to Queue" functionality
+
+**Backend Service:** `apps/realtime/src/services/youtube.ts` handles:
+
+| Function | Purpose |
+|----------|---------|
+| `searchYouTube(query)` | Search YouTube via `play-dl`, returns up to 15 video results |
+| `getYouTubeAudioBuffer(videoId)` | Downloads audio via `yt-dlp`, transcodes to MP3 via `ffmpeg` |
+
+**Why yt-dlp + ffmpeg?** YouTube's native audio formats (Opus, AAC in WebM containers) are not universally supported by browser `<audio>` elements. Server-side transcoding to MP3 ensures compatibility across all browsers.
+
+**Streaming Architecture:**
+
+```
+Client clicks "Add to Queue"
+    │
+    ▼
+QueueItem created with source: "youtube", youtubeVideoId: "xxx"
+    │
+    ▼
+Track loaded to deck → DeckTransport detects YouTube source
+    │
+    ▼
+Constructs proxy URL: /api/youtube/stream/{videoId}
+    │
+    ▼
+Deck.loadStreamingTrack() uses HTMLAudioElement (not AudioBuffer)
+    │
+    ▼
+Server downloads + transcodes audio (cached 30 min)
+    │
+    ▼
+HTTP Range requests enable seeking
+```
+
+**HTTP Range Support:** The `/api/youtube/stream/:videoId` endpoint implements full HTTP Range request handling:
+
+```typescript
+// Simplified from apps/realtime/src/http/api.ts
+if (rangeHeader) {
+  // Parse "bytes=start-end"
+  const [start, end] = parseRange(rangeHeader, totalSize);
+  res.statusCode = 206; // Partial Content
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+  res.end(buffer.subarray(start, end + 1));
+} else {
+  res.statusCode = 200;
+  res.end(buffer);
+}
+```
+
+This enables seeking in streamed YouTube tracks -- the browser requests byte ranges as the user scrubs.
+
+**Client-Side Dual Playback Modes:** The `Deck` class (`apps/web/src/audio/deck.ts`) supports two playback modes:
+
+| Mode | Used For | Implementation |
+|------|----------|----------------|
+| **Buffered** | Local uploads | `AudioBufferSourceNode` with full buffer in memory |
+| **Streaming** | YouTube tracks | `HTMLAudioElement` + `MediaElementAudioSourceNode` |
+
+The streaming mode uses `HTMLAudioElement` because it handles HTTP streaming and range requests natively, while still connecting to the Web Audio graph for mixer processing.
+
+**Waveform Analysis for YouTube:** Unlike the buffered mode where analysis happens on the existing `AudioBuffer`, streaming tracks require a separate fetch:
+
+```typescript
+// In Deck.loadStreamingTrack()
+this.analyzeStreamingAudio(url, ctx); // Runs in background
+
+// analyzeStreamingAudio() does:
+const response = await fetch(url);
+const arrayBuffer = await response.arrayBuffer();
+const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+const waveform = generateWaveform(audioBuffer, 480);
+const bpm = await detectBPM(audioBuffer);
+```
+
+This runs asynchronously after the track is loaded, so playback can start immediately while the waveform generates in the background.
+
+**QueueItem Schema Extension:** YouTube tracks extend the base QueueItem:
+
+```typescript
+// From packages/shared/src/state.ts
+interface QueueItem {
+  // ... base fields
+  source: "upload" | "youtube";
+  youtubeVideoId?: string;
+  thumbnailUrl?: string;
+}
+```
+
 ---
 
 ## 4. Server Architecture
@@ -942,4 +1039,6 @@ All 4 buttons share the same orange color (#FF8C3B) for a unified look.
 | `apps/realtime/src/protocol/handlers.ts` | Socket.IO event handler registration |
 | `apps/realtime/src/services/storage.ts` | File storage (Supabase or local) |
 | `apps/realtime/src/services/tracks.ts` | Track upload validation and deduplication |
-| `apps/realtime/src/http/api.ts` | HTTP API endpoints |
+| `apps/realtime/src/services/youtube.ts` | YouTube search and audio download/transcoding |
+| `apps/realtime/src/http/api.ts` | HTTP API endpoints (including YouTube streaming) |
+| `apps/web/src/components/YouTubeSearch.tsx` | YouTube search UI component |
