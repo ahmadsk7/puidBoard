@@ -35,6 +35,8 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   // Keyboard hold detection (track key down times for hold detection)
   const keyHoldTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
   const keyHoldTriggeredRef = useRef<Record<string, boolean>>({});
+  // Track which keys are currently down (for repeat guard) - using ref to avoid effect re-runs
+  const keysDownRef = useRef<Record<string, boolean>>({});
 
   // Loop state
   const loopStateRef = useRef<{
@@ -186,9 +188,13 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const keyIndex = keybinds.indexOf(e.key);
-      if (keyIndex === -1 || keyPressed[e.key]) return;
+      // Use ref for repeat guard to avoid effect re-runs
+      if (keyIndex === -1 || keysDownRef.current[e.key]) return;
 
       e.preventDefault();
+      // Track in ref (for repeat guard)
+      keysDownRef.current[e.key] = true;
+      // Update state (for visual feedback)
       setKeyPressed(prev => ({ ...prev, [e.key]: true }));
 
       // Clear any existing timer for this key
@@ -217,6 +223,9 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
       if (keyIndex === -1) return;
 
       e.preventDefault();
+      // Clear ref (for repeat guard)
+      keysDownRef.current[e.key] = false;
+      // Update state (for visual feedback)
       setKeyPressed(prev => ({ ...prev, [e.key]: false }));
 
       // If hold timer is still running, this was a quick tap
@@ -258,7 +267,7 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
       });
       keyHoldTimersRef.current = {};
     };
-  }, [keybinds, keyPressed, handleHotCueClick, handleHotCueHold, handleHotCueRelease, handleLoopClick, handleLoopHold, handleLoopRelease, handleRollClick, handleRollHold, handleRollRelease, handleJumpClick, handleJumpHold, handleJumpRelease]);
+  }, [keybinds, handleHotCueClick, handleHotCueHold, handleHotCueRelease, handleLoopClick, handleLoopHold, handleLoopRelease, handleRollClick, handleRollHold, handleRollRelease, handleJumpClick, handleJumpHold, handleJumpRelease]);
 
   // Handlers array for rendering
   const handlers = [
