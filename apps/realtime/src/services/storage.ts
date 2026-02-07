@@ -145,6 +145,9 @@ class StorageService {
    * Get file extension from mime type.
    */
   private getExtensionFromMime(mimeType: string): string {
+    // Handle codec parameters (e.g., "audio/webm;codecs=opus" -> "audio/webm")
+    const baseType = mimeType.split(";")[0]!.trim();
+
     const mimeToExt: Record<string, string> = {
       "audio/mpeg": ".mp3",
       "audio/wav": ".wav",
@@ -152,8 +155,11 @@ class StorageService {
       "audio/aiff": ".aiff",
       "audio/x-aiff": ".aiff",
       "audio/flac": ".flac",
+      "audio/webm": ".webm",
+      "audio/ogg": ".ogg",
+      "audio/mp4": ".m4a",
     };
-    return mimeToExt[mimeType] ?? ".bin";
+    return mimeToExt[baseType] ?? ".bin";
   }
 }
 

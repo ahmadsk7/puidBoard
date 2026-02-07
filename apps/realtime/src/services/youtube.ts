@@ -5,7 +5,9 @@
  * Uses fluent-ffmpeg for transcoding to browser-compatible MP3.
  */
 
+// @ts-ignore - No type definitions available
 import { create as createYtDlp } from "youtube-dl-exec";
+// @ts-ignore - No type definitions available
 import play from "play-dl";
 import * as path from "path";
 import * as fs from "fs";
@@ -17,6 +19,12 @@ import * as os from "os";
 const ytDlpPath = process.env.YTDLP_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/yt-dlp" : "yt-dlp");
 const ffmpegPath = process.env.FFMPEG_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/ffmpeg" : "ffmpeg");
 const youtubeDl = createYtDlp(ytDlpPath);
+
+console.log(`[YouTube] Initializing YouTube service`);
+console.log(`[YouTube] Platform: ${process.platform}`);
+console.log(`[YouTube] yt-dlp path: ${ytDlpPath}`);
+console.log(`[YouTube] ffmpeg path: ${ffmpegPath}`);
+console.log(`[YouTube] Node version: ${process.version}`);
 
 // ============================================================================
 // Types
@@ -53,25 +61,43 @@ export async function searchYouTube(
   query: string,
   limit: number = 15
 ): Promise<YouTubeSearchResult[]> {
+  console.log(`[YouTube] searchYouTube called with query="${query}", limit=${limit}`);
+
   try {
+    console.log(`[YouTube] Calling play.search...`);
+
     // Request extra results to filter out non-music items
     const searchResults = await play.search(query, { limit: limit + 10, source: { youtube: "video" } });
+
+    console.log(`[YouTube] play.search returned ${searchResults.length} raw results`);
 
     const results: YouTubeSearchResult[] = [];
 
     for (const item of searchResults) {
       // Only include video results
-      if (item.type !== "video") continue;
-      if (!item.id) continue;
+      if (item.type !== "video") {
+        console.log(`[YouTube] Skipping non-video result: ${item.type}`);
+        continue;
+      }
+      if (!item.id) {
+        console.log(`[YouTube] Skipping result with no ID`);
+        continue;
+      }
 
       // Skip live streams
-      if (item.live) continue;
+      if (item.live) {
+        console.log(`[YouTube] Skipping live stream: ${item.title}`);
+        continue;
+      }
 
       // Get duration in seconds
       const durationSec = item.durationInSec || 0;
 
       // Skip very long videos (likely not songs) - max 20 minutes
-      if (durationSec > 1200) continue;
+      if (durationSec > 1200) {
+        console.log(`[YouTube] Skipping long video (${durationSec}s): ${item.title}`);
+        continue;
+      }
 
       results.push({
         videoId: item.id,
@@ -85,9 +111,13 @@ export async function searchYouTube(
       if (results.length >= limit) break;
     }
 
+    console.log(`[YouTube] Returning ${results.length} filtered results`);
     return results;
   } catch (error) {
     console.error("[YouTube] Search error:", error);
+    console.error("[YouTube] Error type:", error instanceof Error ? error.constructor.name : typeof error);
+    console.error("[YouTube] Error message:", error instanceof Error ? error.message : String(error));
+    console.error("[YouTube] Error stack:", error instanceof Error ? error.stack : "No stack");
     throw new Error(`YouTube search failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }
@@ -112,14 +142,14 @@ export async function getYouTubeAudioUrl(
     const info = await play.video_info(url);
 
     // Get audio formats
-    const audioFormats = info.format.filter(f => f.mimeType?.includes("audio"));
+    const audioFormats = info.format.filter((f: any) => f.mimeType?.includes("audio"));
 
     if (audioFormats.length === 0) {
       throw new Error("No audio formats available");
     }
 
     // Sort by audio quality (bitrate)
-    const sortedFormats = audioFormats.sort((a, b) => {
+    const sortedFormats = audioFormats.sort((a: any, b: any) => {
       const bitrateA = a.bitrate || 0;
       const bitrateB = b.bitrate || 0;
       return bitrateB - bitrateA;

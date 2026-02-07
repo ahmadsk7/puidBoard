@@ -9,6 +9,9 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 FROM base AS deps
 WORKDIR /app
 
+# Install python for youtube-dl-exec dependency
+RUN apk add --no-cache python3
+
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/realtime/package.json ./apps/realtime/

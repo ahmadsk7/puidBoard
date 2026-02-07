@@ -606,20 +606,24 @@ async function handleYouTubeSearch(
     const query = params.q;
     const limit = parseInt(params.limit || "15", 10);
 
+    console.log(`[youtubeSearch] Received request. URL: ${req.url}, query: ${query}, limit: ${limit}`);
+
     if (!query) {
+      console.log(`[youtubeSearch] Error: Missing query parameter`);
       sendError(res, 400, "Missing required query param: q");
       return;
     }
 
-    console.log(`[youtubeSearch] Searching for: "${query}" (limit=${limit})`);
+    console.log(`[youtubeSearch] Starting search for: "${query}" (limit=${limit})`);
 
     const results = await searchYouTube(query, Math.min(limit, 25));
 
-    console.log(`[youtubeSearch] Found ${results.length} results`);
+    console.log(`[youtubeSearch] Successfully found ${results.length} results`);
 
     sendJson(res, 200, { results });
   } catch (error) {
-    console.error("[youtubeSearch] error:", error);
+    console.error("[youtubeSearch] Error occurred:", error);
+    console.error("[youtubeSearch] Error stack:", error instanceof Error ? error.stack : "No stack trace");
     sendError(res, 500, error instanceof Error ? error.message : "Search failed");
   }
 }
@@ -750,6 +754,11 @@ export async function handleTrackApiRequest(
   const url = req.url || "";
   const method = req.method || "GET";
 
+  // Log all API requests for debugging
+  if (url.startsWith("/api/")) {
+    console.log(`[API] ${method} ${url}`);
+  }
+
   // POST /api/tracks/upload
   if (method === "POST" && url === "/api/tracks/upload") {
     await handleUpload(req, res);
@@ -816,8 +825,21 @@ export async function handleTrackApiRequest(
   // YOUTUBE ROUTES
   // ============================================================================
 
+  // GET /api/youtube/status - YouTube service health check
+  if (method === "GET" && url === "/api/youtube/status") {
+    console.log(`[API] YouTube status check`);
+    sendJson(res, 200, {
+      status: "ok",
+      service: "youtube",
+      platform: process.platform,
+      nodeVersion: process.version,
+    });
+    return true;
+  }
+
   // GET /api/youtube/search?q=...
   if (method === "GET" && url.startsWith("/api/youtube/search")) {
+    console.log(`[API] Matched YouTube search route: ${url}`);
     await handleYouTubeSearch(req, res);
     return true;
   }
