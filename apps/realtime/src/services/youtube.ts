@@ -20,6 +20,25 @@ const ytDlpPath = process.env.YTDLP_PATH || (process.platform === "darwin" ? "/o
 const ffmpegPath = process.env.FFMPEG_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/ffmpeg" : "ffmpeg");
 const youtubeDl = createYtDlp(ytDlpPath);
 
+// Initialize play-dl with YouTube cookies if provided (runs async on first use)
+// This helps avoid rate limiting and bot detection in production
+let playDlInitialized = false;
+const initPlayDl = async () => {
+  if (playDlInitialized) return;
+
+  if (process.env.YOUTUBE_COOKIE) {
+    console.log(`[YouTube] Setting up authentication with cookies`);
+    await play.setToken({
+      youtube: {
+        cookie: process.env.YOUTUBE_COOKIE
+      }
+    });
+    console.log(`[YouTube] Authentication configured`);
+  }
+
+  playDlInitialized = true;
+};
+
 console.log(`[YouTube] Initializing YouTube service`);
 console.log(`[YouTube] Platform: ${process.platform}`);
 console.log(`[YouTube] yt-dlp path: ${ytDlpPath}`);
@@ -64,6 +83,9 @@ export async function searchYouTube(
   console.log(`[YouTube] searchYouTube called with query="${query}", limit=${limit}`);
 
   try {
+    // Initialize play-dl authentication if not already done
+    await initPlayDl();
+
     console.log(`[YouTube] Calling play.search...`);
 
     // Request extra results to filter out non-music items
@@ -136,6 +158,9 @@ export async function getYouTubeAudioUrl(
   videoId: string
 ): Promise<YouTubeAudioResult> {
   try {
+    // Initialize play-dl authentication if not already done
+    await initPlayDl();
+
     const url = `https://www.youtube.com/watch?v=${videoId}`;
 
     // Get video info using play-dl
@@ -190,21 +215,35 @@ export async function getYouTubeAudioBuffer(
   const url = `https://www.youtube.com/watch?v=${videoId}`;
   const tempDir = os.tmpdir();
   const tempFile = path.join(tempDir, `yt-${videoId}-${Date.now()}.mp3`);
+  let cookieFile: string | null = null;
 
   console.log(`[YouTube] Downloading audio for: ${videoId}`);
 
   try {
-    // Use yt-dlp to download and convert to MP3 in one step
-    await youtubeDl(url, {
+    // Prepare yt-dlp options
+    const ytDlpOptions: any = {
       extractAudio: true,
       audioFormat: "mp3",
       audioQuality: 0, // best quality
+      format: "bestaudio/best", // Select best audio format available
       output: tempFile,
       noPlaylist: true,
-      quiet: true,
-      noWarnings: true,
+      quiet: false, // Enable output for debugging
+      noWarnings: false,
       ffmpegLocation: ffmpegPath,
-    });
+      preferFreeFormats: true, // Prefer free/open formats
+    };
+
+    // If YouTube cookies are provided, write them to a temp file and use them
+    if (process.env.YOUTUBE_COOKIE) {
+      cookieFile = path.join(tempDir, `yt-cookies-${Date.now()}.txt`);
+      await fs.promises.writeFile(cookieFile, process.env.YOUTUBE_COOKIE);
+      ytDlpOptions.cookies = cookieFile;
+      console.log(`[YouTube] Using cookies for authentication`);
+    }
+
+    // Use yt-dlp to download and convert to MP3 in one step
+    await youtubeDl(url, ytDlpOptions);
 
     console.log(`[YouTube] Downloaded to: ${tempFile}`);
 
@@ -212,18 +251,24 @@ export async function getYouTubeAudioBuffer(
     const buffer = await fs.promises.readFile(tempFile);
     console.log(`[YouTube] Audio buffer size: ${buffer.length} bytes`);
 
-    // Clean up temp file
+    // Clean up temp files
     await fs.promises.unlink(tempFile).catch(() => {
       // Ignore cleanup errors
     });
+    if (cookieFile) {
+      await fs.promises.unlink(cookieFile).catch(() => {});
+    }
 
     return {
       buffer,
       contentType: "audio/mpeg",
     };
   } catch (error) {
-    // Clean up temp file on error
+    // Clean up temp files on error
     await fs.promises.unlink(tempFile).catch(() => {});
+    if (cookieFile) {
+      await fs.promises.unlink(cookieFile).catch(() => {});
+    }
 
     console.error("[YouTube] Download error:", error);
     throw new Error(
