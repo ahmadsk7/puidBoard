@@ -45,6 +45,8 @@ class SamplerSoundsService {
    * Upload and store a sampler sound.
    */
   async upload(input: UploadSamplerSoundInput): Promise<UploadSamplerSoundResult> {
+    console.log(`[samplerSounds] Upload request: buffer=${input.buffer.length} bytes, mimeType="${input.mimeType}", filename="${input.filename}"`);
+
     // Validate file size
     if (input.buffer.length > MAX_FILE_SIZE) {
       throw new SamplerSoundValidationError(
@@ -52,19 +54,24 @@ class SamplerSoundsService {
       );
     }
 
-    // Validate mime type (use startsWith to handle codec parameters like "audio/webm;codecs=opus")
+    // Normalize mime type by extracting base type (strip codec parameters like ";codecs=opus")
+    // This ensures "audio/webm;codecs=opus" -> "audio/webm"
+    const baseMimeType = input.mimeType.split(";")[0]!.trim().toLowerCase();
+    console.log(`[samplerSounds] Normalized MIME type: "${input.mimeType}" -> "${baseMimeType}"`);
+
+    // Validate mime type (use startsWith to handle variations like audio/x-wav)
     const isValidMimeType = ALLOWED_MIME_TYPE_PREFIXES.some(prefix =>
-      input.mimeType.startsWith(prefix)
+      baseMimeType.startsWith(prefix)
     );
 
     if (!isValidMimeType) {
-      console.error(`[samplerSounds] Invalid MIME type: ${input.mimeType}`);
+      console.error(`[samplerSounds] Invalid MIME type: original="${input.mimeType}", normalized="${baseMimeType}"`);
       throw new SamplerSoundValidationError(
         `Invalid file format. Accepted formats: MP3, WAV, OGG, WebM, M4A. Received: ${input.mimeType}`
       );
     }
 
-    console.log(`[samplerSounds] Valid MIME type: ${input.mimeType}`);
+    console.log(`[samplerSounds] Valid MIME type: "${baseMimeType}" (original: "${input.mimeType}")`);
 
     // Upload to storage
     const uploadResult = await storageService.upload(

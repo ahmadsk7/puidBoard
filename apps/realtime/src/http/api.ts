@@ -434,7 +434,7 @@ async function handleSamplerUpload(
       return;
     }
 
-    console.log(`[samplerUpload] Received file: ${filename} (${file.length} bytes)`);
+    console.log(`[samplerUpload] Received file: ${filename} (${file.length} bytes), parsedMimeType=${parsedMimeType}, fieldMimeType=${fields.mimeType}`);
 
     const clientId = fields.clientId;
     const roomId = fields.roomId;
@@ -460,12 +460,16 @@ async function handleSamplerUpload(
     let mimeType = parsedMimeType || fields.mimeType;
     if (!mimeType || mimeType === "application/octet-stream") {
       mimeType = inferredMimeType || mimeType;
+      console.log(`[samplerUpload] Inferred mime type from filename: ${mimeType}`);
     }
 
     if (!mimeType) {
+      console.log("[samplerUpload] ERROR: Could not determine file type");
       sendError(res, 400, "Could not determine file type");
       return;
     }
+
+    console.log(`[samplerUpload] Final mimeType for upload: "${mimeType}"`);
 
     const result = await samplerSoundsService.upload({
       buffer: file,
@@ -824,6 +828,25 @@ export async function handleTrackApiRequest(
   // ============================================================================
   // YOUTUBE ROUTES
   // ============================================================================
+
+  // GET /api/health - Service health check with version info
+  if (method === "GET" && url === "/api/health") {
+    console.log(`[API] Health check`);
+    sendJson(res, 200, {
+      status: "ok",
+      service: "puidboard-realtime",
+      version: "1.0.0-webm-fix",  // Update this when deploying fixes
+      platform: process.platform,
+      nodeVersion: process.version,
+      timestamp: new Date().toISOString(),
+      features: {
+        samplerFormats: ["MP3", "WAV", "OGG", "WebM", "M4A"],
+        youtubeSearch: true,
+        youtubeStream: true,
+      },
+    });
+    return true;
+  }
 
   // GET /api/youtube/status - YouTube service health check
   if (method === "GET" && url === "/api/youtube/status") {
