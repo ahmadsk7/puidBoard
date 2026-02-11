@@ -15,7 +15,7 @@ Ship a production MVP where **2+ users** can join the same room, **see cursors**
 * State: in-memory room state + Redis optional for scale
 * DB: Postgres for metadata (rooms, uploads)
 * Storage: S3-like object storage + CDN (uploads + sample pack)
-* Deploy: Vercel for frontend; Fly.io or Render for backend; Cloudflare optional for CDN/DNS; managed Postgres via Neon / Supabase; Redis via Upstash.
+* Deploy: Fly.io for frontend and backend; Cloudflare optional for CDN/DNS; managed Postgres via Neon / Supabase; Redis via Upstash.
 
 If you’re using Amazon Web Services instead, swap storage/CDN to S3 + CloudFront.
 

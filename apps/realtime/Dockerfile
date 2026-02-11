@@ -3,14 +3,12 @@
 # Then build from monorepo root: docker build -f apps/realtime/Dockerfile .
 
 FROM node:20-alpine AS base
+RUN apk add --no-cache python3 ffmpeg
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Production dependencies only
 FROM base AS deps
 WORKDIR /app
-
-# Install python for youtube-dl-exec dependency
-RUN apk add --no-cache python3
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
@@ -24,10 +22,6 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3001
-
-# Install ffmpeg and yt-dlp for YouTube audio processing
-RUN apk add --no-cache ffmpeg python3 py3-pip \
-    && pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Copy production dependencies
 COPY --from=deps /app/node_modules ./node_modules

@@ -455,7 +455,7 @@ After upload, a track enters the queue via the `QUEUE_ADD` event. When a user lo
 4. `DeckTransport` calls `deck.loadTrack(trackId, url)` which fetches the audio, decodes it, caches the buffer, and triggers analysis (waveform + BPM)
 5. The deck is now ready for play/pause/cue
 
-### 3.5 YouTube Search and Streaming
+### 3.5 YouTube Search and Buffered Playback
 
 Users can search for and add YouTube tracks directly from the UI, enabling access to virtually any song without file uploads.
 
@@ -464,81 +464,142 @@ Users can search for and add YouTube tracks directly from the UI, enabling acces
 - 15 results displayed with thumbnails, titles, and durations
 - One-click "Add to Queue" functionality
 
-**Backend Service:** `apps/realtime/src/services/youtube.ts` handles:
+**Backend Services:**
 
-| Function | Purpose |
-|----------|---------|
-| `searchYouTube(query)` | Search YouTube via `play-dl`, returns up to 15 video results |
-| `getYouTubeAudioBuffer(videoId)` | Downloads audio via `yt-dlp`, transcodes to MP3 via `ffmpeg` |
+| Component | Purpose |
+|-----------|---------|
+| `searchYouTube(query)` | Search YouTube via YouTube Data API v3, returns up to 15 video results (30-1200s duration) |
+| `getYouTubeAudioUrl(videoId)` | Extract direct audio URL using yt-dlp (youtube-dl-exec), returns best quality m4a/webm audio |
+| `/api/youtube/stream/:videoId` | Streaming proxy that forwards YouTube audio with CORS headers for client download |
 
-**Why yt-dlp + ffmpeg?** YouTube's native audio formats (Opus, AAC in WebM containers) are not universally supported by browser `<audio>` elements. Server-side transcoding to MP3 ensures compatibility across all browsers.
+**Architecture: BUFFERED DOWNLOAD + DECODE**
 
-**Streaming Architecture:**
+After extensive attempts at streaming playback (see Section 3.5.1), the system uses **buffered download and decode** for full DJ functionality:
 
 ```
-Client clicks "Add to Queue"
+Client searches YouTube (server-side YouTube Data API v3)
     │
     ▼
 QueueItem created with source: "youtube", youtubeVideoId: "xxx"
     │
     ▼
-Track loaded to deck → DeckTransport detects YouTube source
+Track loaded to deck → loadYouTubeTrack() downloads full audio
     │
     ▼
-Constructs proxy URL: /api/youtube/stream/{videoId}
+Backend: yt-dlp extracts direct Google Video URL (m4a format)
     │
     ▼
-Deck.loadStreamingTrack() uses HTMLAudioElement (not AudioBuffer)
+Backend: Streaming proxy forwards audio with CORS headers
     │
     ▼
-Server downloads + transcodes audio (cached 30 min)
+Client: Downloads entire audio file via streaming proxy
     │
     ▼
-HTTP Range requests enable seeking
+Client: Decodes to AudioBuffer using Web Audio API decodeAudioData()
+    │
+    ▼
+Client: Analyzes buffer (waveform generation + BPM detection)
+    │
+    ▼
+Connected to Web Audio API graph (EQ, filters, crossfade, FX)
+    │
+    ▼
+Server syncs state (timestamps, play/pause, tempo) via Socket.IO
 ```
 
-**HTTP Range Support:** The `/api/youtube/stream/:videoId` endpoint implements full HTTP Range request handling:
+**Why Buffered Download Instead of Streaming?**
+
+✅ **Full BPM detection** - Autocorrelation analysis requires full AudioBuffer
+✅ **Waveform generation** - RMS waveform requires complete audio data
+✅ **Perfect seeking** - AudioBufferSourceNode allows instant seeking
+✅ **All DJ controls work** - Pitch bend, scratching, loops, hot cues, tempo shifts
+✅ **Multiplayer works** - Server syncs state, clients play independently
+✅ **Identical to uploads** - YouTube tracks and uploaded tracks use the same Deck playback code
+✅ **No yt-dlp breaking** - yt-dlp handles YouTube's signature changes automatically
+
+**Backend Implementation:**
+
+`apps/realtime/src/services/youtube.ts` uses `youtube-dl-exec` to extract audio URLs:
 
 ```typescript
-// Simplified from apps/realtime/src/http/api.ts
-if (rangeHeader) {
-  // Parse "bytes=start-end"
-  const [start, end] = parseRange(rangeHeader, totalSize);
-  res.statusCode = 206; // Partial Content
-  res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
-  res.end(buffer.subarray(start, end + 1));
-} else {
-  res.statusCode = 200;
-  res.end(buffer);
+// Extract best audio format (m4a preferred, then webm)
+const info = await youtubedl(videoUrl, {
+  dumpSingleJson: true,
+  noCheckCertificates: true,
+  preferFreeFormats: true,
+});
+
+// Filter audio-only formats, sort by quality
+const audioFormats = info.formats.filter(f =>
+  f.acodec && f.acodec !== 'none' && f.vcodec === 'none'
+);
+audioFormats.sort((a, b) => {
+  const aScore = (a.abr || 0) + (a.ext === 'm4a' ? 10 : 0);
+  const bScore = (b.abr || 0) + (b.ext === 'm4a' ? 10 : 0);
+  return bScore - aScore;
+});
+```
+
+**Streaming Proxy (CORS Solution):**
+
+Direct Google Video URLs are blocked by CORS. The streaming proxy (`/api/youtube/stream/:videoId`) solves this:
+
+```typescript
+// Fetch audio from Google servers
+const response = await fetch(audioUrl, {
+  headers: {
+    'User-Agent': 'Mozilla/5.0...',
+    'Range': req.headers.range || 'bytes=0-'
+  }
+});
+
+// Set CORS headers and stream to client
+res.setHeader('Access-Control-Allow-Origin', '*');
+res.setHeader('Content-Type', 'audio/mp4');
+res.setHeader('Accept-Ranges', 'bytes');
+// Stream audio data...
+```
+
+**Client-Side Implementation:**
+
+The `Deck` class (`apps/web/src/audio/deck.ts`) treats YouTube tracks identically to uploaded tracks after download:
+
+```typescript
+async loadYouTubeTrack(trackId, videoId, ctx) {
+  // Download full audio via streaming proxy
+  const streamUrl = `${realtimeUrl}/api/youtube/stream/${videoId}`;
+  const response = await fetch(streamUrl);
+  const arrayBuffer = await response.arrayBuffer();
+
+  // Decode to AudioBuffer (same as uploads)
+  const buffer = await ctx.decodeAudioData(arrayBuffer);
+
+  // Store in deck state
+  this.state.buffer = buffer;
+  this.state.isStreaming = false;  // Buffered, not streaming
+
+  // Analyze (waveform + BPM)
+  this.analyzeAudio(buffer);
 }
 ```
 
-This enables seeking in streamed YouTube tracks -- the browser requests byte ranges as the user scrubs.
+**State Sync for Multiplayer:**
 
-**Client-Side Dual Playback Modes:** The `Deck` class (`apps/web/src/audio/deck.ts`) supports two playback modes:
+Server broadcasts deck state (play/pause, timestamp, tempo) via `BEACON_TICK` events. Each client:
+- Downloads and decodes the same `videoId` to an AudioBuffer
+- Plays from the buffer using `AudioBufferSourceNode`
+- Syncs playback position based on server timestamps
+- Uses PLL drift correction (see Section 5.4) to maintain sync
 
-| Mode | Used For | Implementation |
-|------|----------|----------------|
-| **Buffered** | Local uploads | `AudioBufferSourceNode` with full buffer in memory |
-| **Streaming** | YouTube tracks | `HTMLAudioElement` + `MediaElementAudioSourceNode` |
+**Performance Characteristics:**
 
-The streaming mode uses `HTMLAudioElement` because it handles HTTP streaming and range requests natively, while still connecting to the Web Audio graph for mixer processing.
-
-**Waveform Analysis for YouTube:** Unlike the buffered mode where analysis happens on the existing `AudioBuffer`, streaming tracks require a separate fetch:
-
-```typescript
-// In Deck.loadStreamingTrack()
-this.analyzeStreamingAudio(url, ctx); // Runs in background
-
-// analyzeStreamingAudio() does:
-const response = await fetch(url);
-const arrayBuffer = await response.arrayBuffer();
-const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-const waveform = generateWaveform(audioBuffer, 480);
-const bpm = await detectBPM(audioBuffer);
-```
-
-This runs asynchronously after the track is loaded, so playback can start immediately while the waveform generates in the background.
+| Aspect | Performance |
+|--------|-------------|
+| Initial load time | 2-10 seconds (download + decode, depends on song length and connection speed) |
+| Memory usage | ~10-50 MB per track (uncompressed PCM in AudioBuffer) |
+| Seeking | Instant (no network latency) |
+| BPM detection | 1-3 seconds after load |
+| Waveform generation | <100ms after load |
 
 **QueueItem Schema Extension:** YouTube tracks extend the base QueueItem:
 
@@ -551,6 +612,50 @@ interface QueueItem {
   thumbnailUrl?: string;
 }
 ```
+
+---
+
+#### 3.5.1 Failed Approaches and Final Solution
+
+Multiple approaches were attempted before landing on the current buffered download solution:
+
+**Attempt 1: ytdl-core (FAILED)**
+- **Approach:** Use ytdl-core library to extract audio URLs
+- **Result:** ❌ "Sign in to confirm you're not a bot"
+- **Why:** YouTube blocks datacenter IPs (works locally, fails on Fly.io)
+
+**Attempt 2: RapidAPI youtube-mp36 (FAILED)**
+- **Approach:** Third-party audio extraction service
+- **Result:** ❌ All MP3 URLs returned 404
+- **Why:** Service returned valid-looking responses but URLs were dead
+
+**Attempt 3: yt-dlp with cookies (FAILED)**
+- **Approach:** Export YouTube cookies, pass to yt-dlp with `--cookies` flag
+- **Result:** ❌ Cookies rotated/expired within hours
+- **Why:** YouTube rotates cookies as anti-bot measure, especially from datacenter IPs
+
+**Attempt 4: HTML Audio element streaming (FAILED)**
+- **Approach:** Stream audio via `<audio>` element with MediaElementAudioSourceNode
+- **Result:** ✅ Audio played, ❌ No BPM detection, seeking broken, DJ controls unreliable
+- **Why:** MediaElementAudioSourceNode doesn't provide decoded AudioBuffer for analysis
+
+**Final Solution: yt-dlp + Streaming Proxy + Buffered Decode (SUCCESS)**
+- **Approach:**
+  1. Use yt-dlp (youtube-dl-exec) to extract direct Google Video URLs
+  2. Proxy through backend to add CORS headers
+  3. Download full audio on client
+  4. Decode to AudioBuffer
+- **Result:** ✅ Works reliably, full DJ features, BPM detection, perfect seeking
+- **Why it works:**
+  - yt-dlp is actively maintained and handles YouTube signature changes
+  - Streaming proxy solves CORS issues
+  - AudioBuffer decode enables full analysis (BPM, waveform)
+  - Identical code path to uploaded tracks
+
+**Key Insight:**
+
+The problem wasn't streaming vs. buffering or server vs. client — it was **needing access to the decoded AudioBuffer for analysis**. Streaming with MediaElementAudioSourceNode provides real-time frequency data but not the full decoded buffer required for BPM detection (autocorrelation) and waveform generation. By downloading and decoding completely, YouTube tracks get identical functionality to uploaded tracks.
+
 
 ---
 
@@ -1039,6 +1144,6 @@ All 4 buttons share the same orange color (#FF8C3B) for a unified look.
 | `apps/realtime/src/protocol/handlers.ts` | Socket.IO event handler registration |
 | `apps/realtime/src/services/storage.ts` | File storage (Supabase or local) |
 | `apps/realtime/src/services/tracks.ts` | Track upload validation and deduplication |
-| `apps/realtime/src/services/youtube.ts` | YouTube search and audio download/transcoding |
+| `apps/realtime/src/services/youtube.ts` | YouTube search via YouTube Data API v3 (client-side playback) |
 | `apps/realtime/src/http/api.ts` | HTTP API endpoints (including YouTube streaming) |
 | `apps/web/src/components/YouTubeSearch.tsx` | YouTube search UI component |

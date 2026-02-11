@@ -3,7 +3,7 @@
 ## Method 1: Using Browser Extension (Easiest)
 
 1. **Install "Get cookies.txt LOCALLY" extension**
-   - Chrome/Edge: https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc
+   - Chrome/Edge: hr
    - Firefox: https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/
 
 2. **Go to YouTube.com** (make sure you're logged in)

@@ -85,16 +85,16 @@ export default function DeckTransport({
       console.log(`[DeckTransport-${deckId}]   - youtubeVideoId: ${queueItem.youtubeVideoId}`);
       console.log(`[DeckTransport-${deckId}]   - Full queueItem:`, JSON.stringify(queueItem, null, 2));
 
-      // Helper function to get the audio URL (refreshes for YouTube)
+      // Helper function to get the audio URL (for YouTube, returns videoId format)
       const getAudioUrl = async (): Promise<string> => {
-        // For YouTube tracks, use the stream proxy endpoint to avoid CORS
+        // For YouTube tracks, return in format "youtube:VIDEO_ID"
         const isYouTube = queueItem.source === "youtube" && queueItem.youtubeVideoId;
         console.log(`[DeckTransport-${deckId}]   - isYouTube check: source="${queueItem.source}" videoId="${queueItem.youtubeVideoId}" => ${isYouTube}`);
-        
+
         if (isYouTube) {
-          const proxyUrl = `${realtimeUrl}/api/youtube/stream/${queueItem.youtubeVideoId}`;
-          console.log(`[DeckTransport-${deckId}]   - Using YouTube stream proxy: ${proxyUrl}`);
-          return proxyUrl;
+          const youtubeUrl = `youtube:${queueItem.youtubeVideoId}`;
+          console.log(`[DeckTransport-${deckId}]   - Using YouTube IFrame Player: ${youtubeUrl}`);
+          return youtubeUrl;
         }
         console.log(`[DeckTransport-${deckId}]   - Using direct URL: ${queueItem.url}`);
         return queueItem.url;

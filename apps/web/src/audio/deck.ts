@@ -197,12 +197,17 @@ export class Deck {
     // Clean up previous streaming resources
     this.cleanupStreaming();
 
-    // Check if this is a YouTube stream URL (uses our proxy endpoint)
-    const isYouTubeStream = url.includes("/api/youtube/stream/");
+    // Check if this is a YouTube videoId (format: "youtube:VIDEO_ID")
+    const youtubeMatch = url.match(/^youtube:(.+)$/);
 
-    if (isYouTubeStream) {
-      // Use HTMLAudioElement for YouTube streams (better codec support)
-      await this.loadStreamingTrack(trackId, url, ctx);
+    if (youtubeMatch) {
+      // Use YouTube backend extraction for YouTube tracks
+      const videoId = youtubeMatch[1];
+      if (!videoId) {
+        throw new Error('Invalid YouTube URL format - missing video ID');
+      }
+      console.log(`[deck-${this.state.deckId}] Detected YouTube videoId: ${videoId}`);
+      await this.loadYouTubeTrack(trackId, videoId, ctx);
     } else {
       // Use AudioBuffer for regular tracks
       await this.loadBufferedTrack(trackId, url, ctx);
@@ -231,123 +236,66 @@ export class Deck {
   }
 
   /**
-   * Load a streaming track using HTMLAudioElement (for YouTube).
+   * Load a YouTube track using backend audio extraction + HTML Audio Element.
+   * Backend fetches audio URL from RapidAPI youtube-mp36.
    */
-  private async loadStreamingTrack(
+  private async loadYouTubeTrack(
     trackId: string,
-    url: string,
+    videoId: string,
     ctx: AudioContext
   ): Promise<void> {
-    console.log(`[deck-${this.state.deckId}] Loading streaming track: ${trackId}`);
+    console.log(`[deck-${this.state.deckId}] Loading YouTube track: ${videoId}`);
 
     const gainNode = this.ensureGainNode();
     if (!gainNode) {
       throw new Error("Failed to create gain node");
     }
 
-    // Create audio element
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audio.preload = "auto";
-
-    // Wait for the audio to be loadable
-    const loadPromise = new Promise<void>((resolve, reject) => {
-      const onCanPlay = () => {
-        cleanup();
-        resolve();
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error(`Failed to load audio: ${audio.error?.message || "Unknown error"}`));
-      };
-      const cleanup = () => {
-        audio.removeEventListener("canplaythrough", onCanPlay);
-        audio.removeEventListener("error", onError);
-      };
-      audio.addEventListener("canplaythrough", onCanPlay);
-      audio.addEventListener("error", onError);
-    });
-
-    audio.src = url;
-
     try {
-      await loadPromise;
+      // Download the full audio and decode to AudioBuffer for full DJ features
+      const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
+      const streamUrl = `${realtimeUrl}/api/youtube/stream/${videoId}`;
+      console.log(`[deck-${this.state.deckId}] Downloading YouTube audio: ${streamUrl}`);
+
+      const response = await fetch(streamUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch YouTube audio: ${response.status}`);
+      }
+
+      console.log(`[deck-${this.state.deckId}] Decoding audio buffer...`);
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = await ctx.decodeAudioData(arrayBuffer);
+
+      console.log(`[deck-${this.state.deckId}] ✓ YouTube audio decoded, duration: ${buffer.duration.toFixed(2)}s`);
+
+      // Update state (same as buffered tracks)
+      this.state.trackId = trackId;
+      this.state.buffer = buffer;
+      this.state.isStreaming = false;
+      this.state.durationSec = buffer.duration;
+      this.state.playheadSec = 0;
+      this.state.cuePointSec = 0;
+      this.state.hotCuePointSec = null;
+      this.state.playState = "stopped";
+
+      // Start analysis
+      this.state.analysis = {
+        waveform: null,
+        bpm: null,
+        status: "analyzing",
+      };
+      this.notify();
+
+      // Analyze in background (waveform + BPM detection)
+      this.analyzeAudio(buffer);
+
     } catch (err) {
-      console.error(`[deck-${this.state.deckId}] ✗✗✗ STREAMING TRACK LOAD FAILED ✗✗✗`);
+      console.error(`[deck-${this.state.deckId}] ✗✗✗ YOUTUBE TRACK LOAD FAILED ✗✗✗`);
       console.error(`[deck-${this.state.deckId}] Error:`, err);
       throw err;
     }
-
-    // Create MediaElementAudioSourceNode
-    // Connect: mediaSource → analyser → gainNode → mixerInput
-    const mediaSource = ctx.createMediaElementSource(audio);
-    if (this.state.analyser) {
-      mediaSource.connect(this.state.analyser);
-    } else {
-      mediaSource.connect(gainNode);
-    }
-
-    // Set up event listeners for playback state
-    audio.addEventListener("ended", () => {
-      if (this.state.isStreaming && this.state.audioElement === audio) {
-        this.state.playState = "stopped";
-        this.state.playheadSec = 0;
-        this.notify();
-      }
-    });
-
-    audio.addEventListener("timeupdate", () => {
-      if (this.state.isStreaming && this.state.audioElement === audio) {
-        this.state.playheadSec = audio.currentTime;
-        // Don't notify on every timeupdate to avoid excessive re-renders
-      }
-    });
-
-    // Update duration when metadata loads (may not be available immediately)
-    audio.addEventListener("loadedmetadata", () => {
-      if (this.state.isStreaming && this.state.audioElement === audio) {
-        if (audio.duration && isFinite(audio.duration)) {
-          this.state.durationSec = audio.duration;
-          console.log(`[deck-${this.state.deckId}] Duration updated from metadata: ${audio.duration.toFixed(2)}s`);
-          this.notify();
-        }
-      }
-    });
-
-    // Also listen for durationchange in case it updates later
-    audio.addEventListener("durationchange", () => {
-      if (this.state.isStreaming && this.state.audioElement === audio) {
-        if (audio.duration && isFinite(audio.duration) && audio.duration !== this.state.durationSec) {
-          this.state.durationSec = audio.duration;
-          console.log(`[deck-${this.state.deckId}] Duration changed: ${audio.duration.toFixed(2)}s`);
-          this.notify();
-        }
-      }
-    });
-
-    this.state.trackId = trackId;
-    this.state.buffer = null; // No buffer for streaming playback
-    this.state.isStreaming = true;
-    this.state.audioElement = audio;
-    this.state.mediaSource = mediaSource;
-    this.state.durationSec = audio.duration || 0;
-    this.state.playheadSec = 0;
-    this.state.cuePointSec = 0;
-    this.state.hotCuePointSec = null;
-    this.state.playState = "stopped";
-
-    // Set analyzing status while we fetch for waveform
-    this.state.analysis = {
-      waveform: null,
-      bpm: null,
-      status: "analyzing",
-    };
-
-    // Fetch the audio as ArrayBuffer for waveform analysis (in background)
-    this.analyzeStreamingAudio(url, ctx);
-
-    this.notify();
-    console.log(`[deck-${this.state.deckId}] ✓ Streaming track loaded, duration: ${audio.duration?.toFixed(2)}s`);
   }
 
   /**
@@ -453,81 +401,6 @@ export class Deck {
       }
 
       console.error(`[deck-${this.state.deckId}] Analysis #${analysisId} failed:`, error);
-      this.state.analysis = {
-        ...this.state.analysis,
-        status: "error",
-      };
-      this.notify();
-    }
-  }
-
-  /**
-   * Analyze streaming audio (YouTube) by fetching and decoding for waveform.
-   * Runs in background - does not block playback.
-   */
-  private async analyzeStreamingAudio(url: string, ctx: AudioContext): Promise<void> {
-    // Cancel any previous analysis by incrementing the ID
-    this.currentAnalysisId++;
-    const analysisId = this.currentAnalysisId;
-
-    console.log(`[deck-${this.state.deckId}] Fetching streaming audio for waveform analysis...`);
-
-    try {
-      // Fetch the audio file as ArrayBuffer
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch audio: ${response.status}`);
-      }
-      
-      const arrayBuffer = await response.arrayBuffer();
-      
-      // Check if analysis was cancelled
-      if (this.currentAnalysisId !== analysisId) {
-        console.log(`[deck-${this.state.deckId}] Streaming analysis cancelled`);
-        return;
-      }
-
-      console.log(`[deck-${this.state.deckId}] Decoding audio for analysis (${arrayBuffer.byteLength} bytes)...`);
-
-      // Decode to AudioBuffer for analysis
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      
-      // Check if analysis was cancelled
-      if (this.currentAnalysisId !== analysisId) {
-        console.log(`[deck-${this.state.deckId}] Streaming analysis cancelled after decode`);
-        return;
-      }
-
-      console.log(`[deck-${this.state.deckId}] Generating waveform for streaming track...`);
-
-      // Generate waveform
-      const waveform = generateWaveform(audioBuffer, 480);
-
-      if (this.currentAnalysisId !== analysisId) return;
-
-      this.state.analysis = {
-        ...this.state.analysis,
-        waveform,
-      };
-      this.notify();
-
-      // Detect BPM
-      const bpm = await detectBPM(audioBuffer);
-
-      if (this.currentAnalysisId !== analysisId) return;
-
-      this.state.analysis = {
-        ...this.state.analysis,
-        bpm,
-        status: "complete",
-      };
-      this.notify();
-
-      console.log(`[deck-${this.state.deckId}] Streaming track analysis complete - BPM: ${bpm ?? "N/A"}`);
-    } catch (error) {
-      if (this.currentAnalysisId !== analysisId) return;
-
-      console.error(`[deck-${this.state.deckId}] Streaming audio analysis failed:`, error);
       this.state.analysis = {
         ...this.state.analysis,
         status: "error",

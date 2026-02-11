@@ -16,7 +16,7 @@
  *
  * YouTube endpoints:
  * - GET /api/youtube/search?q=... - Search YouTube for songs
- * - GET /api/youtube/audio/:videoId - Get audio stream URL for a video
+ * - GET /api/youtube/audio/:videoId - Get direct audio URL via RapidAPI
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
@@ -24,7 +24,7 @@ import busboy from "busboy";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
-import { searchYouTube, getYouTubeAudioUrl, getYouTubeAudioBuffer } from "../services/youtube.js";
+import { searchYouTube, getYouTubeAudioUrl } from "../services/youtube.js";
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -634,6 +634,7 @@ async function handleYouTubeSearch(
 
 /**
  * Handle GET /api/youtube/audio/:videoId
+ * Returns a direct audio URL from RapidAPI youtube-to-mp315
  */
 async function handleYouTubeAudio(
   _req: IncomingMessage,
@@ -641,109 +642,107 @@ async function handleYouTubeAudio(
   videoId: string
 ): Promise<void> {
   try {
-    console.log(`[youtubeAudio] Getting audio URL for video: ${videoId}`);
+    console.log(`[youtubeAudio] Getting audio URL for videoId: ${videoId}`);
 
     const result = await getYouTubeAudioUrl(videoId);
 
-    console.log(`[youtubeAudio] Got URL (expires at ${new Date(result.expiresAt).toISOString()})`);
+    console.log(`[youtubeAudio] Successfully got audio URL`);
 
     sendJson(res, 200, {
       url: result.url,
       mimeType: result.mimeType,
-      expiresAt: result.expiresAt,
+      expiresAt: result.expiresAt
     });
   } catch (error) {
-    console.error("[youtubeAudio] error:", error);
-    sendError(res, 500, error instanceof Error ? error.message : "Failed to get audio URL");
+    console.error("[youtubeAudio] Error occurred:", error);
+    sendError(res, 500, error instanceof Error ? error.message : "Audio extraction failed");
   }
 }
 
-// Cache for YouTube audio buffers to enable seeking without re-downloading
-const youtubeAudioCache = new Map<string, { buffer: Buffer; contentType: string; timestamp: number }>();
-const YOUTUBE_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
 /**
  * Handle GET /api/youtube/stream/:videoId
- * Streams YouTube audio through our server to avoid CORS issues.
- * Supports range requests for seeking.
+ * Proxies YouTube audio through our server to avoid CORS issues
  */
 async function handleYouTubeStream(
   req: IncomingMessage,
   res: ServerResponse,
   videoId: string
 ): Promise<void> {
+  console.log(`[youtubeStream] Proxying audio for videoId: ${videoId}`);
+
   try {
-    console.log(`[youtubeStream] Request for video: ${videoId}`);
+    // Get the audio URL from yt-dlp
+    const result = await getYouTubeAudioUrl(videoId);
+    const audioUrl = result.url;
 
-    // Check cache first
-    let audioData = youtubeAudioCache.get(videoId);
-    
-    // If not cached or expired, download
-    if (!audioData || Date.now() - audioData.timestamp > YOUTUBE_CACHE_TTL_MS) {
-      console.log(`[youtubeStream] Downloading audio for video: ${videoId}`);
-      const { buffer, contentType } = await getYouTubeAudioBuffer(videoId);
-      audioData = { buffer, contentType, timestamp: Date.now() };
-      youtubeAudioCache.set(videoId, audioData);
-      
-      // Clean up old cache entries
-      for (const [key, value] of youtubeAudioCache.entries()) {
-        if (Date.now() - value.timestamp > YOUTUBE_CACHE_TTL_MS) {
-          youtubeAudioCache.delete(key);
+    console.log(`[youtubeStream] Got audio URL, fetching and proxying...`);
+
+    // Fetch the audio from Google servers
+    const response = await fetch(audioUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Range': req.headers.range || 'bytes=0-'
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`[youtubeStream] Failed to fetch audio: ${response.status}`);
+      sendError(res, 502, "Failed to fetch audio from YouTube");
+      return;
+    }
+
+    // Set CORS and streaming headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    // Forward range headers for seeking support
+    const contentLength = response.headers.get('content-length');
+    const contentRange = response.headers.get('content-range');
+
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+
+    if (contentRange) {
+      res.setHeader('Content-Range', contentRange);
+      res.writeHead(206); // Partial Content
+    } else {
+      res.writeHead(200);
+    }
+
+    // Stream the audio data
+    if (response.body) {
+      const reader = response.body.getReader();
+
+      const pump = async (): Promise<void> => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!res.write(value)) {
+              await new Promise(resolve => res.once('drain', resolve));
+            }
+          }
+          res.end();
+        } catch (error) {
+          console.error(`[youtubeStream] Stream error:`, error);
+          res.end();
         }
-      }
+      };
+
+      await pump();
     } else {
-      console.log(`[youtubeStream] Serving from cache: ${videoId}`);
+      res.end();
     }
 
-    const { buffer, contentType } = audioData;
-    const totalSize = buffer.length;
-
-    // Parse Range header for seeking support
-    const rangeHeader = req.headers.range;
-    
-    if (rangeHeader) {
-      // Handle range request (for seeking)
-      const parts = rangeHeader.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0] || "0", 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-      
-      // Validate range
-      if (start >= totalSize || end >= totalSize || start > end) {
-        res.statusCode = 416; // Range Not Satisfiable
-        res.setHeader("Content-Range", `bytes */${totalSize}`);
-        res.end();
-        return;
-      }
-      
-      const chunkSize = end - start + 1;
-      const chunk = buffer.subarray(start, end + 1);
-      
-      res.statusCode = 206; // Partial Content
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Length", chunkSize);
-      res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
-      res.setHeader("Accept-Ranges", "bytes");
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      
-      console.log(`[youtubeStream] Sending range ${start}-${end}/${totalSize} (${chunkSize} bytes)`);
-      res.end(chunk);
-    } else {
-      // Full file request
-      res.statusCode = 200;
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Length", totalSize);
-      res.setHeader("Accept-Ranges", "bytes");
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      
-      console.log(`[youtubeStream] Sending full file: ${totalSize} bytes (${contentType})`);
-      res.end(buffer);
-    }
+    console.log(`[youtubeStream] Successfully proxied audio`);
   } catch (error) {
-    console.error("[youtubeStream] error:", error);
+    console.error("[youtubeStream] Error occurred:", error);
     if (!res.headersSent) {
-      sendError(res, 500, error instanceof Error ? error.message : "Failed to get audio");
+      sendError(res, 500, error instanceof Error ? error.message : "Stream proxy failed");
     }
   }
 }

@@ -1,49 +1,39 @@
 /**
- * YouTube service for searching and extracting audio URLs.
+ * YouTube service for searching and extracting audio.
  *
- * Uses youtube-dl-exec (yt-dlp) for reliable audio extraction.
- * Uses fluent-ffmpeg for transcoding to browser-compatible MP3.
+ * APPROACH (BACKEND AUDIO EXTRACTION):
+ * - Server: YouTube Data API v3 for search
+ * - Server: RapidAPI youtube-mp36 for audio extraction (GET /dl?id={videoId})
+ * - Client: Receives direct audio URLs, uses Web Audio API for full DJ controls
+ *
+ * WHY THIS APPROACH:
+ * All self-hosted server-side approaches failed:
+ * 1. ytdl-core: Bot detection, datacenter IP blocked
+ * 2. yt-dlp with cookies: Cookies expire/rotate frequently, unreliable
+ * 3. play-dl + youtube-dl-exec: Works locally (residential IP) but blocked on servers
+ * 4. Invidious API: All public instances down/blocked
+ * 5. Piped API: Same issues as Invidious
+ * 6. YouTube IFrame Player: Cross-origin restrictions prevent Web Audio API access
+ *
+ * RapidAPI youtube-mp36 solves these issues:
+ * - They handle datacenter IP blocking with residential proxies
+ * - Reliable uptime and maintenance
+ * - Simple API integration
+ * - Client gets direct audio URL for Web Audio API
+ * - Predictable costs: ~$10-200/mo depending on volume
+ *
+ * Alternative: Self-hosted MichaelBelgium/Youtube-API (migrate at scale if needed)
  */
 
-// @ts-ignore - No type definitions available
-import { create as createYtDlp } from "youtube-dl-exec";
-// @ts-ignore - No type definitions available
-import play from "play-dl";
-import * as path from "path";
-import * as fs from "fs";
-import * as os from "os";
+import { google } from 'googleapis';
 
-// Use environment variables with fallbacks for different environments:
-// - Production (Docker): uses system-installed binaries in PATH
-// - Development (macOS): uses Homebrew paths
-const ytDlpPath = process.env.YTDLP_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/yt-dlp" : "yt-dlp");
-const ffmpegPath = process.env.FFMPEG_PATH || (process.platform === "darwin" ? "/opt/homebrew/bin/ffmpeg" : "ffmpeg");
-const youtubeDl = createYtDlp(ytDlpPath);
+const youtube = google.youtube({
+  version: 'v3',
+  auth: process.env.YOUTUBE_API_KEY,
+});
 
-// Initialize play-dl with YouTube cookies if provided (runs async on first use)
-// This helps avoid rate limiting and bot detection in production
-let playDlInitialized = false;
-const initPlayDl = async () => {
-  if (playDlInitialized) return;
-
-  if (process.env.YOUTUBE_COOKIE) {
-    console.log(`[YouTube] Setting up authentication with cookies`);
-    await play.setToken({
-      youtube: {
-        cookie: process.env.YOUTUBE_COOKIE
-      }
-    });
-    console.log(`[YouTube] Authentication configured`);
-  }
-
-  playDlInitialized = true;
-};
-
-console.log(`[YouTube] Initializing YouTube service`);
-console.log(`[YouTube] Platform: ${process.platform}`);
-console.log(`[YouTube] yt-dlp path: ${ytDlpPath}`);
-console.log(`[YouTube] ffmpeg path: ${ffmpegPath}`);
-console.log(`[YouTube] Node version: ${process.version}`);
+console.log(`[YouTube] Initializing YouTube Data API v3`);
+console.log(`[YouTube] API Key configured: ${!!process.env.YOUTUBE_API_KEY}`);
 
 // ============================================================================
 // Types
@@ -61,20 +51,47 @@ export interface YouTubeSearchResult {
 export interface YouTubeAudioResult {
   url: string;
   mimeType: string;
-  /** Approximate expiration time (URLs typically expire in ~6 hours) */
   expiresAt: number;
 }
 
 // ============================================================================
-// Search
+// Helper Functions
 // ============================================================================
 
 /**
- * Search YouTube for videos matching a query.
- *
- * @param query - Search query string
- * @param limit - Maximum number of results (default 15)
- * @returns Array of search results
+ * Format seconds to MM:SS or HH:MM:SS
+ */
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Parse ISO 8601 duration (e.g., "PT4M13S") to seconds
+ */
+function parseDuration(isoDuration: string): number {
+  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+
+  const hours = parseInt(match[1] || '0');
+  const minutes = parseInt(match[2] || '0');
+  const seconds = parseInt(match[3] || '0');
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+// ============================================================================
+// Search using YouTube Data API v3
+// ============================================================================
+
+/**
+ * Search YouTube using YouTube Data API v3 (official API, reliable)
  */
 export async function searchYouTube(
   query: string,
@@ -82,197 +99,182 @@ export async function searchYouTube(
 ): Promise<YouTubeSearchResult[]> {
   console.log(`[YouTube] searchYouTube called with query="${query}", limit=${limit}`);
 
+  if (!process.env.YOUTUBE_API_KEY) {
+    throw new Error('YOUTUBE_API_KEY environment variable not set');
+  }
+
   try {
-    // Initialize play-dl authentication if not already done
-    await initPlayDl();
+    // Search for videos
+    const searchResponse = await youtube.search.list({
+      part: ['snippet'],
+      q: query,
+      type: ['video'],
+      maxResults: limit + 10, // Request extra to allow filtering
+      videoCategoryId: '10', // Music category
+      videoEmbeddable: 'true', // Must be embeddable for iframe playback
+    });
 
-    console.log(`[YouTube] Calling play.search...`);
+    if (!searchResponse.data.items) {
+      return [];
+    }
 
-    // Request extra results to filter out non-music items
-    const searchResults = await play.search(query, { limit: limit + 10, source: { youtube: "video" } });
+    // Get video IDs for duration lookup
+    const videoIds = searchResponse.data.items
+      .map(item => item.id?.videoId)
+      .filter((id): id is string => !!id);
 
-    console.log(`[YouTube] play.search returned ${searchResults.length} raw results`);
+    if (videoIds.length === 0) {
+      return [];
+    }
+
+    // Fetch video details (including duration)
+    const videosResponse = await youtube.videos.list({
+      part: ['contentDetails', 'snippet'],
+      id: videoIds,
+    });
+
+    if (!videosResponse.data.items) {
+      return [];
+    }
 
     const results: YouTubeSearchResult[] = [];
 
-    for (const item of searchResults) {
-      // Only include video results
-      if (item.type !== "video") {
-        console.log(`[YouTube] Skipping non-video result: ${item.type}`);
+    for (const video of videosResponse.data.items) {
+      try {
+        const videoId = video.id;
+        const snippet = video.snippet;
+        const contentDetails = video.contentDetails;
+
+        if (!videoId || !snippet || !contentDetails) continue;
+
+        const durationSec = parseDuration(contentDetails.duration || 'PT0S');
+
+        // Skip very long videos (> 20 minutes)
+        if (durationSec > 1200) {
+          console.log(`[YouTube] Skipping long video (${durationSec}s): ${snippet.title}`);
+          continue;
+        }
+
+        // Skip very short videos (< 30 seconds)
+        if (durationSec < 30) {
+          console.log(`[YouTube] Skipping short video (${durationSec}s): ${snippet.title}`);
+          continue;
+        }
+
+        // Get best quality thumbnail
+        const thumbnail = snippet.thumbnails?.high?.url
+          || snippet.thumbnails?.medium?.url
+          || snippet.thumbnails?.default?.url
+          || '';
+
+        results.push({
+          videoId,
+          title: snippet.title || 'Unknown Title',
+          thumbnailUrl: thumbnail,
+          durationSec,
+          durationFormatted: formatDuration(durationSec),
+          channelName: snippet.channelTitle || 'Unknown',
+        });
+
+        if (results.length >= limit) break;
+      } catch (parseError) {
+        console.error(`[YouTube] Error parsing result:`, parseError);
         continue;
       }
-      if (!item.id) {
-        console.log(`[YouTube] Skipping result with no ID`);
-        continue;
-      }
-
-      // Skip live streams
-      if (item.live) {
-        console.log(`[YouTube] Skipping live stream: ${item.title}`);
-        continue;
-      }
-
-      // Get duration in seconds
-      const durationSec = item.durationInSec || 0;
-
-      // Skip very long videos (likely not songs) - max 20 minutes
-      if (durationSec > 1200) {
-        console.log(`[YouTube] Skipping long video (${durationSec}s): ${item.title}`);
-        continue;
-      }
-
-      results.push({
-        videoId: item.id,
-        title: item.title || "Unknown Title",
-        thumbnailUrl: item.thumbnails[0]?.url || "",
-        durationSec,
-        durationFormatted: item.durationRaw || "0:00",
-        channelName: item.channel?.name || "Unknown",
-      });
-
-      if (results.length >= limit) break;
     }
 
-    console.log(`[YouTube] Returning ${results.length} filtered results`);
+    console.log(`[YouTube] Returning ${results.length} results`);
     return results;
   } catch (error) {
-    console.error("[YouTube] Search error:", error);
-    console.error("[YouTube] Error type:", error instanceof Error ? error.constructor.name : typeof error);
-    console.error("[YouTube] Error message:", error instanceof Error ? error.message : String(error));
-    console.error("[YouTube] Error stack:", error instanceof Error ? error.stack : "No stack");
-    throw new Error(`YouTube search failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    console.error('[YouTube] Search error:', error);
+    throw new Error(`YouTube search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 // ============================================================================
-// Audio Extraction
+// Audio Extraction via yt-dlp (Self-hosted)
 // ============================================================================
 
+import youtubedl from 'youtube-dl-exec';
+
 /**
- * Get the audio stream URL for a YouTube video.
+ * Get audio download URL for a YouTube video using yt-dlp
  *
- * @param videoId - YouTube video ID
- * @returns Audio URL and metadata
+ * @param videoId YouTube video ID (e.g., "dQw4w9WgXcQ")
+ * @returns Audio URL, mime type, and expiration timestamp
  */
 export async function getYouTubeAudioUrl(
   videoId: string
 ): Promise<YouTubeAudioResult> {
+  console.log(`[YouTube] getYouTubeAudioUrl called for videoId: ${videoId}`);
+
   try {
-    // Initialize play-dl authentication if not already done
-    await initPlayDl();
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    console.log(`[YouTube] Extracting audio URL using yt-dlp for: ${videoId}`);
 
-    // Get video info using play-dl
-    const info = await play.video_info(url);
+    // Use yt-dlp to get the best audio format
+    const info = await youtubedl(videoUrl, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true,
+      addHeader: [
+        'referer:youtube.com',
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      ]
+    }) as any;
 
-    // Get audio formats
-    const audioFormats = info.format.filter((f: any) => f.mimeType?.includes("audio"));
+    if (!info || !info.formats) {
+      console.error(`[YouTube] No formats found for video: ${videoId}`);
+      throw new Error('No audio formats available for this video');
+    }
+
+    // Find the best audio-only format (usually 140 = m4a audio)
+    const audioFormats = info.formats.filter((f: any) =>
+      f.acodec && f.acodec !== 'none' && f.vcodec === 'none'
+    );
 
     if (audioFormats.length === 0) {
-      throw new Error("No audio formats available");
+      console.error(`[YouTube] No audio-only formats found for video: ${videoId}`);
+      throw new Error('No audio-only formats available');
     }
 
-    // Sort by audio quality (bitrate)
-    const sortedFormats = audioFormats.sort((a: any, b: any) => {
-      const bitrateA = a.bitrate || 0;
-      const bitrateB = b.bitrate || 0;
-      return bitrateB - bitrateA;
+    // Sort by quality and prefer m4a/webm
+    audioFormats.sort((a: any, b: any) => {
+      const aScore = (a.abr || 0) + (a.ext === 'm4a' ? 10 : 0);
+      const bScore = (b.abr || 0) + (b.ext === 'm4a' ? 10 : 0);
+      return bScore - aScore;
     });
 
-    const bestFormat = sortedFormats[0];
+    const bestAudio = audioFormats[0];
+    const audioUrl = bestAudio.url;
 
-    if (!bestFormat || !bestFormat.url) {
-      throw new Error("Audio format has no URL");
+    console.log(`[YouTube] Found audio format: ${bestAudio.ext} (${bestAudio.abr || 'unknown'}kbps)`);
+    console.log(`[YouTube] Audio URL: ${audioUrl.substring(0, 100)}...`);
+
+    // Check for errors in response
+    if (!audioUrl) {
+      console.error(`[YouTube] No audio URL found:`, bestAudio);
+      throw new Error('No audio URL extracted from video');
     }
 
-    // YouTube URLs typically expire in ~6 hours
-    const expiresAt = Date.now() + 6 * 60 * 60 * 1000;
+    // YouTube URLs typically expire after a few hours
+    const expiresAt = Date.now() + (6 * 60 * 60 * 1000); // 6 hours from now
+
+    const mimeType = bestAudio.ext === 'm4a' ? 'audio/mp4' :
+                     bestAudio.ext === 'webm' ? 'audio/webm' :
+                     'audio/mpeg';
+
+    console.log(`[YouTube] Successfully extracted audio URL: ${info.title} (${info.duration}s)`);
 
     return {
-      url: bestFormat.url,
-      mimeType: bestFormat.mimeType || "audio/webm",
-      expiresAt,
+      url: audioUrl,
+      mimeType,
+      expiresAt
     };
   } catch (error) {
-    console.error("[YouTube] Audio extraction error:", error);
-    throw new Error(
-      `Failed to get audio URL: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
-  }
-}
-
-/**
- * Download YouTube audio and transcode to MP3.
- * Uses yt-dlp for reliable downloading and ffmpeg for transcoding.
- *
- * @param videoId - YouTube video ID
- * @returns Audio buffer (MP3) and content type
- */
-export async function getYouTubeAudioBuffer(
-  videoId: string
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const url = `https://www.youtube.com/watch?v=${videoId}`;
-  const tempDir = os.tmpdir();
-  const tempFile = path.join(tempDir, `yt-${videoId}-${Date.now()}.mp3`);
-  let cookieFile: string | null = null;
-
-  console.log(`[YouTube] Downloading audio for: ${videoId}`);
-
-  try {
-    // Prepare yt-dlp options
-    const ytDlpOptions: any = {
-      extractAudio: true,
-      audioFormat: "mp3",
-      audioQuality: 0, // best quality
-      format: "bestaudio/best", // Select best audio format available
-      output: tempFile,
-      noPlaylist: true,
-      quiet: false, // Enable output for debugging
-      noWarnings: false,
-      ffmpegLocation: ffmpegPath,
-      preferFreeFormats: true, // Prefer free/open formats
-    };
-
-    // If YouTube cookies are provided, write them to a temp file and use them
-    if (process.env.YOUTUBE_COOKIE) {
-      cookieFile = path.join(tempDir, `yt-cookies-${Date.now()}.txt`);
-      await fs.promises.writeFile(cookieFile, process.env.YOUTUBE_COOKIE);
-      ytDlpOptions.cookies = cookieFile;
-      console.log(`[YouTube] Using cookies for authentication`);
-    }
-
-    // Use yt-dlp to download and convert to MP3 in one step
-    await youtubeDl(url, ytDlpOptions);
-
-    console.log(`[YouTube] Downloaded to: ${tempFile}`);
-
-    // Read the file into a buffer
-    const buffer = await fs.promises.readFile(tempFile);
-    console.log(`[YouTube] Audio buffer size: ${buffer.length} bytes`);
-
-    // Clean up temp files
-    await fs.promises.unlink(tempFile).catch(() => {
-      // Ignore cleanup errors
-    });
-    if (cookieFile) {
-      await fs.promises.unlink(cookieFile).catch(() => {});
-    }
-
-    return {
-      buffer,
-      contentType: "audio/mpeg",
-    };
-  } catch (error) {
-    // Clean up temp files on error
-    await fs.promises.unlink(tempFile).catch(() => {});
-    if (cookieFile) {
-      await fs.promises.unlink(cookieFile).catch(() => {});
-    }
-
-    console.error("[YouTube] Download error:", error);
-    throw new Error(
-      `Failed to download audio: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
+    console.error('[YouTube] Audio extraction error:', error);
+    throw new Error(`YouTube audio extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
