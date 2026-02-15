@@ -85,6 +85,18 @@ export type Member = z.infer<typeof MemberSchema>;
 export const TrackSourceSchema = z.enum(["upload", "youtube"]);
 export type TrackSource = z.infer<typeof TrackSourceSchema>;
 
+/** Loading stage for YouTube tracks */
+export const LoadingStageSchema = z.enum(["idle", "extracting", "downloading", "decoding", "analyzing", "error"]);
+export type LoadingStage = z.infer<typeof LoadingStageSchema>;
+
+/** Loading state for YouTube tracks */
+export const LoadingStateSchema = z.object({
+  stage: LoadingStageSchema,
+  progress: z.number().min(0).max(1),
+  error: z.string().nullable(),
+});
+export type LoadingState = z.infer<typeof LoadingStateSchema>;
+
 /** A track in the queue */
 export const QueueItemSchema = z.object({
   /** Unique ID for this queue entry */
@@ -109,6 +121,10 @@ export const QueueItemSchema = z.object({
   youtubeVideoId: z.string().nullable().default(null),
   /** Thumbnail URL for display */
   thumbnailUrl: z.string().url().nullable().default(null),
+  /** Loading state (for YouTube tracks, client-side only) */
+  loading: LoadingStateSchema.optional(),
+  /** Pre-loaded audio buffer (client-side only, for YouTube tracks) */
+  audioBuffer: z.any().optional(),
 });
 export type QueueItem = z.infer<typeof QueueItemSchema>;
 

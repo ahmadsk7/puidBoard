@@ -6,6 +6,7 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+  build-context = "../.."
 
 # Non-secret environment variables
 # Secrets (CORS_ORIGINS, REDIS_URL, SUPABASE_*) should be set with: fly secrets set KEY=value
@@ -35,6 +36,11 @@ primary_region = "iad"
   method = "GET"
   timeout = "5s"
   path = "/health"
+
+# Persistent storage for YouTube cookies
+[[mounts]]
+  source = "youtube_storage"
+  destination = "/data"
 
 # Resources (start small, scale as needed)
 [[vm]]

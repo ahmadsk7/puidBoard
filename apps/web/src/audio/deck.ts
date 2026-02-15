@@ -19,6 +19,18 @@ export type DeckPlayState = "stopped" | "playing" | "paused" | "cued";
 /** Analysis status */
 export type AnalysisStatus = "idle" | "analyzing" | "complete" | "error";
 
+/** YouTube loading stage */
+export type LoadingStage = "idle" | "extracting" | "downloading" | "decoding" | "analyzing" | "error";
+
+/** Loading state for YouTube tracks */
+export interface LoadingState {
+  stage: LoadingStage;
+  /** Download progress 0-1 (only meaningful during "downloading" stage) */
+  progress: number;
+  /** Error message if stage is "error" */
+  error: string | null;
+}
+
 /** Deck state */
 export interface DeckState {
   deckId: "A" | "B";
@@ -57,6 +69,8 @@ export interface DeckState {
   audioElement: HTMLAudioElement | null;
   /** MediaElementAudioSourceNode for connecting audio element to Web Audio */
   mediaSource: MediaElementAudioSourceNode | null;
+  /** Loading state for YouTube track downloads */
+  loading: LoadingState;
 }
 
 /** Track loading cache (avoid re-fetching) */
@@ -98,6 +112,11 @@ export class Deck {
       isStreaming: false,
       audioElement: null,
       mediaSource: null,
+      loading: {
+        stage: "idle",
+        progress: 0,
+        error: null,
+      },
     };
   }
 
@@ -108,6 +127,7 @@ export class Deck {
     return {
       ...this.state,
       analysis: { ...this.state.analysis },
+      loading: { ...this.state.loading },
       // Don't clone DOM elements/audio nodes
       audioElement: this.state.audioElement,
       mediaSource: this.state.mediaSource,
@@ -175,8 +195,10 @@ export class Deck {
   /**
    * Load a track by URL.
    */
-  async loadTrack(trackId: string, url: string): Promise<void> {
-    console.log(`[deck-${this.state.deckId}] Loading track: ${trackId}`);
+  async loadTrack(trackId: string, url: string, preloadedBuffer?: AudioBuffer): Promise<void> {
+    console.log(`[deck-${this.state.deckId}] Loading track: ${trackId}`, {
+      hasPreloadedBuffer: !!preloadedBuffer,
+    });
 
     // Auto-initialize audio on track load
     try {
@@ -197,6 +219,9 @@ export class Deck {
     // Clean up previous streaming resources
     this.cleanupStreaming();
 
+    // Reset loading state for non-YouTube tracks (YouTube tracks set their own loading state)
+    this.state.loading = { stage: "idle", progress: 0, error: null };
+
     // Check if this is a YouTube videoId (format: "youtube:VIDEO_ID")
     const youtubeMatch = url.match(/^youtube:(.+)$/);
 
@@ -207,7 +232,15 @@ export class Deck {
         throw new Error('Invalid YouTube URL format - missing video ID');
       }
       console.log(`[deck-${this.state.deckId}] Detected YouTube videoId: ${videoId}`);
-      await this.loadYouTubeTrack(trackId, videoId, ctx);
+
+      // If pre-loaded buffer is available, use it directly (skip download)
+      if (preloadedBuffer) {
+        console.log(`[deck-${this.state.deckId}] ✓ Using pre-loaded buffer (${preloadedBuffer.duration.toFixed(2)}s)`);
+        await this.loadPreloadedTrack(trackId, preloadedBuffer);
+      } else {
+        // Download and decode from backend
+        await this.loadYouTubeTrack(trackId, videoId, ctx);
+      }
     } else {
       // Use AudioBuffer for regular tracks
       await this.loadBufferedTrack(trackId, url, ctx);
@@ -236,8 +269,8 @@ export class Deck {
   }
 
   /**
-   * Load a YouTube track using backend audio extraction + HTML Audio Element.
-   * Backend fetches audio URL from RapidAPI youtube-mp36.
+   * Load a YouTube track using backend audio extraction + buffered download.
+   * Backend uses yt-dlp to extract direct audio URL, then streams to client.
    */
   private async loadYouTubeTrack(
     trackId: string,
@@ -252,10 +285,20 @@ export class Deck {
     }
 
     try {
-      // Download the full audio and decode to AudioBuffer for full DJ features
+      // Clear old state immediately so isLoaded returns false during loading
+      this.state.buffer = null;
+      this.state.trackId = trackId; // Set track ID immediately for display
+      this.state.durationSec = 0;
+      this.state.playheadSec = 0;
+      this.state.analysis = { waveform: null, bpm: null, status: "idle" };
+
+      // Stage 1: Extracting (backend yt-dlp is running ~10s)
+      this.state.loading = { stage: "extracting", progress: 0, error: null };
+      this.notify();
+
       const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
       const streamUrl = `${realtimeUrl}/api/youtube/stream/${videoId}`;
-      console.log(`[deck-${this.state.deckId}] Downloading YouTube audio: ${streamUrl}`);
+      console.log(`[deck-${this.state.deckId}] Extracting audio URL from YouTube...`);
 
       const response = await fetch(streamUrl);
 
@@ -263,37 +306,134 @@ export class Deck {
         throw new Error(`Failed to fetch YouTube audio: ${response.status}`);
       }
 
-      console.log(`[deck-${this.state.deckId}] Decoding audio buffer...`);
+      // Stage 2: Downloading (yt-dlp done, now downloading audio bytes)
+      const contentLength = parseInt(response.headers.get("Content-Length") || "0", 10);
+      console.log(`[deck-${this.state.deckId}] Downloading audio (${(contentLength / 1024 / 1024).toFixed(1)}MB)...`);
 
-      const arrayBuffer = await response.arrayBuffer();
+      this.state.loading = { stage: "downloading", progress: 0, error: null };
+      this.notify();
+
+      // Stream the response body with progress tracking
+      const reader = response.body!.getReader();
+      const chunks: Uint8Array[] = [];
+      let receivedBytes = 0;
+      let lastNotifyTime = Date.now();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        receivedBytes += value.length;
+
+        // Throttle notifications to every 100ms for performance
+        const now = Date.now();
+        if (contentLength > 0 && now - lastNotifyTime > 100) {
+          this.state.loading = {
+            stage: "downloading",
+            progress: receivedBytes / contentLength,
+            error: null,
+          };
+          this.notify();
+          lastNotifyTime = now;
+        }
+      }
+
+      // Final download update
+      this.state.loading = { stage: "downloading", progress: 1, error: null };
+      this.notify();
+
+      // Combine chunks into a single ArrayBuffer
+      const combined = new Uint8Array(receivedBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      const arrayBuffer = combined.buffer;
+
+      // Stage 3: Decoding
+      console.log(`[deck-${this.state.deckId}] Decoding audio buffer...`);
+      this.state.loading = { stage: "decoding", progress: 0, error: null };
+      this.notify();
+
       const buffer = await ctx.decodeAudioData(arrayBuffer);
 
       console.log(`[deck-${this.state.deckId}] ✓ YouTube audio decoded, duration: ${buffer.duration.toFixed(2)}s`);
 
-      // Update state (same as buffered tracks)
-      this.state.trackId = trackId;
+      // Update state (track is now playable!)
       this.state.buffer = buffer;
       this.state.isStreaming = false;
       this.state.durationSec = buffer.duration;
-      this.state.playheadSec = 0;
-      this.state.cuePointSec = 0;
-      this.state.hotCuePointSec = null;
       this.state.playState = "stopped";
 
-      // Start analysis
-      this.state.analysis = {
-        waveform: null,
-        bpm: null,
-        status: "analyzing",
-      };
+      // Loading complete - track is ready to play
+      this.state.loading = { stage: "idle", progress: 0, error: null };
       this.notify();
 
-      // Analyze in background (waveform + BPM detection)
+      // Start analysis in background (doesn't block playback)
       this.analyzeAudio(buffer);
 
     } catch (err) {
       console.error(`[deck-${this.state.deckId}] ✗✗✗ YOUTUBE TRACK LOAD FAILED ✗✗✗`);
       console.error(`[deck-${this.state.deckId}] Error:`, err);
+
+      // Set error state
+      this.state.loading = {
+        stage: "error",
+        progress: 0,
+        error: err instanceof Error ? err.message : "Failed to load YouTube track",
+      };
+      this.notify();
+
+      throw err;
+    }
+  }
+
+  /**
+   * Load a pre-loaded AudioBuffer (for YouTube tracks that were pre-loaded in the queue).
+   * Skips download/decode phases and goes straight to analysis.
+   */
+  private async loadPreloadedTrack(
+    trackId: string,
+    buffer: AudioBuffer
+  ): Promise<void> {
+    console.log(`[deck-${this.state.deckId}] Loading pre-loaded track: ${trackId}`);
+
+    const gainNode = this.ensureGainNode();
+    if (!gainNode) {
+      throw new Error("Failed to create gain node");
+    }
+
+    try {
+      // Clear old state
+      this.state.buffer = null;
+      this.state.trackId = trackId;
+      this.state.durationSec = 0;
+      this.state.playheadSec = 0;
+      this.state.analysis = { waveform: null, bpm: null, status: "idle" };
+
+      // Update state - track is immediately playable!
+      this.state.buffer = buffer;
+      this.state.isStreaming = false;
+      this.state.durationSec = buffer.duration;
+      this.state.playState = "stopped";
+      this.state.loading = { stage: "idle", progress: 1, error: null };
+      this.notify();
+
+      console.log(`[deck-${this.state.deckId}] ✓ Pre-loaded track ready: ${buffer.duration.toFixed(2)}s`);
+
+      // Start analysis in background (doesn't block playback)
+      this.analyzeAudio(buffer);
+
+    } catch (err) {
+      console.error(`[deck-${this.state.deckId}] ✗ Failed to load pre-loaded track:`, err);
+      this.state.loading = {
+        stage: "error",
+        progress: 0,
+        error: err instanceof Error ? err.message : "Failed to load pre-loaded track",
+      };
+      this.notify();
       throw err;
     }
   }
@@ -447,6 +587,12 @@ export class Deck {
       await initAudioEngine();
     } catch (err) {
       console.error(`[deck-${this.state.deckId}] Failed to initialize audio:`, err);
+      return;
+    }
+
+    // Prevent playback while loading
+    if (this.state.loading.stage !== "idle" && this.state.loading.stage !== "error") {
+      console.warn(`[deck-${this.state.deckId}] Cannot play: track is loading (${this.state.loading.stage})`);
       return;
     }
 

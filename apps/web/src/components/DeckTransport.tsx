@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
-import type { DeckState as ServerDeckState, ClientMutationEvent } from "@puid-board/shared";
+import type { DeckState as ServerDeckState, ClientMutationEvent, QueueItem } from "@puid-board/shared";
 import { useDeck, syncDeckBPM } from "@/audio/useDeck";
 // DISABLED: getDeck was used for seekSmooth during playback, now handled by DeckEngine
 // import { getDeck } from "@/audio/useDeck";
@@ -23,15 +23,8 @@ export type DeckTransportProps = {
   nextSeq: () => number;
   /** Accent color for this deck */
   accentColor: string;
-  /** Queue items (for loading tracks) */
-  queue: Array<{
-    id: string;
-    trackId: string;
-    title: string;
-    url: string;
-    source?: "upload" | "youtube";
-    youtubeVideoId?: string | null;
-  }>;
+  /** Queue items (for loading tracks, may include pre-loaded audio buffers) */
+  queue: QueueItem[];
 };
 
 /**
@@ -83,7 +76,10 @@ export default function DeckTransport({
       console.log(`[DeckTransport-${deckId}]   - URL: ${queueItem.url}`);
       console.log(`[DeckTransport-${deckId}]   - Source: ${queueItem.source}`);
       console.log(`[DeckTransport-${deckId}]   - youtubeVideoId: ${queueItem.youtubeVideoId}`);
-      console.log(`[DeckTransport-${deckId}]   - Full queueItem:`, JSON.stringify(queueItem, null, 2));
+      console.log(`[DeckTransport-${deckId}]   - Has pre-loaded buffer: ${!!queueItem.audioBuffer}`);
+
+      // Check if we have a pre-loaded buffer (for YouTube tracks)
+      const preloadedBuffer = queueItem.audioBuffer;
 
       // Helper function to get the audio URL (for YouTube, returns videoId format)
       const getAudioUrl = async (): Promise<string> => {
@@ -93,7 +89,7 @@ export default function DeckTransport({
 
         if (isYouTube) {
           const youtubeUrl = `youtube:${queueItem.youtubeVideoId}`;
-          console.log(`[DeckTransport-${deckId}]   - Using YouTube IFrame Player: ${youtubeUrl}`);
+          console.log(`[DeckTransport-${deckId}]   - Using YouTube URL: ${youtubeUrl}`);
           return youtubeUrl;
         }
         console.log(`[DeckTransport-${deckId}]   - Using direct URL: ${queueItem.url}`);
@@ -103,7 +99,13 @@ export default function DeckTransport({
       // Init audio first (will be no-op if already initialized)
       initAudioEngine()
         .then(() => getAudioUrl())
-        .then((audioUrl) => loadTrack(serverTrackId, audioUrl))
+        .then((audioUrl) => {
+          // Pass pre-loaded buffer if available (skips download/decode for YouTube)
+          if (preloadedBuffer) {
+            console.log(`[DeckTransport-${deckId}]   ✓ Using pre-loaded buffer from queue`);
+          }
+          return loadTrack(serverTrackId, audioUrl, preloadedBuffer);
+        })
         .then(() => {
           console.log(`[DeckTransport-${deckId}]   ✓✓✓ TRACK LOADED SUCCESSFULLY ✓✓✓`);
         })
@@ -147,11 +149,20 @@ export default function DeckTransport({
   useEffect(() => {
     if (!isLoaded) return;
 
+    // Check if track is currently loading
+    const deckState = deck.state;
+    const isLoading = deckState.loading.stage !== "idle" && deckState.loading.stage !== "error";
+
     // FIXED: Prevent auto-play when track is first loaded.
     // Only respond to play commands that come AFTER the track is fully loaded.
     // This prevents the race condition where server state says "playing" but
     // the track was just added to the queue.
     if (serverState.playState === "playing" && !isPlaying) {
+      // Skip auto-play if track is loading
+      if (isLoading) {
+        console.log(`[DeckTransport-${deckId}] Skipping auto-play - track is loading (${deckState.loading.stage})`);
+        return;
+      }
       // Skip auto-play if track was just loaded
       if (justLoadedRef.current) {
         console.log(`[DeckTransport-${deckId}] Skipping auto-play - track just loaded`);
@@ -159,7 +170,6 @@ export default function DeckTransport({
       }
       // For streaming tracks, check if the audio element is actually paused
       // This prevents race conditions where stale server state could restart paused audio
-      const deckState = deck.state;
       if (deckState.isStreaming && deckState.audioElement?.paused) {
         console.log(`[DeckTransport-${deckId}] Skipping play sync - streaming audio is paused locally`);
         return;

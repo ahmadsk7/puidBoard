@@ -23,6 +23,7 @@ import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
 import QueuePanel from "./QueuePanel";
 import SamplerSettings from "./SamplerSettings";
+import { useQueueAudioLoader } from "@/audio/useQueueAudioLoader";
 
 export type DJBoardProps = {
   state: RoomState;
@@ -1001,6 +1002,15 @@ export default function DJBoard({
   // Sync mixer state to audio graph
   useMixerSync(state.mixer);
 
+  // Get realtime URL for YouTube audio pre-loading
+  const realtimeUrl =
+    typeof window !== "undefined"
+      ? process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001"
+      : "http://localhost:3001";
+
+  // Pre-load YouTube audio in queue (with loading states and buffers)
+  const { queueWithAudio } = useQueueAudioLoader(state.queue, realtimeUrl);
+
   // Debug: log FX state when it changes
   useEffect(() => {
     console.log("[DJBoard] FX state received:", state.mixer.fx);
@@ -1059,7 +1069,7 @@ export default function DJBoard({
           deckId="A"
           position={DECK_A.waveform}
           accentColor="#3b82f6"
-          queue={state.queue}
+          queue={queueWithAudio}
           roomId={state.roomId}
           clientId={clientId}
           sendEvent={sendEvent}
@@ -1075,7 +1085,7 @@ export default function DJBoard({
           sendEvent={sendEvent}
           nextSeq={nextSeq}
           accentColor="#3b82f6"
-          queue={state.queue}
+          queue={queueWithAudio}
         />
 
         <PositionedJogWheel
@@ -1172,7 +1182,7 @@ export default function DJBoard({
           deckId="B"
           position={DECK_B.waveform}
           accentColor="#8b5cf6"
-          queue={state.queue}
+          queue={queueWithAudio}
           roomId={state.roomId}
           clientId={clientId}
           sendEvent={sendEvent}
@@ -1188,7 +1198,7 @@ export default function DJBoard({
           sendEvent={sendEvent}
           nextSeq={nextSeq}
           accentColor="#8b5cf6"
-          queue={state.queue}
+          queue={queueWithAudio}
         />
 
         <PositionedJogWheel
@@ -1302,7 +1312,7 @@ export default function DJBoard({
           </div>
 
           <QueuePanel
-            queue={state.queue}
+            queue={queueWithAudio}
             members={state.members}
             roomId={state.roomId}
             clientId={clientId}

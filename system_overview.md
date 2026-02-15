@@ -182,12 +182,20 @@ interface DeckState {
 }
 ```
 
-**Track loading** uses a cache to avoid re-fetching:
+**Track loading** uses a cache to avoid re-fetching and supports pre-loaded buffers from the queue:
 
 ```typescript
 const trackCache = new Map<string, AudioBuffer>();
 
-async loadTrack(trackId: string, url: string): Promise<void> {
+async loadTrack(trackId: string, url: string, preloadedBuffer?: AudioBuffer): Promise<void> {
+  // For YouTube tracks, check if buffer was pre-loaded in the queue
+  if (preloadedBuffer) {
+    console.log(`[deck-${this.state.deckId}] ✓ Using pre-loaded buffer`);
+    await this.loadPreloadedTrack(trackId, preloadedBuffer);
+    return;
+  }
+
+  // Otherwise, fetch and decode (with caching)
   let buffer = trackCache.get(trackId);
   if (!buffer) {
     const response = await fetch(url);
@@ -196,6 +204,19 @@ async loadTrack(trackId: string, url: string): Promise<void> {
     trackCache.set(trackId, buffer);
   }
   // Set up state, trigger analysis...
+}
+
+private async loadPreloadedTrack(trackId: string, buffer: AudioBuffer): Promise<void> {
+  // Track is immediately playable - no download/decode needed
+  this.state.buffer = buffer;
+  this.state.isStreaming = false;
+  this.state.durationSec = buffer.duration;
+  this.state.playState = "stopped";
+  this.state.loading = { stage: "idle", progress: 1, error: null };
+  this.notify();
+
+  // Start analysis in background
+  this.analyzeAudio(buffer);
 }
 ```
 
@@ -455,7 +476,7 @@ After upload, a track enters the queue via the `QUEUE_ADD` event. When a user lo
 4. `DeckTransport` calls `deck.loadTrack(trackId, url)` which fetches the audio, decodes it, caches the buffer, and triggers analysis (waveform + BPM)
 5. The deck is now ready for play/pause/cue
 
-### 3.5 YouTube Search and Buffered Playback
+### 3.5 YouTube Search and Queue Pre-Loading
 
 Users can search for and add YouTube tracks directly from the UI, enabling access to virtually any song without file uploads.
 
@@ -472,9 +493,9 @@ Users can search for and add YouTube tracks directly from the UI, enabling acces
 | `getYouTubeAudioUrl(videoId)` | Extract direct audio URL using yt-dlp (youtube-dl-exec), returns best quality m4a/webm audio |
 | `/api/youtube/stream/:videoId` | Streaming proxy that forwards YouTube audio with CORS headers for client download |
 
-**Architecture: BUFFERED DOWNLOAD + DECODE**
+**Architecture: QUEUE PRE-LOADING + BUFFERED DECODE**
 
-After extensive attempts at streaming playback (see Section 3.5.1), the system uses **buffered download and decode** for full DJ functionality:
+After extensive attempts at streaming playback (see Section 3.5.1), the system uses **queue-level pre-loading with buffered download and decode** for full DJ functionality:
 
 ```
 Client searches YouTube (server-side YouTube Data API v3)
@@ -483,19 +504,28 @@ Client searches YouTube (server-side YouTube Data API v3)
 QueueItem created with source: "youtube", youtubeVideoId: "xxx"
     │
     ▼
-Track loaded to deck → loadYouTubeTrack() downloads full audio
+useQueueAudioLoader hook detects new YouTube track in queue
     │
     ▼
-Backend: yt-dlp extracts direct Google Video URL (m4a format)
+Backend: yt-dlp extracts direct Google Video URL (m4a/webm format)
     │
     ▼
 Backend: Streaming proxy forwards audio with CORS headers
     │
     ▼
-Client: Downloads entire audio file via streaming proxy
+Client: Downloads entire audio file via streaming proxy (with progress tracking)
     │
     ▼
 Client: Decodes to AudioBuffer using Web Audio API decodeAudioData()
+    │
+    ▼
+Client: Stores AudioBuffer in QueueItem.audioBuffer
+    │
+    ▼
+Queue UI enables Deck A/B buttons (loading complete)
+    │
+    ▼
+User loads to deck → Deck uses pre-loaded AudioBuffer (instant)
     │
     ▼
 Client: Analyzes buffer (waveform generation + BPM detection)
@@ -940,6 +970,25 @@ Here is a complete example of what happens when User A presses Play:
 1. Watches server state changes for its deck (track loading, play state, BPM)
 2. Syncs local `Deck` instance with server state
 3. Routes `BEACON_TICK` payloads to `DeckEngine`
+4. Integrates with queue pre-loading for YouTube tracks
+
+**Pre-loaded buffer integration:** When loading a track to the deck, DeckTransport checks if the queue item has a pre-loaded `AudioBuffer` (populated by `useQueueAudioLoader` for YouTube tracks):
+
+```typescript
+// Check if we have a pre-loaded buffer (for YouTube tracks)
+const preloadedBuffer = queueItem.audioBuffer;
+
+initAudioEngine()
+  .then(() => getAudioUrl())
+  .then((audioUrl) => {
+    if (preloadedBuffer) {
+      console.log(`[DeckTransport-${deckId}]   ✓ Using pre-loaded buffer from queue`);
+    }
+    return loadTrack(serverTrackId, audioUrl, preloadedBuffer);
+  });
+```
+
+If a pre-loaded buffer exists, the deck loads instantly (no download/decode). Otherwise, it fetches and decodes as normal.
 
 **`justLoadedRef` guard:** After loading a track, there is a 500ms window where auto-play from server state is suppressed. This prevents a race condition where the server's play command arrives before the client finishes loading the track.
 
@@ -1122,6 +1171,7 @@ All 4 buttons share the same orange color (#FF8C3B) for a unified look.
 | `apps/web/src/audio/sampler.ts` | Sampler engine (sample loading, playback, fallback) |
 | `apps/web/src/audio/useDeck.ts` | React hook for deck state + control methods |
 | `apps/web/src/audio/useMixer.ts` | React hook for mixer state sync |
+| `apps/web/src/audio/useQueueAudioLoader.ts` | React hook for queue-level YouTube pre-loading |
 | `apps/web/src/audio/sync/pll.ts` | PLL drift correction controller |
 | `apps/web/src/audio/sync/clock.ts` | TIME_PING/PONG clock synchronization |
 | `apps/web/src/audio/sync/drift.ts` | Legacy drift correction (deprecated) |

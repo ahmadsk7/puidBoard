@@ -1,6 +1,7 @@
 "use client";
 
 import type { QueueItem, QueueItemStatus, Member } from "@puid-board/shared";
+import { LoadingBar } from "./displays";
 
 /** Status badge colors - dark theme optimized */
 const STATUS_COLORS: Record<QueueItemStatus, { bg: string; text: string; glow?: string }> = {
@@ -64,7 +65,13 @@ export default function QueueItemRow({
   const statusColor = STATUS_COLORS[item.status];
   const statusText = STATUS_TEXT[item.status];
   const addedByName = getMemberName(members, item.addedBy);
-  const canLoad = item.status === "queued" || item.status === "played";
+
+  // Check if track is still loading (for YouTube tracks)
+  const isYouTubeLoading = item.loading && item.loading.stage !== "idle" && item.loading.stage !== "error";
+  const hasLoadingError = item.loading?.stage === "error";
+
+  // Can only load to deck if: (1) status allows it, (2) not currently loading, (3) no error
+  const canLoad = (item.status === "queued" || item.status === "played") && !isYouTubeLoading && !hasLoadingError;
   const isPlaying = item.status === "playing_A" || item.status === "playing_B";
   const isLoaded = item.status === "loaded_A" || item.status === "loaded_B";
 
@@ -176,17 +183,47 @@ export default function QueueItemRow({
             {item.title}
           </span>
         </div>
-        <div
-          style={{
-            fontSize: "0.6875rem",
-            color: "#525252",
-            marginTop: "0.125rem",
-          }}
-        >
-          {formatDuration(item.durationSec)}
-          <span style={{ margin: "0 0.375rem", opacity: 0.5 }}>|</span>
-          {addedByName}
-        </div>
+
+        {/* Show loading bar for YouTube tracks that are loading */}
+        {isYouTubeLoading && item.loading && (
+          <div style={{ marginTop: "0.375rem" }}>
+            <LoadingBar
+              loading={item.loading}
+              accentColor="#60a5fa"
+            />
+          </div>
+        )}
+
+        {/* Show error message if loading failed */}
+        {hasLoadingError && item.loading && (
+          <div
+            style={{
+              fontSize: "0.625rem",
+              color: "#ef4444",
+              marginTop: "0.25rem",
+              background: "rgba(239, 68, 68, 0.1)",
+              padding: "0.25rem 0.5rem",
+              borderRadius: "4px",
+            }}
+          >
+            {item.loading.error || "Failed to load"}
+          </div>
+        )}
+
+        {/* Track duration and added by (only show when not loading) */}
+        {!isYouTubeLoading && (
+          <div
+            style={{
+              fontSize: "0.6875rem",
+              color: "#525252",
+              marginTop: "0.125rem",
+            }}
+          >
+            {formatDuration(item.durationSec)}
+            <span style={{ margin: "0 0.375rem", opacity: 0.5 }}>|</span>
+            {addedByName}
+          </div>
+        )}
       </div>
 
       {/* Status badge */}
@@ -205,53 +242,65 @@ export default function QueueItemRow({
         {statusText}
       </span>
 
-      {/* Load to deck buttons (only if queued or played) */}
-      {canLoad && onLoadToDeck && (
+      {/* Load to deck buttons - show if queued/played, but disable if loading */}
+      {(item.status === "queued" || item.status === "played") && onLoadToDeck && (
         <div style={{ display: "flex", gap: "0.25rem" }}>
           <button
             type="button"
-            onClick={() => onLoadToDeck(item.id, "A")}
-            title="Load to Deck A"
+            onClick={() => canLoad && onLoadToDeck(item.id, "A")}
+            title={canLoad ? "Load to Deck A" : isYouTubeLoading ? "Loading..." : "Error loading track"}
+            disabled={!canLoad}
             style={{
               padding: "0.25rem 0.5rem",
               fontSize: "0.625rem",
               fontWeight: 600,
-              background: "rgba(59, 130, 246, 0.15)",
-              color: "#60a5fa",
+              background: canLoad ? "rgba(59, 130, 246, 0.15)" : "rgba(64, 64, 64, 0.15)",
+              color: canLoad ? "#60a5fa" : "#525252",
               border: "none",
               borderRadius: 4,
-              cursor: "pointer",
+              cursor: canLoad ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
+              opacity: canLoad ? 1 : 0.5,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(59, 130, 246, 0.25)";
+              if (canLoad) {
+                e.currentTarget.style.background = "rgba(59, 130, 246, 0.25)";
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(59, 130, 246, 0.15)";
+              if (canLoad) {
+                e.currentTarget.style.background = "rgba(59, 130, 246, 0.15)";
+              }
             }}
           >
             A
           </button>
           <button
             type="button"
-            onClick={() => onLoadToDeck(item.id, "B")}
-            title="Load to Deck B"
+            onClick={() => canLoad && onLoadToDeck(item.id, "B")}
+            title={canLoad ? "Load to Deck B" : isYouTubeLoading ? "Loading..." : "Error loading track"}
+            disabled={!canLoad}
             style={{
               padding: "0.25rem 0.5rem",
               fontSize: "0.625rem",
               fontWeight: 600,
-              background: "rgba(139, 92, 246, 0.15)",
-              color: "#a78bfa",
+              background: canLoad ? "rgba(139, 92, 246, 0.15)" : "rgba(64, 64, 64, 0.15)",
+              color: canLoad ? "#a78bfa" : "#525252",
               border: "none",
               borderRadius: 4,
-              cursor: "pointer",
+              cursor: canLoad ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
+              opacity: canLoad ? 1 : 0.5,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(139, 92, 246, 0.25)";
+              if (canLoad) {
+                e.currentTarget.style.background = "rgba(139, 92, 246, 0.25)";
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(139, 92, 246, 0.15)";
+              if (canLoad) {
+                e.currentTarget.style.background = "rgba(139, 92, 246, 0.15)";
+              }
             }}
           >
             B

@@ -3,7 +3,7 @@
 # Then build from monorepo root: docker build -f apps/realtime/Dockerfile .
 
 FROM node:20-alpine AS base
-RUN apk add --no-cache python3 ffmpeg
+RUN apk add --no-cache python3 ffmpeg yt-dlp
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Production dependencies only
@@ -37,8 +37,9 @@ COPY apps/realtime/package.json ./apps/realtime/
 COPY packages/shared/dist ./packages/shared/dist
 COPY apps/realtime/dist ./apps/realtime/dist
 
-# Create storage directory
+# Create storage directory for tracks and YouTube cookies
 RUN mkdir -p /app/apps/realtime/.storage/tracks
+RUN mkdir -p /app/.storage
 
 WORKDIR /app/apps/realtime
 

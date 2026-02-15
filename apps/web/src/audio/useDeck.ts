@@ -98,8 +98,8 @@ export function useDeck(deckId: "A" | "B") {
   }, [deckId]);
 
   const loadTrack = useCallback(
-    async (trackId: string, url: string) => {
-      await deckRef.current.loadTrack(trackId, url);
+    async (trackId: string, url: string, preloadedBuffer?: AudioBuffer) => {
+      await deckRef.current.loadTrack(trackId, url, preloadedBuffer);
     },
     []
   );
@@ -223,6 +223,10 @@ export function useDeck(deckId: "A" | "B") {
     getFrequencyData,
     /** Whether this is a streaming track (YouTube) */
     isStreaming: state.isStreaming,
+    /** Current loading state (for YouTube tracks) */
+    loadingState: state.loading,
+    /** Is the deck currently loading a YouTube track? */
+    isLoading: state.loading.stage !== "idle" && state.loading.stage !== "error",
   };
 }
 

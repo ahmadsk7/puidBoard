@@ -16,7 +16,7 @@
  *
  * YouTube endpoints:
  * - GET /api/youtube/search?q=... - Search YouTube for songs
- * - GET /api/youtube/audio/:videoId - Get direct audio URL via RapidAPI
+ * - GET /api/youtube/stream/:videoId - Stream YouTube audio (proxied through server)
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
@@ -633,33 +633,6 @@ async function handleYouTubeSearch(
 }
 
 /**
- * Handle GET /api/youtube/audio/:videoId
- * Returns a direct audio URL from RapidAPI youtube-to-mp315
- */
-async function handleYouTubeAudio(
-  _req: IncomingMessage,
-  res: ServerResponse,
-  videoId: string
-): Promise<void> {
-  try {
-    console.log(`[youtubeAudio] Getting audio URL for videoId: ${videoId}`);
-
-    const result = await getYouTubeAudioUrl(videoId);
-
-    console.log(`[youtubeAudio] Successfully got audio URL`);
-
-    sendJson(res, 200, {
-      url: result.url,
-      mimeType: result.mimeType,
-      expiresAt: result.expiresAt
-    });
-  } catch (error) {
-    console.error("[youtubeAudio] Error occurred:", error);
-    sendError(res, 500, error instanceof Error ? error.message : "Audio extraction failed");
-  }
-}
-
-/**
  * Handle GET /api/youtube/stream/:videoId
  * Proxies YouTube audio through our server to avoid CORS issues
  */
@@ -668,14 +641,19 @@ async function handleYouTubeStream(
   res: ServerResponse,
   videoId: string
 ): Promise<void> {
-  console.log(`[youtubeStream] Proxying audio for videoId: ${videoId}`);
+  console.log(`[youtubeStream] ========== STREAM REQUEST START ==========`);
+  console.log(`[youtubeStream] videoId: ${videoId}`);
+  console.log(`[youtubeStream] Client: ${req.headers['user-agent']}`);
+  console.log(`[youtubeStream] Range: ${req.headers.range || 'none'}`);
 
   try {
     // Get the audio URL from yt-dlp
+    console.log(`[youtubeStream] Step 1: Calling getYouTubeAudioUrl...`);
     const result = await getYouTubeAudioUrl(videoId);
     const audioUrl = result.url;
 
-    console.log(`[youtubeStream] Got audio URL, fetching and proxying...`);
+    console.log(`[youtubeStream] ✓ Step 1 complete. Audio URL obtained.`);
+    console.log(`[youtubeStream] Step 2: Fetching audio from Google servers...`);
 
     // Fetch the audio from Google servers
     const response = await fetch(audioUrl, {
@@ -685,11 +663,17 @@ async function handleYouTubeStream(
       }
     });
 
+    console.log(`[youtubeStream] Google response status: ${response.status}`);
+    console.log(`[youtubeStream] Google response headers:`, Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
-      console.error(`[youtubeStream] Failed to fetch audio: ${response.status}`);
+      console.error(`[youtubeStream] ✗ Failed to fetch audio from Google: ${response.status} ${response.statusText}`);
       sendError(res, 502, "Failed to fetch audio from YouTube");
       return;
     }
+
+    console.log(`[youtubeStream] ✓ Step 2 complete. Audio fetched from Google.`);
+    console.log(`[youtubeStream] Step 3: Streaming to client...`);
 
     // Set CORS and streaming headers
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -738,9 +722,15 @@ async function handleYouTubeStream(
       res.end();
     }
 
-    console.log(`[youtubeStream] Successfully proxied audio`);
+    console.log(`[youtubeStream] ✓ Step 3 complete. Stream finished.`);
+    console.log(`[youtubeStream] ========== STREAM REQUEST SUCCESS ==========`);
   } catch (error) {
-    console.error("[youtubeStream] Error occurred:", error);
+    console.error("[youtubeStream] ========== STREAM REQUEST FAILED ==========");
+    console.error("[youtubeStream] Error type:", error instanceof Error ? error.constructor.name : typeof error);
+    console.error("[youtubeStream] Error message:", error instanceof Error ? error.message : String(error));
+    console.error("[youtubeStream] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error("[youtubeStream] Full error:", error);
+    console.error("[youtubeStream] ================================================");
     if (!res.headersSent) {
       sendError(res, 500, error instanceof Error ? error.message : "Stream proxy failed");
     }
@@ -863,13 +853,6 @@ export async function handleTrackApiRequest(
   if (method === "GET" && url.startsWith("/api/youtube/search")) {
     console.log(`[API] Matched YouTube search route: ${url}`);
     await handleYouTubeSearch(req, res);
-    return true;
-  }
-
-  // GET /api/youtube/audio/:videoId
-  const youtubeAudioMatch = url.match(/^\/api\/youtube\/audio\/([^/?]+)$/);
-  if (method === "GET" && youtubeAudioMatch && youtubeAudioMatch[1]) {
-    await handleYouTubeAudio(req, res, youtubeAudioMatch[1]);
     return true;
   }
 

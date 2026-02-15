@@ -109,8 +109,23 @@ io.on("connection", (socket) => {
 (async () => {
   await initPersistence();
 
-  httpServer.listen(PORT, () => {
-    console.log(`[realtime] server listening on port ${PORT}`);
+  // Write YouTube cookies from environment variable if available
+  // This allows deploying cookies via Fly.io secrets: flyctl secrets set YOUTUBE_COOKIES="$(cat cookies.txt)"
+  if (process.env.YOUTUBE_COOKIES) {
+    try {
+      const fs = await import("fs");
+      const cookiesPath = process.env.YOUTUBE_COOKIES_PATH || "/app/.storage/youtube-cookies.txt";
+      await fs.promises.writeFile(cookiesPath, process.env.YOUTUBE_COOKIES, "utf8");
+      console.log(`[realtime] YouTube cookies written to ${cookiesPath}`);
+    } catch (err) {
+      console.error(`[realtime] Failed to write YouTube cookies:`, err);
+    }
+  } else {
+    console.log(`[realtime] No YOUTUBE_COOKIES environment variable found`);
+  }
+
+  httpServer.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`[realtime] server listening on 0.0.0.0:${PORT}`);
     console.log(`[realtime] shared package version: ${VERSION}`);
   });
 })();

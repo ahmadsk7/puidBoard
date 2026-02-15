@@ -41,6 +41,8 @@ export {
   QueueItemStatusSchema,
   FxTypeSchema,
   TrackSourceSchema,
+  LoadingStageSchema,
+  LoadingStateSchema,
   // State schemas
   CursorStateSchema,
   MemberSchema,
@@ -71,6 +73,8 @@ export type {
   QueueItemStatus,
   FxType,
   TrackSource,
+  LoadingStage,
+  LoadingState,
   CursorState,
   Member,
   QueueItem,
