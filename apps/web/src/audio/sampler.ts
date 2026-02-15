@@ -18,10 +18,10 @@ interface SampleConfig {
 
 /** Default sample configurations for each slot */
 const DEFAULT_SAMPLE_CONFIGS: Record<SampleSlot, SampleConfig> = {
-  0: { name: "Kick", defaultUrl: "/assets/audio/samples/kick.wav" },
+  0: { name: "Airhorn", defaultUrl: "/assets/audio/samples/kick.wav" },
   1: { name: "Snare", defaultUrl: "/assets/audio/samples/snare.wav" },
   2: { name: "Hi-Hat", defaultUrl: "/assets/audio/samples/hihat.wav" },
-  3: { name: "Clap", defaultUrl: "/assets/audio/samples/clap.wav" },
+  3: { name: "Gunshot", defaultUrl: "/assets/audio/samples/clap.wav" },
 };
 
 /** Fallback oscillator config if audio files can't be loaded */
@@ -414,8 +414,18 @@ export const SLOT_COLORS: Record<SampleSlot, string> = {
  * Default sample names
  */
 export const DEFAULT_SAMPLE_NAMES: Record<SampleSlot, string> = {
-  0: "Kick",
+  0: "Airhorn",
   1: "Snare",
   2: "Hi-Hat",
-  3: "Clap",
+  3: "Gunshot",
+};
+
+/**
+ * SVG icons for each slot (optional)
+ */
+export const SLOT_ICONS: Record<SampleSlot, string | null> = {
+  0: "/assets/performance-pads/DJ Mixer Airhorn.svg",
+  1: null,
+  2: null,
+  3: "/assets/performance-pads/DJ Mixer Gunshot.svg",
 };

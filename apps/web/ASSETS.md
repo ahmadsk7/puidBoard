@@ -20,7 +20,9 @@ apps/web/public/assets/
 └── performance-pads/      # Performance pad icon templates
     ├── performance-pad-template-char-icon.svg
     ├── performance-pad-red-char-icon.svg
-    └── performance-pad-orange-char-icon.svg
+    ├── performance-pad-orange-char-icon.svg
+    ├── DJ Mixer Airhorn.svg    # Airhorn icon for R key
+    └── DJ Mixer Gunshot.svg    # Gunshot icon for U key
 ```
 
 ## Audio Samples
@@ -28,10 +30,12 @@ apps/web/public/assets/
 ### Current Default Samples
 
 Located in `public/assets/audio/samples/`:
-- **kick.wav** - Bass drum/kick sound (Slot 0, R key)
+- **kick.wav** - Airhorn sound effect (Slot 0, R key) 🎺
 - **snare.wav** - Snare drum sound (Slot 1, T key)
 - **hihat.wav** - Hi-hat cymbal sound (Slot 2, Y key)
-- **clap.wav** - Hand clap sound (Slot 3, U key)
+- **clap.wav** - Gunshot sound effect (Slot 3, U key) 🔫
+
+**Note**: Slots 0 (Airhorn) and 3 (Gunshot) have custom SVG icons displayed in the top-right corner of their buttons.
 
 ### Sample Specifications
 

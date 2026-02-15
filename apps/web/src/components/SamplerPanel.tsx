@@ -6,6 +6,7 @@ import {
   playSample,
   SLOT_KEYBINDS,
   SLOT_COLORS,
+  SLOT_ICONS,
   loadDefaultSamples,
   type SampleSlot,
 } from "@/audio/sampler";
@@ -102,6 +103,7 @@ export default function SamplerPanel({ width = 184 }: SamplerPanelProps) {
           onClick={() => handlePlaySample(slot)}
           size={buttonSize}
           externalPressed={pressedSlot === slot}
+          icon={SLOT_ICONS[slot]}
         />
       ))}
     </div>

@@ -9,6 +9,8 @@ export type SamplerButtonProps = {
   size?: number;
   /** External pressed state (e.g., from keyboard trigger) */
   externalPressed?: boolean;
+  /** Optional SVG icon URL to display in top-right corner */
+  icon?: string | null;
 };
 
 /**
@@ -21,6 +23,7 @@ const SamplerButton = memo(function SamplerButton({
   onClick,
   size = 60,
   externalPressed = false,
+  icon = null,
 }: SamplerButtonProps) {
   const [internalPressed, setInternalPressed] = useState(false);
 
@@ -279,6 +282,25 @@ const SamplerButton = memo(function SamplerButton({
           strokeLinecap="round"
         />
       </svg>
+
+      {/* Optional icon in top-right corner */}
+      {icon && (
+        <img
+          src={icon}
+          alt=""
+          style={{
+            position: "absolute",
+            top: "8%",
+            right: "8%",
+            width: "28%",
+            height: "28%",
+            opacity: isPressed ? 0.9 : 0.75,
+            filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+            pointerEvents: "none",
+            transition: "opacity 0.05s",
+          }}
+        />
+      )}
     </div>
   );
 });
