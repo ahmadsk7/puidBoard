@@ -22,7 +22,11 @@ const isInDist = __dirname.includes("/dist/");
 const appRoot = isInDist ? resolve(__dirname, "../../..") : resolve(__dirname, "../..");
 const DEFAULT_STORAGE_DIR = resolve(appRoot, ".storage/tracks");
 const STORAGE_DIR = process.env.STORAGE_DIR ?? DEFAULT_STORAGE_DIR;
-const CDN_BASE_URL = process.env.CDN_BASE_URL ?? "http://localhost:3001/files";
+const PORT = process.env.PORT ?? "3001";
+const CDN_BASE_URL = process.env.CDN_BASE_URL
+  ?? (process.env.FLY_APP_NAME
+    ? `https://${process.env.FLY_APP_NAME}.fly.dev/files`
+    : `http://localhost:${PORT}/files`);
 
 console.log(`[storage] __dirname: ${__dirname}`);
 console.log(`[storage] appRoot: ${appRoot}`);
@@ -41,12 +45,16 @@ class StorageService {
     this.useSupabase = supabaseStorage.isAvailable();
 
     if (this.useSupabase) {
-      console.log(`[storage] Using Supabase Storage`);
+      console.log(`[storage] Using Supabase Storage (with local filesystem fallback)`);
     } else {
       console.log(`[storage] Using local filesystem storage`);
-      console.log(`[storage] Storage directory: ${STORAGE_DIR}`);
-      console.log(`[storage] CDN base URL: ${CDN_BASE_URL}`);
     }
+    console.log(`[storage] Storage directory: ${STORAGE_DIR}`);
+    console.log(`[storage] CDN base URL: ${CDN_BASE_URL}`);
+
+    this.ensureStorageDir().catch((err) =>
+      console.error(`[storage] Failed to create storage dir:`, err)
+    );
   }
 
   /**
@@ -64,15 +72,19 @@ class StorageService {
 
   /**
    * Upload a file to storage.
+   * Tries Supabase first, falls back to local filesystem on failure.
    */
   async upload(
     buffer: Buffer,
     filename: string,
     mimeType: string
   ): Promise<UploadResult> {
-    // Use Supabase if available
     if (this.useSupabase) {
-      return await supabaseStorage.upload(buffer, filename, mimeType);
+      try {
+        return await supabaseStorage.upload(buffer, filename, mimeType);
+      } catch (err) {
+        console.error(`[storage] Supabase upload failed, falling back to local filesystem:`, err instanceof Error ? err.message : err);
+      }
     }
 
     // Fall back to local filesystem
@@ -104,40 +116,66 @@ class StorageService {
 
   /**
    * Get CDN URL for a storage key.
-   * For Supabase, this creates a signed URL (async).
-   * For local storage, this returns a sync URL.
+   * Checks local filesystem first (handles Supabase fallback),
+   * then tries Supabase signed URL, then returns local URL as last resort.
    */
   async getUrl(storageKey: string): Promise<string> {
-    if (this.useSupabase) {
-      return await supabaseStorage.getSignedUrlForDownload(storageKey);
+    const localPath = join(STORAGE_DIR, storageKey);
+    const existsLocally = existsSync(localPath);
+
+    if (existsLocally) {
+      return `${CDN_BASE_URL}/${storageKey}`;
     }
+
+    if (this.useSupabase) {
+      try {
+        return await supabaseStorage.getSignedUrlForDownload(storageKey);
+      } catch (err) {
+        console.error(`[storage] Supabase getUrl failed:`, err instanceof Error ? err.message : err);
+      }
+    }
+
     return `${CDN_BASE_URL}/${storageKey}`;
   }
 
   /**
    * Read file from storage.
+   * Checks local filesystem first (handles Supabase fallback).
    */
   async read(storageKey: string): Promise<Buffer> {
-    if (this.useSupabase) {
-      return await supabaseStorage.read(storageKey);
+    const localPath = join(STORAGE_DIR, storageKey);
+    if (existsSync(localPath)) {
+      console.log(`[storage] Reading local file: ${localPath}`);
+      return await readFile(localPath);
     }
 
-    const filePath = join(STORAGE_DIR, storageKey);
-    console.log(`[storage] Reading file: ${filePath}, exists=${existsSync(filePath)}`);
-    return await readFile(filePath);
+    if (this.useSupabase) {
+      try {
+        return await supabaseStorage.read(storageKey);
+      } catch (err) {
+        console.error(`[storage] Supabase read failed:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    console.log(`[storage] Fallback: reading from local path ${localPath}`);
+    return await readFile(localPath);
   }
 
   /**
    * Delete file from storage.
    */
   async delete(storageKey: string): Promise<void> {
-    if (this.useSupabase) {
-      return await supabaseStorage.delete(storageKey);
+    const localPath = join(STORAGE_DIR, storageKey);
+    if (existsSync(localPath)) {
+      await unlink(localPath);
     }
 
-    const filePath = join(STORAGE_DIR, storageKey);
-    if (existsSync(filePath)) {
-      await unlink(filePath);
+    if (this.useSupabase) {
+      try {
+        await supabaseStorage.delete(storageKey);
+      } catch (err) {
+        console.error(`[storage] Supabase delete failed:`, err instanceof Error ? err.message : err);
+      }
     }
   }
 

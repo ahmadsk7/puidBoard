@@ -12,7 +12,9 @@ This document explains how every major system in the puidBoard codebase works. I
 4. [Server Architecture](#4-server-architecture)
 5. [Real-time Synchronization](#5-real-time-synchronization)
 6. [Performance Pads and Sampler](#6-performance-pads-and-sampler)
-7. [Key Architecture Decisions](#7-key-architecture-decisions)
+7. [Deployment and Infrastructure](#7-deployment-and-infrastructure)
+8. [Dead Code and Technical Debt](#8-dead-code-and-technical-debt)
+9. [Key Architecture Decisions](#9-key-architecture-decisions)
 
 ---
 
@@ -20,12 +22,12 @@ This document explains how every major system in the puidBoard codebase works. I
 
 ### 1.1 Project Structure
 
-puidBoard is a monorepo managed with Turborepo and pnpm workspaces. It has three packages:
+puidBoard is a monorepo managed with Turborepo and pnpm workspaces (`pnpm@9.15.0`, Node `>=20.0.0`). It has three packages:
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `web` | `apps/web/` | Next.js frontend (React, TypeScript) |
-| `realtime` | `apps/realtime/` | Socket.IO server (Node.js, TypeScript) |
+| `web` | `apps/web/` | Next.js 14 frontend (React 18, TypeScript) |
+| `realtime` | `apps/realtime/` | Socket.IO server (Node.js, TypeScript, ESM) |
 | `shared` | `packages/shared/` | Shared types, Zod schemas, event definitions |
 
 The `shared` package is the contract between client and server. It defines every piece of state (via Zod schemas) and every event that can flow between them. Both `web` and `realtime` depend on it.
@@ -45,61 +47,58 @@ const BOARD_HEIGHT = 600;
 const QUEUE_WIDTH = 340;
 ```
 
-Every control element is then positioned using absolute pixel coordinates within this space. For example:
+Every control element is then positioned using absolute pixel coordinates within this space, extracted directly from the SVG source (`mixer-panel-background.svg`). For example:
 
 ```typescript
-const POSITIONS = {
-  DECK_A: { x: 0, y: 0 },
-  DECK_B: { x: 870, y: 0 },
-  JOG_A: { x: 63, y: 213 },
-  JOG_B: { x: 933, y: 213 },
-  MIXER: { x: 475, y: 0 },
-  // ... many more
+const DECK_A = {
+  waveform: { x: 110, y: 138, width: 492, height: 92 },
+  jogWheel: { cx: 290, cy: 350, r: 150 },
+  controls: { x: 430, y: 240, width: 160, height: 132 },
+  performancePads: { x: 498, y: 390 },
+};
+
+const DECK_B = {
+  waveform: { x: 998, y: 138, width: 492, height: 92 },
+  jogWheel: { cx: 1310, cy: 350, r: 150 },
+  controls: { x: 1010, y: 240, width: 160, height: 132 },
+  performancePads: { x: 1010, y: 390 },
 };
 ```
 
-The `useBoardScale` hook (`apps/web/src/hooks/useBoardScale.ts`) measures the browser viewport and calculates the optimal scale factor:
-
-```typescript
-// Simplified from useBoardScale.ts
-const scaleX = (window.innerWidth * targetScreenPercentage) / boardWidth;
-const scaleY = (window.innerHeight * targetScreenPercentage) / boardHeight;
-const scale = clamp(Math.min(scaleX, scaleY), 0.3, 1.5);
-```
-
-This scale is applied as a CSS transform on the outer container:
-
-```typescript
-<div style={{ transform: `scale(${scale})`, transformOrigin: "top center" }}>
-  {/* entire board at fixed 1600x600 */}
-</div>
-```
-
-The hook recalculates on window resize, giving the board a responsive feel while keeping the internal layout pixel-perfect.
+The `useBoardScale` hook (`apps/web/src/hooks/useBoardScale.ts`) measures the browser viewport and calculates the optimal scale factor. The board and queue panel scale together as a single unit with `transformOrigin: "center center"`.
 
 ### 1.3 SVG Background as Layout Source of Truth
 
-The board's background is an SVG image that defines the visual layout of the DJ controller (deck plates, mixer section, fader slots, knob rings). All interactive components are positioned to overlay their corresponding visual elements in the SVG. This means the SVG is the **single source of truth** for where things appear. If the SVG changes, the coordinate constants in `DJBoard.tsx` must be updated to match.
+The board's background is an SVG image (`/assets/dj-controls/backgrounds/mixer-panel-background.svg`) that defines the visual layout of the DJ controller (deck plates, mixer section, fader slots, knob rings, decorative screws). All interactive components are positioned to overlay their corresponding visual elements in the SVG. This means the SVG is the **single source of truth** for where things appear. If the SVG changes, the coordinate constants in `DJBoard.tsx` must be updated to match.
 
 ### 1.4 DJBoard Component Architecture
 
 `DJBoard.tsx` is the root component that assembles the entire interface. It renders:
 
-- **DeckDisplay** (x2) -- waveform display, track info, BPM readout
-- **DeckControls** (x2) -- play/pause/cue buttons
+- **DeckDisplay** (x2) -- LCD screen with waveform display, track info, time display; click-to-seek on the waveform
+- **DeckControls** (x2) -- wraps `DeckTransport` which provides play/pause/cue buttons and BPM display
 - **PositionedJogWheel** (x2) -- dual-zone jog wheels with vinyl scratch and pitch bend
-- **DeckTransport** (x2) -- invisible sync component that bridges server state to local audio
-- **MixerKnobs** -- EQ, gain, and filter knobs for both channels
-- **MixerFaders** -- channel faders
+- **MixerKnobs** -- 4 knobs: Master Volume, HI A (EQ high), HI B (EQ high), CUE (headphone mix, placeholder)
+- **MixerFaders** -- wraps `FXControlPanel` which combines channel faders, FX controls, and BPM displays
 - **CrossfaderSection** -- horizontal crossfader
-- **TempoFader** (x2) -- tempo sliders that map 0-1 fader position to 0.92-1.08 playback rate (plus/minus 8%)
-- **SamplerPanel** -- 4-button sample trigger row
+- **TempoFader** (x2) -- vertical tempo sliders that map 0-1 fader position to 0.92-1.08 playback rate (plus/minus 8%)
+- **SamplerPanel** -- 4-button horizontal sample trigger row
 - **PerformancePadPanel** (x2) -- 2x2 performance pad grids per deck
-- **FX controls** -- FX type selector, wet/dry, parameter knob
+- **QueuePanel** -- track queue with upload, YouTube search, and deck load buttons
+- **SamplerSettings** -- modal for customizing sampler sounds (upload/record/preview)
 
 Each component is visually independent but communicates through either:
 1. **Audio hooks** (`useDeck`, `useMixer`) for local audio state
-2. **RealtimeClient** for network state propagation
+2. **RealtimeClient** for network state propagation via `sendEvent`
+
+**Display components** (`apps/web/src/components/displays/`):
+- `LCDScreen` -- styled container with accent-colored border glow
+- `WaveformDisplay` -- renders 480-bucket waveform with playhead, hot cue marker
+- `TrackInfoDisplay` -- track title, deck label, play state indicator
+- `TimeDisplay` -- current time / duration in MM:SS format
+- `DeckStatusDisplay` -- BPM, sync status, playback mode (currently unused in main board)
+- `LoadingBar` -- YouTube track loading progress (extracting/downloading/decoding stages)
+- `FXDisplay` -- FX type, wet/dry, parameter readout
 
 ### 1.5 Accent Colors and Visual Identity
 
@@ -114,19 +113,28 @@ const accentB = "#8b5cf6"; // Purple for Deck B
 
 The room page (`apps/web/src/app/room/[code]/page.tsx`) handles two modes:
 
-1. **Mock mode** -- for development without a running server. Uses local-only audio.
-2. **Real-time mode** -- connects to the Socket.IO server.
+1. **Mock mode** -- for development without a running server. Uses `MockRoomProvider`.
+2. **Real-time mode** -- connects to the Socket.IO server via `useRealtimeRoom`.
 
-A critical aspect is the **autoplay gate**: browsers block AudioContext creation until user interaction. The room page attaches a click handler that calls `initAudioEngine()` on the first user interaction. Until that happens, no audio can play.
+A critical aspect is the **autoplay gate**: browsers block AudioContext creation until user interaction. The room page attaches a click handler on `document` that calls `initAudioEngine()` on the first user click. Until that happens, no audio can play. The listener self-removes after first successful initialization.
 
-```typescript
-const handleInitAudio = useCallback(async () => {
-  if (!audioInitialized) {
-    await initAudioEngine();
-    setAudioInitialized(true);
-  }
-}, [audioInitialized]);
-```
+**Note:** An `AutoplayGate` component exists at `apps/web/src/components/AutoplayGate.tsx` but is **not imported anywhere** -- the room page handles autoplay inline.
+
+### 1.7 Control Interaction System
+
+`apps/web/src/audio/controlOptimizer.ts` provides shared infrastructure for all interactive controls (knobs, faders, jog wheel, crossfader):
+
+- **`RAFManager`** -- singleton `requestAnimationFrame` loop. All controls subscribe to one shared RAF for batched visual updates (no jank from multiple independent RAF loops).
+- **`useSharedRAF`** -- React hook to subscribe components to the shared RAF.
+- **`useOptimizedControl`** -- manages three separate value streams:
+  - *Visual state* -- RAF-smoothed for remote users (linear interpolation at 30% per frame)
+  - *Local state* -- immediate, zero-latency for the local user
+  - *Network state* -- throttled to ~30Hz (33ms minimum between sends)
+- **`getCoalescedPointerEvents`** -- extracts coalesced pointer events for high-precision input tracking
+- **`MomentumPhysics`** -- simple velocity + friction model for jog wheel momentum
+- **`clamp`, `normalizeAngleDiff`** -- utility functions used by controls
+
+This module is actively used by `Fader.tsx`, `Knob.tsx`, `JogWheel.tsx`, and `Crossfader.tsx`.
 
 ---
 
@@ -170,10 +178,13 @@ interface DeckState {
   startTime: number | null;   // AudioContext.currentTime when play began
   startOffset: number;        // track offset when play began
   cuePointSec: number;
+  hotCuePointSec: number | null;  // hot cue for performance pad
   durationSec: number;
   gainNode: GainNode | null;
   source: AudioBufferSourceNode | null;
   playbackRate: number;
+  isStreaming: boolean;        // false for buffered playback
+  loading: LoadingState;       // YouTube loading stages
   analysis: {
     waveform: WaveformData | null;
     bpm: number | null;
@@ -188,13 +199,10 @@ interface DeckState {
 const trackCache = new Map<string, AudioBuffer>();
 
 async loadTrack(trackId: string, url: string, preloadedBuffer?: AudioBuffer): Promise<void> {
-  // For YouTube tracks, check if buffer was pre-loaded in the queue
   if (preloadedBuffer) {
-    console.log(`[deck-${this.state.deckId}] ✓ Using pre-loaded buffer`);
     await this.loadPreloadedTrack(trackId, preloadedBuffer);
     return;
   }
-
   // Otherwise, fetch and decode (with caching)
   let buffer = trackCache.get(trackId);
   if (!buffer) {
@@ -205,65 +213,17 @@ async loadTrack(trackId: string, url: string, preloadedBuffer?: AudioBuffer): Pr
   }
   // Set up state, trigger analysis...
 }
-
-private async loadPreloadedTrack(trackId: string, buffer: AudioBuffer): Promise<void> {
-  // Track is immediately playable - no download/decode needed
-  this.state.buffer = buffer;
-  this.state.isStreaming = false;
-  this.state.durationSec = buffer.duration;
-  this.state.playState = "stopped";
-  this.state.loading = { stage: "idle", progress: 1, error: null };
-  this.notify();
-
-  // Start analysis in background
-  this.analyzeAudio(buffer);
-}
 ```
 
 **Play/pause lifecycle:** Each `play()` call creates a **new** `AudioBufferSourceNode` (Web Audio requires this -- sources are single-use). The source is connected to a `GainNode` which routes through the mixer. A `requestAnimationFrame` loop updates the playhead position for UI display.
 
-**Critical pattern -- pause before stop:** The `pause()` and `stop()` methods change state **before** calling `source.stop()`. This prevents the `onended` handler (which fires when a source naturally finishes or is stopped) from interfering with the intended state:
+**Critical pattern -- pause before stop:** The `pause()` and `stop()` methods change state **before** calling `source.stop()`. This prevents the `onended` handler from interfering with the intended state.
 
-```typescript
-pause(): void {
-  this.state.playheadSec = this.getCurrentPlayhead(); // save position
-  this.state.playState = "paused";   // state change FIRST
-  this.state.source?.stop();          // then stop audio
-}
-```
+**YouTube track loading:** The Deck has a `loadYouTubeTrack()` method that downloads audio through the server's streaming proxy, decodes it to an `AudioBuffer`, and stores it. Loading progress is tracked through `LoadingState` stages: `extracting` -> `downloading` -> `decoding` -> `analyzing` -> `idle`.
 
-**Playback rate changes** must recalculate timing to keep the playhead accurate. When the rate changes mid-play, the deck snapshots the current position and resets the timing reference:
+**Playback rate changes** must recalculate timing to keep the playhead accurate. When the rate changes mid-play, the deck snapshots the current position and resets the timing reference.
 
-```typescript
-setPlaybackRate(rate: number): void {
-  if (this.state.playState === "playing") {
-    const currentPlayhead = this.getCurrentPlayhead();
-    this.state.startOffset = currentPlayhead;
-    this.state.startTime = ctx.currentTime;
-    this.state.source.playbackRate.value = rate;
-  }
-  this.state.playbackRate = rate;
-}
-```
-
-**Scrub** (used by vinyl mode on the jog wheel) moves the playhead by a delta and restarts the source at the new position:
-
-```typescript
-scrub(deltaSec: number): void {
-  const newPos = clamp(this.getCurrentPlayhead() + deltaSec, 0, this.state.durationSec);
-  // Reconnect source at new position...
-}
-```
-
-**Nudge** (used by pitch bend on the jog wheel) temporarily adjusts the playback rate without modifying the stored rate:
-
-```typescript
-nudge(bendAmount: number): void {
-  // bendAmount: -1 to +1, mapped to +-8% of base rate
-  const effectiveRate = this.state.playbackRate * (1 + bendAmount * 0.08);
-  this.state.source.playbackRate.value = effectiveRate;
-}
-```
+**Scrub** (used by vinyl mode on the jog wheel) moves the playhead by a delta and restarts the source at the new position. **Nudge** (used by pitch bend on the jog wheel) temporarily adjusts the playback rate without modifying the stored rate.
 
 **Audio analysis** is triggered after track load. It runs waveform generation (synchronous, fast) followed by BPM detection (asynchronous, slower). An `analysisId` counter prevents stale results from overwriting if a new track is loaded before analysis completes.
 
@@ -274,9 +234,9 @@ nudge(bendAmount: number): void {
 **Signal flow:**
 
 ```
-Deck A ─> InputGain ─> EQ(Low) ─> EQ(Mid) ─> EQ(High) ─> ChannelFader ─> CrossfaderGainA ─┐
-                                                                                              ├─> PreMaster ─> FX ─> Analyser ─> MasterGain ─> Destination
-Deck B ─> InputGain ─> EQ(Low) ─> EQ(Mid) ─> EQ(High) ─> ChannelFader ─> CrossfaderGainB ─┘
+Deck A -> InputGain -> EQ(Low) -> EQ(Mid) -> EQ(High) -> ChannelFader -> CrossfaderGainA -+
+                                                                                          +-> PreMaster -> FX -> Analyser -> MasterGain -> Destination
+Deck B -> InputGain -> EQ(Low) -> EQ(Mid) -> EQ(High) -> ChannelFader -> CrossfaderGainB -+
 ```
 
 **3-Band EQ** uses three `BiquadFilterNode`s:
@@ -289,20 +249,14 @@ Deck B ─> InputGain ─> EQ(Low) ─> EQ(Mid) ─> EQ(High) ─> ChannelFader 
 
 Each band has plus/minus 12 dB range. The bipolar control value (-1 to 1) is mapped to dB via `bipolarToGain()` in `params.ts`.
 
-**Equal-power crossfade** uses sine/cosine curves to maintain perceived volume as the crossfader sweeps:
+**Equal-power crossfade** uses sine/cosine curves to maintain perceived volume:
 
 ```typescript
-// From params.ts
 export function equalPowerCrossfade(position: number): { gainA: number; gainB: number } {
   const angle = position * (Math.PI / 2);
-  return {
-    gainA: Math.cos(angle),
-    gainB: Math.sin(angle),
-  };
+  return { gainA: Math.cos(angle), gainB: Math.sin(angle) };
 }
 ```
-
-At the center position (0.5), both channels receive approximately 0.707 gain (-3 dB), so the combined volume stays roughly constant.
 
 **Clipping detection** runs in a `requestAnimationFrame` loop. It reads the peak sample from the analyser node and flags clipping when the peak exceeds 0.99.
 
@@ -329,18 +283,7 @@ These use `linearRampToValueAtTime` to avoid audio clicks from abrupt value chan
 3. **Energy envelope** -- 50ms windows with 25ms hop (50% overlap), computing RMS energy per window
 4. **Autocorrelation** -- correlate the normalized energy envelope with itself at different time lags
 
-The lag range corresponds to 60-180 BPM:
-
-```typescript
-// At 60 BPM: 1 beat = 1000ms = 40 frames (at 25ms/frame)
-// At 180 BPM: 1 beat = 333ms = ~13 frames
-const minLag = Math.floor(60000 / (MAX_BPM * FRAME_DURATION_MS)); // ~13
-const maxLag = Math.floor(60000 / (MIN_BPM * FRAME_DURATION_MS)); // ~40
-```
-
-The lag with the highest correlation is the beat period. The algorithm then checks for **octave errors** (detecting 2x or 0.5x the actual tempo) by seeing if half-tempo or double-tempo candidates also have high correlation (>80% of the peak). When ambiguous, it prefers the tempo closest to 120 BPM.
-
-**Why autocorrelation?** It finds periodicity (repeating patterns) rather than just common intervals, making it robust to syncopation, complex rhythms, and ornamental hits. This is the same core method used by Rekordbox, Serato, and Essentia/Spotify.
+The lag range corresponds to 60-180 BPM. The algorithm then checks for **octave errors** (detecting 2x or 0.5x the actual tempo) by seeing if half-tempo or double-tempo candidates also have high correlation (>80% of the peak). When ambiguous, it prefers the tempo closest to 120 BPM.
 
 The detected BPM is sent to the server via the `DECK_BPM_DETECTED` event and stored in `DeckState.detectedBpm`. The display BPM shown to users is `detectedBpm * playbackRate`.
 
@@ -363,25 +306,14 @@ The detected BPM is sent to the server via the `DECK_BPM_DETECTED` event and sto
 
 ```typescript
 const JOG_CONFIG = {
-  VINYL: {
-    SECONDS_PER_ROTATION: 1.8,  // 1.8 seconds of audio per 360 degrees
-    ZONE_RADIUS: 0.65,          // center 65% of radius
-  },
-  PITCH_BEND: {
-    MAX_BEND: 1.0,              // maximum bend amount
-    DEGREES_FOR_MAX_BEND: 15,   // degrees per frame for max bend
-    RELEASE_DECAY: 0.15,        // how fast bend returns to zero
-  },
-  VISUAL: {
-    VINYL_RPM: 33.33,           // matches real vinyl turntable speed
-  },
-  NETWORK: {
-    THROTTLE_MS: 50,            // rate limit for DECK_SEEK events
-  },
+  VINYL: { SECONDS_PER_ROTATION: 1.8, ZONE_RADIUS: 0.65 },
+  PITCH_BEND: { MAX_BEND: 1.0, DEGREES_FOR_MAX_BEND: 15, RELEASE_DECAY: 0.15 },
+  VISUAL: { VINYL_RPM: 33.33 },
+  NETWORK: { THROTTLE_MS: 50 },
 };
 ```
 
-The jog wheel uses `requestAnimationFrame` for smooth visual animation and **pointer event coalescing** (`getCoalescedEvents`) for precise input tracking. Network events (DECK_SEEK) are throttled to 50ms minimum intervals to avoid flooding the server.
+The jog wheel uses `requestAnimationFrame` for smooth visual animation and **pointer event coalescing** (`getCoalescedEvents` from `controlOptimizer.ts`) for precise input tracking. Network events (DECK_SEEK) are throttled to 50ms minimum intervals.
 
 When playing, the jog wheel platter visually spins at 33.33 RPM to mimic a vinyl turntable. Touch interaction adds to or overrides this rotation.
 
@@ -391,21 +323,23 @@ When playing, the jog wheel platter visually spins at 33.33 RPM to mimic a vinyl
 
 **Available effects:**
 
-| FX Type | Implementation | Description |
-|---------|---------------|-------------|
-| `echo` | `EchoFX` | Delay-based echo effect |
-| `reverb` | `ReverbFX` | Convolution or algorithmic reverb |
-| `filter` | `FilterFX` | Variable filter (low-pass/high-pass) |
-| `none` | (bypass) | Dry signal only |
+| FX Type | Implementation | File |
+|---------|---------------|------|
+| `echo` | `EchoFX` | `fx/echo.ts` |
+| `reverb` | `ReverbFX` | `fx/reverb.ts` |
+| `filter` | `FilterFX` | `fx/filter.ts` |
+| `none` | (bypass) | -- |
 
 The FX manager sits between the `preMaster` summing node and the `analyser` in the mixer graph. It maintains both a processor path and a bypass path:
 
 ```
-preMaster ─> [FXManager.input] ─> processor ─> [FXManager.output] ─> analyser
-                                └── bypass ───┘
+preMaster -> [FXManager.input] -> processor -> [FXManager.output] -> analyser
+                                  +-- bypass --+
 ```
 
 Each effect exposes two parameters via the `FxState` schema: `wetDry` (0=dry, 1=wet) and `param` (effect-specific, 0-1). The effect can be enabled/disabled, which toggles between the processor and bypass paths.
+
+**UI:** `FXControlPanel.tsx` renders the FX controls (type selector, enable toggle, wet/dry knob, parameter knob) alongside channel faders and BPM displays. `FXDisplay.tsx` shows the current FX state on an LCD.
 
 ---
 
@@ -417,275 +351,148 @@ The upload process follows this sequence:
 
 ```
 User selects file
-    │
-    ▼
-POST /api/tracks/upload (multipart form: file + title + durationSec)
-    │
-    ▼
+    |
+    v
+POST /api/tracks/upload (multipart form: file + title + durationSec + mimeType + ownerId)
+    |
+    v
 TrackService.upload() validates:
   - File size <= 50MB
-  - MIME type in [audio/mpeg, audio/wav, audio/aiff, audio/flac]
+  - MIME type in [audio/mpeg, audio/wav, audio/aiff, audio/flac, audio/ogg, audio/webm]
   - Duration <= 15 minutes
-    │
-    ▼
+    |
+    v
 StorageService.upload() computes SHA256 hash and stores file
-    │
-    ▼
+    |
+    v
 TrackStore.findByHash() checks for existing record (deduplication)
-    │
-    ├── (exists) → return existing trackId + URL
-    │
-    └── (new) → TrackStore.create() + return new trackId + URL
+    |
+    +-- (exists) -> return existing trackId + URL
+    |
+    +-- (new) -> TrackStore.create() + return new trackId + URL
 ```
 
-The HTTP API is defined in `apps/realtime/src/http/api.ts` and uses `busboy` for multipart form parsing.
+The HTTP API is defined in `apps/realtime/src/http/api.ts` and uses `busboy` for multipart form parsing. MIME type is inferred from file headers first, falls back to form field, then falls back to filename extension inference.
 
 ### 3.2 Content-Addressed Storage
 
 Files are stored using their **SHA256 hash** as the filename:
 
 ```typescript
-// apps/realtime/src/services/storage.ts
 const fileHash = createHash("sha256").update(buffer).digest("hex");
 const ext = this.getExtensionFromMime(mimeType);
-const storageKey = `${fileHash}${ext}`;  // e.g., "a1b2c3d4...f6.mp3"
+const storageKey = `${fileHash}${ext}`;
 ```
 
-**Why content-addressed?** Two users uploading the same file get the same storage key, so the file is stored only once. This is automatic deduplication with zero configuration. The TrackService checks `trackStore.findByHash()` before creating a new record -- if the hash already exists, it returns the existing track.
+**Why content-addressed?** Two users uploading the same file get the same storage key, so the file is stored only once. This is automatic deduplication with zero configuration.
 
 ### 3.3 Storage Backends
 
-`StorageService` supports two backends, chosen automatically at startup:
+`StorageService` (`apps/realtime/src/services/storage.ts`) supports two backends with automatic fallback:
 
 | Backend | When | URL Strategy |
 |---------|------|-------------|
-| **Supabase Storage** | `SUPABASE_URL` and `SUPABASE_ANON_KEY` env vars present | Signed URLs with expiration |
-| **Local filesystem** | Default (no Supabase config) | `CDN_BASE_URL/{storageKey}` served by the HTTP server |
+| **Supabase Storage** | `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` env vars present | Signed URLs with expiration; falls back to local on failure |
+| **Local filesystem** | Default (no Supabase config) or Supabase failure | `CDN_BASE_URL/{storageKey}` served by the HTTP server |
 
-For local storage, files live in `.storage/tracks/` relative to the realtime app root. The HTTP server has a `GET /files/:storageKey` route that streams the file back with appropriate MIME type headers.
+For local storage, files live in `.storage/tracks/` relative to the realtime app root. The HTTP server has a `GET /files/:storageKey` route that streams the file back with appropriate MIME type headers and 1-year cache headers.
 
-For Supabase, `getUrl()` creates a time-limited signed URL. This means URLs expire and must be refreshed periodically -- the track service handles this transparently when clients request track URLs.
+The CDN base URL auto-detects Fly.io deployments: `https://{FLY_APP_NAME}.fly.dev/files` or falls back to `http://localhost:{PORT}/files`.
+
+`SupabaseStorageService` (`apps/realtime/src/services/supabaseStorage.ts`) wraps `@supabase/supabase-js` for cloud storage with signed download URLs.
 
 ### 3.4 From Upload to Playback
 
 After upload, a track enters the queue via the `QUEUE_ADD` event. When a user loads a track into a deck:
 
-1. Client sends `DECK_LOAD` event with `trackId` and `deckId`
-2. Server updates `DeckState.loadedTrackId`, creates a new epoch, broadcasts
+1. Client sends `DECK_LOAD` event with `trackId`, `deckId`, and `queueItemId`
+2. Server updates `DeckState.loadedTrackId` and `loadedQueueItemId`, creates a new epoch, broadcasts
 3. `DeckTransport` component on all clients receives the state change
-4. `DeckTransport` calls `deck.loadTrack(trackId, url)` which fetches the audio, decodes it, caches the buffer, and triggers analysis (waveform + BPM)
+4. `DeckTransport` calls `deck.loadTrack(trackId, url, preloadedBuffer)` which fetches the audio, decodes it, caches the buffer, and triggers analysis (waveform + BPM)
 5. The deck is now ready for play/pause/cue
 
 ### 3.5 YouTube Search and Queue Pre-Loading
 
-Users can search for and add YouTube tracks directly from the UI, enabling access to virtually any song without file uploads.
+Users can search for and add YouTube tracks directly from the UI.
 
 **UI Component:** `apps/web/src/components/YouTubeSearch.tsx` provides:
 - Search input with debounced queries
-- 15 results displayed with thumbnails, titles, and durations
+- Up to 15 results displayed with thumbnails, titles, channel names, and durations
 - One-click "Add to Queue" functionality
 
 **Backend Services:**
 
-| Component | Purpose |
-|-----------|---------|
-| `searchYouTube(query)` | Search YouTube via YouTube Data API v3, returns up to 15 video results (30-1200s duration) |
-| `getYouTubeAudioUrl(videoId)` | Extract direct audio URL using yt-dlp (youtube-dl-exec), returns best quality m4a/webm audio |
-| `/api/youtube/stream/:videoId` | Streaming proxy that forwards YouTube audio with CORS headers for client download |
+| Component | File | Purpose |
+|-----------|------|---------|
+| `searchYouTube(query)` | `services/youtube.ts` | Search via YouTube Data API v3, returns up to 15 video results (30-1200s duration, music category) |
+| `getYouTubeAudioUrl(videoId)` | `services/youtube.ts` | Extract direct audio URL using yt-dlp (`youtube-dl-exec`), returns best quality m4a/webm audio |
+| `getYouTubeCookiesPath()` | `services/youtube-cookies.ts` | Fetch fresh YouTube cookies from remote API to bypass datacenter IP blocking |
+| `/api/youtube/stream/:videoId` | `http/api.ts` | Streaming proxy that forwards YouTube audio with CORS headers |
+| `/api/youtube/search?q=...` | `http/api.ts` | Search endpoint wrapping `searchYouTube()` |
+| `/api/youtube/status` | `http/api.ts` | YouTube service health check |
 
-**Architecture: QUEUE PRE-LOADING + BUFFERED DECODE**
-
-After extensive attempts at streaming playback (see Section 3.5.1), the system uses **queue-level pre-loading with buffered download and decode** for full DJ functionality:
+**Architecture: Queue Pre-Loading + Buffered Decode**
 
 ```
 Client searches YouTube (server-side YouTube Data API v3)
-    │
-    ▼
+    |
+    v
 QueueItem created with source: "youtube", youtubeVideoId: "xxx"
-    │
-    ▼
+    |
+    v
 useQueueAudioLoader hook detects new YouTube track in queue
-    │
-    ▼
+    |
+    v
 Backend: yt-dlp extracts direct Google Video URL (m4a/webm format)
-    │
-    ▼
+    |
+    v
 Backend: Streaming proxy forwards audio with CORS headers
-    │
-    ▼
+    |
+    v
 Client: Downloads entire audio file via streaming proxy (with progress tracking)
-    │
-    ▼
+    |
+    v
 Client: Decodes to AudioBuffer using Web Audio API decodeAudioData()
-    │
-    ▼
+    |
+    v
 Client: Stores AudioBuffer in QueueItem.audioBuffer
-    │
-    ▼
+    |
+    v
 Queue UI enables Deck A/B buttons (loading complete)
-    │
-    ▼
-User loads to deck → Deck uses pre-loaded AudioBuffer (instant)
-    │
-    ▼
-Client: Analyzes buffer (waveform generation + BPM detection)
-    │
-    ▼
-Connected to Web Audio API graph (EQ, filters, crossfade, FX)
-    │
-    ▼
-Server syncs state (timestamps, play/pause, tempo) via Socket.IO
+    |
+    v
+User loads to deck -> Deck uses pre-loaded AudioBuffer (instant)
 ```
 
 **Why Buffered Download Instead of Streaming?**
 
-✅ **Full BPM detection** - Autocorrelation analysis requires full AudioBuffer
-✅ **Waveform generation** - RMS waveform requires complete audio data
-✅ **Perfect seeking** - AudioBufferSourceNode allows instant seeking
-✅ **All DJ controls work** - Pitch bend, scratching, loops, hot cues, tempo shifts
-✅ **Multiplayer works** - Server syncs state, clients play independently
-✅ **Identical to uploads** - YouTube tracks and uploaded tracks use the same Deck playback code
-✅ **No yt-dlp breaking** - yt-dlp handles YouTube's signature changes automatically
+- Full BPM detection -- autocorrelation analysis requires full AudioBuffer
+- Waveform generation -- RMS waveform requires complete audio data
+- Perfect seeking -- AudioBufferSourceNode allows instant seeking
+- All DJ controls work -- pitch bend, scratching, loops, hot cues, tempo shifts
+- Multiplayer works -- server syncs state, clients play independently
+- Identical to uploads -- YouTube tracks and uploaded tracks use the same Deck playback code
 
-**Backend Implementation:**
+**Cookie Authentication for yt-dlp:**
 
-`apps/realtime/src/services/youtube.ts` uses `youtube-dl-exec` to extract audio URLs:
-
-```typescript
-// Extract best audio format (m4a preferred, then webm)
-const info = await youtubedl(videoUrl, {
-  dumpSingleJson: true,
-  noCheckCertificates: true,
-  preferFreeFormats: true,
-});
-
-// Filter audio-only formats, sort by quality
-const audioFormats = info.formats.filter(f =>
-  f.acodec && f.acodec !== 'none' && f.vcodec === 'none'
-);
-audioFormats.sort((a, b) => {
-  const aScore = (a.abr || 0) + (a.ext === 'm4a' ? 10 : 0);
-  const bScore = (b.abr || 0) + (b.ext === 'm4a' ? 10 : 0);
-  return bScore - aScore;
-});
-```
-
-**Streaming Proxy (CORS Solution):**
-
-Direct Google Video URLs are blocked by CORS. The streaming proxy (`/api/youtube/stream/:videoId`) solves this:
-
-```typescript
-// Fetch audio from Google servers
-const response = await fetch(audioUrl, {
-  headers: {
-    'User-Agent': 'Mozilla/5.0...',
-    'Range': req.headers.range || 'bytes=0-'
-  }
-});
-
-// Set CORS headers and stream to client
-res.setHeader('Access-Control-Allow-Origin', '*');
-res.setHeader('Content-Type', 'audio/mp4');
-res.setHeader('Accept-Ranges', 'bytes');
-// Stream audio data...
-```
-
-**Client-Side Implementation:**
-
-The `Deck` class (`apps/web/src/audio/deck.ts`) treats YouTube tracks identically to uploaded tracks after download:
-
-```typescript
-async loadYouTubeTrack(trackId, videoId, ctx) {
-  // Download full audio via streaming proxy
-  const streamUrl = `${realtimeUrl}/api/youtube/stream/${videoId}`;
-  const response = await fetch(streamUrl);
-  const arrayBuffer = await response.arrayBuffer();
-
-  // Decode to AudioBuffer (same as uploads)
-  const buffer = await ctx.decodeAudioData(arrayBuffer);
-
-  // Store in deck state
-  this.state.buffer = buffer;
-  this.state.isStreaming = false;  // Buffered, not streaming
-
-  // Analyze (waveform + BPM)
-  this.analyzeAudio(buffer);
-}
-```
-
-**State Sync for Multiplayer:**
-
-Server broadcasts deck state (play/pause, timestamp, tempo) via `BEACON_TICK` events. Each client:
-- Downloads and decodes the same `videoId` to an AudioBuffer
-- Plays from the buffer using `AudioBufferSourceNode`
-- Syncs playback position based on server timestamps
-- Uses PLL drift correction (see Section 5.4) to maintain sync
-
-**Performance Characteristics:**
-
-| Aspect | Performance |
-|--------|-------------|
-| Initial load time | 2-10 seconds (download + decode, depends on song length and connection speed) |
-| Memory usage | ~10-50 MB per track (uncompressed PCM in AudioBuffer) |
-| Seeking | Instant (no network latency) |
-| BPM detection | 1-3 seconds after load |
-| Waveform generation | <100ms after load |
+`apps/realtime/src/services/youtube-cookies.ts` provides cookie management:
+- Fetches fresh cookies from a remote API (`yt-cookies` compatible) with 6-hour refresh interval
+- Falls back to static cookies from `YOUTUBE_COOKIES_PATH` env var
+- Falls back to cached cookies file on API failure
+- Server startup also writes cookies from `YOUTUBE_COOKIES` env var (for Fly.io secrets deployment)
 
 **QueueItem Schema Extension:** YouTube tracks extend the base QueueItem:
 
 ```typescript
-// From packages/shared/src/state.ts
 interface QueueItem {
-  // ... base fields
+  // ... base fields (id, trackId, title, durationSec, url, addedBy, status)
   source: "upload" | "youtube";
   youtubeVideoId?: string;
   thumbnailUrl?: string;
+  loading?: LoadingState;      // client-side only
+  audioBuffer?: AudioBuffer;   // client-side only, for pre-loaded YouTube tracks
 }
 ```
-
----
-
-#### 3.5.1 Failed Approaches and Final Solution
-
-Multiple approaches were attempted before landing on the current buffered download solution:
-
-**Attempt 1: ytdl-core (FAILED)**
-- **Approach:** Use ytdl-core library to extract audio URLs
-- **Result:** ❌ "Sign in to confirm you're not a bot"
-- **Why:** YouTube blocks datacenter IPs (works locally, fails on Fly.io)
-
-**Attempt 2: RapidAPI youtube-mp36 (FAILED)**
-- **Approach:** Third-party audio extraction service
-- **Result:** ❌ All MP3 URLs returned 404
-- **Why:** Service returned valid-looking responses but URLs were dead
-
-**Attempt 3: yt-dlp with cookies (FAILED)**
-- **Approach:** Export YouTube cookies, pass to yt-dlp with `--cookies` flag
-- **Result:** ❌ Cookies rotated/expired within hours
-- **Why:** YouTube rotates cookies as anti-bot measure, especially from datacenter IPs
-
-**Attempt 4: HTML Audio element streaming (FAILED)**
-- **Approach:** Stream audio via `<audio>` element with MediaElementAudioSourceNode
-- **Result:** ✅ Audio played, ❌ No BPM detection, seeking broken, DJ controls unreliable
-- **Why:** MediaElementAudioSourceNode doesn't provide decoded AudioBuffer for analysis
-
-**Final Solution: yt-dlp + Streaming Proxy + Buffered Decode (SUCCESS)**
-- **Approach:**
-  1. Use yt-dlp (youtube-dl-exec) to extract direct Google Video URLs
-  2. Proxy through backend to add CORS headers
-  3. Download full audio on client
-  4. Decode to AudioBuffer
-- **Result:** ✅ Works reliably, full DJ features, BPM detection, perfect seeking
-- **Why it works:**
-  - yt-dlp is actively maintained and handles YouTube signature changes
-  - Streaming proxy solves CORS issues
-  - AudioBuffer decode enables full analysis (BPM, waveform)
-  - Identical code path to uploaded tracks
-
-**Key Insight:**
-
-The problem wasn't streaming vs. buffering or server vs. client — it was **needing access to the decoded AudioBuffer for analysis**. Streaming with MediaElementAudioSourceNode provides real-time frequency data but not the full decoded buffer required for BPM detection (autocorrelation) and waveform generation. By downloading and decoding completely, YouTube tracks get identical functionality to uploaded tracks.
-
 
 ---
 
@@ -695,13 +502,43 @@ The problem wasn't streaming vs. buffering or server vs. client — it was **nee
 
 `apps/realtime/src/server.ts` sets up an HTTP server with three layers:
 
-1. **Health check** -- `GET /health` returns status
-2. **HTTP API** -- track upload/download endpoints (see Section 3)
+1. **Health check** -- `GET /health` returns status, version, room/client counts, persistence stats
+2. **HTTP API** -- track/sampler/YouTube endpoints (see Section 3 and 6)
 3. **Socket.IO** -- real-time event handling for rooms
 
-Socket.IO is configured with both WebSocket and long-polling transports, with CORS controlled by the `CORS_ORIGIN` environment variable.
+Socket.IO is configured with both WebSocket and long-polling transports. CORS origins are parsed from the `CORS_ORIGINS` environment variable (comma-separated), with automatic expansion to include both `www` and non-`www` versions of each origin.
 
-### 4.2 Room Store (In-Memory State)
+**Server startup sequence:**
+1. Load env from `.env.local`
+2. Initialize persistence (Redis or in-memory)
+3. Write YouTube cookies from env if available
+4. Start HTTP server on `0.0.0.0:{PORT}` (default 3001)
+
+### 4.2 HTTP API Endpoints
+
+All endpoints are defined in `apps/realtime/src/http/api.ts`:
+
+**Track endpoints:**
+- `POST /api/tracks/upload` -- upload a track (multipart form)
+- `GET /api/tracks/:id` -- get track metadata
+- `GET /api/tracks/:id/url` -- get track CDN URL
+- `GET /api/tracks/sample-pack` -- list sample pack tracks
+- `GET /files/:storageKey` -- serve track file (with 1-year cache)
+- `HEAD /files/:storageKey` -- check file exists
+
+**Sampler sound endpoints:**
+- `POST /api/sampler/upload` -- upload a custom sampler sound
+- `GET /api/sampler/sounds?clientId=X&roomId=Y` -- list custom sounds for client/room
+- `DELETE /api/sampler/sounds/:id` -- delete a custom sound
+- `POST /api/sampler/reset` -- reset slot to default (body: `{clientId, roomId, slot}`)
+
+**YouTube endpoints:**
+- `GET /api/youtube/search?q=...&limit=15` -- search YouTube
+- `GET /api/youtube/stream/:videoId` -- streaming audio proxy
+- `GET /api/youtube/status` -- YouTube service health check
+- `GET /api/health` -- detailed service health check with feature flags
+
+### 4.3 Room Store (In-Memory State)
 
 `apps/realtime/src/rooms/store.ts` is a singleton `RoomStore` that holds all room state in memory:
 
@@ -722,9 +559,17 @@ class RoomStore {
 - `joinRoom()` -- adds member with a unique color from a predefined palette, increments version
 - `leaveRoom()` -- removes member, transfers host to next member if needed, deletes room if empty, cleans up control ownership for the departing client
 
-**Why in-memory?** For an MVP, in-memory storage avoids database dependencies and keeps latency minimal. The tradeoff is that room state is lost on server restart. A production version would persist to Redis or a database.
+### 4.4 Room Persistence
 
-### 4.3 Authoritative Server Model
+`apps/realtime/src/rooms/persistence.ts` provides snapshot-based persistence for reconnect resilience:
+
+- **PersistenceManager** saves periodic snapshots (default every 10s) of room state + idempotency state
+- Supports **Redis** (traditional `redis://` URL), **Upstash Redis** (REST API), or **in-memory** fallback
+- Snapshots have a configurable TTL (default 1 hour)
+- On Redis failure, automatically falls back to in-memory backup
+- Initialized on server startup via `initPersistence()`
+
+### 4.5 Authoritative Server Model
 
 All state mutations flow through the server. The pattern is:
 
@@ -735,14 +580,11 @@ All state mutations flow through the server. The pattern is:
 5. Server broadcasts the change to all room members
 6. Clients apply the received state optimistically
 
-This ensures all clients converge to the same state regardless of network ordering. The server is the single source of truth.
-
-### 4.4 Control Ownership
+### 4.6 Control Ownership
 
 To prevent two users from simultaneously adjusting the same knob or fader, the system uses a **control ownership** model:
 
 ```typescript
-// From packages/shared/src/state.ts
 interface ControlOwnership {
   clientId: string;
   acquiredAt: number;    // server timestamp
@@ -750,32 +592,46 @@ interface ControlOwnership {
 }
 ```
 
-Control IDs follow dot notation: `"crossfader"`, `"channelA.eq.high"`, `"deckA.jog"`, etc.
+Control IDs follow dot notation: `"crossfader"`, `"channelA.eq.high"`, `"deckA.jog"`, `"deckA.tempo"`, `"masterVolume"`, etc. The full list is defined in `packages/shared/src/controlIds.ts`.
 
-When a client starts interacting with a control, it sends `CONTROL_GRAB`. The server grants ownership if the control is unowned or the previous ownership has expired. Ownership has a **2-second TTL** (`CONTROL_OWNERSHIP_TTL_MS = 2000`). If no `MIXER_SET` event refreshes the ownership within that window, the control becomes available for others.
+Ownership has a **2-second TTL** (`CONTROL_OWNERSHIP_TTL_MS = 2000`). If no `MIXER_SET` event refreshes the ownership within that window, the control becomes available for others.
 
 `CONTROL_RELEASE` explicitly relinquishes ownership. When a client disconnects, the server cleans up all their owned controls.
 
-### 4.5 Event Categories
+### 4.7 Event Categories
 
-Events are split into two categories for different handling:
+Events are split into two categories defined in `packages/shared/src/events.ts`:
 
 | Category | Examples | Characteristics |
 |----------|----------|----------------|
 | **Continuous** | `CURSOR_MOVE`, `MIXER_SET` | High frequency, can be coalesced, last-writer-wins |
-| **Discrete** | `DECK_PLAY`, `QUEUE_ADD`, `FX_TOGGLE` | Each event matters, must be processed in order |
+| **Discrete** | `DECK_PLAY`, `QUEUE_ADD`, `FX_TOGGLE`, `CONTROL_GRAB` | Each event matters, must be processed in order |
 
-This distinction affects rate limiting and broadcasting strategies. Continuous events can be throttled without losing meaning; discrete events cannot be dropped.
-
-### 4.6 Rate Limiting and Validation
+### 4.8 Rate Limiting and Validation
 
 `apps/realtime/src/security/` provides:
 
-- **Rate limiter** -- per-client, per-action-type token bucket. Deck actions are limited to 100/minute.
-- **Bounds validation** -- `validateSeekPosition()` checks against track duration, `validateCuePosition()` similarly. Control values are checked against their defined ranges (e.g., gain/EQ: -1 to 1, faders: 0 to 1).
+- **Rate limiter** (`limits.ts`) -- per-client, per-action-type token bucket. Deck actions are limited to 100/minute.
+- **Bounds validation** (`validate.ts`) -- `validateSeekPosition()` checks against track duration. Control values are checked against their defined ranges (e.g., gain/EQ: -1 to 1, faders: 0 to 1).
 - **Schema validation** -- every incoming event is parsed with its Zod schema before processing. Invalid payloads are silently dropped.
 
-### 4.7 BEACON_TICK Timer
+### 4.9 Idempotency
+
+`apps/realtime/src/protocol/idempotency.ts` tracks client sequence numbers to deduplicate events during reconnection. Each client's last-processed `clientSeq` is stored, and events with `clientSeq <= lastProcessed` are rejected.
+
+### 4.10 Protocol Handlers
+
+`apps/realtime/src/protocol/handlers.ts` registers all Socket.IO event handlers for a connected socket. Individual handler files:
+
+- `handlers/deck.ts` -- DECK_LOAD, DECK_PLAY, DECK_PAUSE, DECK_CUE, DECK_SEEK, DECK_TEMPO_SET, DECK_BPM_DETECTED
+- `handlers/queue.ts` -- QUEUE_ADD, QUEUE_REMOVE, QUEUE_REORDER, QUEUE_EDIT
+- `handlers/controls.ts` -- CONTROL_GRAB, CONTROL_RELEASE, MIXER_SET
+- `handlers/cursor.ts` -- CURSOR_MOVE
+- `handlers/fx.ts` -- FX_SET, FX_TOGGLE
+- `handlers/time.ts` -- TIME_PING / TIME_PONG
+- `protocol/ack.ts` -- EVENT_ACK handling
+
+### 4.11 BEACON_TICK Timer
 
 `apps/realtime/src/timers/beacon.ts` runs a 250ms interval timer per room. Each tick:
 
@@ -787,17 +643,15 @@ This distinction affects rate limiting and broadcasting strategies. Continuous e
    ```
 3. Broadcasts `BEACON_TICK` with payloads for both decks
 
-This is the **primary sync mechanism**. See Section 5 for how clients consume it.
+This is the **primary sync mechanism**.
 
-### 4.8 Legacy SYNC_TICK (Deprecated)
+### 4.12 Legacy SYNC_TICK (Removed)
 
-`apps/realtime/src/timers/syncTick.ts` runs at 2-second intervals. It uses the older `serverStartTime`-based playhead calculation. This timer is kept for backwards compatibility but its drift correction on the client is **disabled** because it interfered with manual tempo changes. All meaningful sync now happens through BEACON_TICK.
+The old `syncTick.ts` timer (2-second intervals, `serverStartTime`-based playhead) has been removed. All sync now goes through BEACON_TICK exclusively. The removal was done on branch `chore/remove-dead-code` along with the deprecated `drift.ts` module and other dead code.
 
 ---
 
 ## 5. Real-time Synchronization
-
-This is the most complex subsystem in puidBoard. It solves the problem: "How do we keep audio playback synchronized across multiple clients connected over the internet?"
 
 ### 5.1 The Epoch Model
 
@@ -812,126 +666,62 @@ An **epoch** represents a continuous, uninterrupted period of playback at a fixe
 Each epoch is identified by a random UUID (`epochId`) and has:
 
 ```typescript
-// From packages/shared/src/state.ts (DeckStateSchema)
-epochId: z.string(),                  // UUID, changes on discontinuity
-epochSeq: z.number(),                 // incremented each beacon tick
-epochStartPlayheadSec: z.number(),    // playhead when epoch began
-epochStartTimeMs: z.number(),         // server timestamp when epoch began
+epochId: string,                  // UUID, changes on discontinuity
+epochSeq: number,                 // incremented each beacon tick
+epochStartPlayheadSec: number,    // playhead when epoch began
+epochStartTimeMs: number,         // server timestamp when epoch began
 ```
 
 **Why epochs?** Without epochs, a client receiving a sync message has no way to know if it came from before or after a seek. Epoch IDs let clients detect when a discontinuity happened and do a hard reset instead of trying to smoothly correct.
 
-On the server, `createNewEpoch()` is called for every discontinuity:
-
-```typescript
-// apps/realtime/src/handlers/deck.ts
-function createNewEpoch(deck, serverTs, newPlayhead, newRate?) {
-  deck.epochId = crypto.randomUUID();
-  deck.epochSeq = 0;
-  deck.epochStartPlayheadSec = newPlayhead;
-  deck.epochStartTimeMs = serverTs;
-  if (newRate !== undefined) deck.playbackRate = newRate;
-}
-```
-
-**Tempo change special case:** When the tempo changes, the server must recalculate the playhead using the **old** rate before creating the new epoch with the **new** rate. Otherwise, the epoch start playhead would be wrong:
-
-```typescript
-// In handleDeckTempoSet:
-// Calculate current playhead with OLD rate
-const elapsed = (serverTs - deck.epochStartTimeMs) / 1000;
-const currentPlayhead = deck.epochStartPlayheadSec + elapsed * deck.playbackRate;
-// Create new epoch with corrected playhead and NEW rate
-createNewEpoch(deck, serverTs, currentPlayhead, newRate);
-```
+**Tempo change special case:** When the tempo changes, the server must recalculate the playhead using the **old** rate before creating the new epoch with the **new** rate.
 
 ### 5.2 Clock Synchronization (TIME_PING / TIME_PONG)
 
-Before sync can work, clients need to know the server's clock. `apps/web/src/audio/sync/clock.ts` implements NTP-style clock synchronization.
+`apps/web/src/audio/sync/clock.ts` implements NTP-style clock synchronization.
 
 **Protocol:**
 
 1. Client sends `TIME_PING` with `t0 = Date.now()` every 2 seconds
-2. Server responds with `TIME_PONG` containing `t0` and `serverTs` (server's `Date.now()`)
-3. Client calculates:
-   ```typescript
-   const rttMs = Date.now() - t0;
-   const oneWayMs = rttMs / 2;
-   const estimatedClientTimeAtServer = t0 + oneWayMs;
-   const offsetMs = serverTs - estimatedClientTimeAtServer;
-   ```
+2. Server responds with `TIME_PONG` containing `t0` and `serverTs`
+3. Client calculates RTT and clock offset
 
 **Noise rejection:**
 - RTT spikes (>2.5x the current average) are rejected entirely
 - Samples older than 60 seconds are discarded
 - The last 7 samples are kept
+- Weighted averaging (lower RTT = higher weight)
 
-**Weighted averaging:** Samples with lower RTT get higher weight (inversely proportional to RTT), since lower RTT means the one-way assumption is more accurate:
-
-```typescript
-const weight = 1 / (s.rttMs + 1);
-```
-
-The clock is considered "reliable" after 5 samples. Until then, sync corrections are more conservative.
-
-**`getServerTime()`** returns `Date.now() + averageOffsetMs`, giving the best estimate of the server's current time.
+The clock is considered "reliable" after 5 samples. `getServerTime()` returns `Date.now() + averageOffsetMs`.
 
 ### 5.3 DeckEngine -- The Single Writer
 
-`apps/web/src/audio/DeckEngine.ts` is the central coordinator for deck transport state on each client. It implements the **single writer rule**: only DeckEngine modifies transport state. UI controls and server events all go through DeckEngine.
-
-```typescript
-class DeckEngine {
-  private state: TransportState;     // authoritative local state
-  private pllController: PLLController;
-  private lastBeaconEpochSeq: number;
-  private deck: Deck;                // audio playback
-
-  applyServerBeacon(beacon: DeckBeaconPayload): void { /* ... */ }
-  applyLocalAction(action: { type, playheadSec?, playbackRate? }): void { /* ... */ }
-}
-```
+`apps/web/src/audio/DeckEngine.ts` is the central coordinator for deck transport state on each client. It implements the **single writer rule**: only DeckEngine modifies transport state.
 
 **Beacon processing (`applyServerBeacon`):**
 
 ```
 Receive BEACON_TICK
-    │
-    ├── Is epochSeq <= lastBeaconEpochSeq? → Discard (stale)
-    │
-    ├── Is epochId different from current? → handleEpochChange() (hard reset)
-    │
-    └── Same epoch → applyPLLCorrection() (smooth adjustment)
+    |
+    +-- Is epochSeq <= lastBeaconEpochSeq? -> Discard (stale)
+    |
+    +-- Is epochId different from current? -> handleEpochChange() (hard reset)
+    |
+    +-- Same epoch -> applyPLLCorrection() (smooth adjustment)
 ```
 
-**Epoch change (hard reset):** Full state replacement. The PLL is reset, and the local `Deck` is synced to the new state (play/pause/seek as needed).
+**Epoch change (hard reset):** Full state replacement. The PLL is reset, and the local `Deck` is synced to the new state.
 
-**PLL correction (smooth adjustment):** See Section 5.4.
-
-**Local actions (`applyLocalAction`):** For user-initiated actions (play, pause, seek, tempo change), DeckEngine applies the change **optimistically** to the local `Deck` immediately. The next beacon from the server will confirm and fine-tune.
+**Local actions (`applyLocalAction`):** For user-initiated actions, DeckEngine applies the change **optimistically** to the local `Deck` immediately. The next beacon from the server will confirm and fine-tune.
 
 ### 5.4 Phase-Locked Loop (PLL) Drift Correction
 
 `apps/web/src/audio/sync/pll.ts` implements smooth drift correction.
 
-**Why PLL?** Directly snapping the playhead to the server's expected position causes audible glitches. Instead, the PLL gently adjusts the playback rate to gradually converge, like a real-world phase-locked loop in clock circuitry.
-
 **Algorithm:**
 
-1. **Measure drift:** Calculate the difference between local playhead and expected playhead (with latency compensation):
-   ```typescript
-   const oneWayLatencyMs = getAverageRtt() / 2;
-   const latencyCompensatedElapsed = elapsedSinceBeacon + oneWayLatencyMs / 1000;
-   const expectedPlayhead = beacon.playheadSec + latencyCompensatedElapsed * beacon.playbackRate;
-   const driftMs = (localPlayhead - expectedPlayhead) * 1000;
-   ```
-
-2. **Median filter:** Push the drift measurement into a 5-sample window and take the median. This rejects noise and outliers:
-   ```typescript
-   const sorted = [...this.driftHistory].sort((a, b) => a - b);
-   const medianDrift = sorted[Math.floor(sorted.length / 2)];
-   ```
-
+1. **Measure drift** with latency compensation
+2. **Median filter** -- 5-sample window to reject noise
 3. **Apply correction based on drift magnitude:**
 
    | Drift Range | Action |
@@ -940,59 +730,21 @@ Receive BEACON_TICK
    | 10ms - 500ms | Proportional correction: `correction = -drift * 0.001` |
    | > 500ms | Hard snap to expected position + PLL reset |
 
-4. **Proportional gain** is 0.001 (0.1% rate change per 100ms of drift), clamped to plus/minus 2%. This means the maximum rate adjustment is 2% faster or slower than the base rate.
+4. **Proportional gain** is 0.001, clamped to plus/minus 2%
+5. **Apply effective rate** directly to `AudioBufferSourceNode.playbackRate.value`
 
-5. **Apply effective rate:** The corrected rate (`baseRate * correctionFactor`) is applied directly to the `AudioBufferSourceNode.playbackRate.value`. This is the **only place** where sync modifies the playback rate:
-   ```typescript
-   private applyEffectiveRate(effectiveRate: number): void {
-     const deckState = this.deck.getState();
-     if (deckState.playState === "playing" && deckState.source) {
-       deckState.source.playbackRate.value = effectiveRate;
-     }
-   }
-   ```
+### 5.5 DeckTransport -- Bridge Between Server and Audio
 
-### 5.5 Full Sync Lifecycle Example
+`apps/web/src/components/DeckTransport.tsx` is a React component that serves as both:
+1. **Sync bridge** -- routes server state to local `Deck` and `DeckEngine`
+2. **Transport UI** -- renders play/pause/cue buttons, BPM display, loading bar
 
-Here is a complete example of what happens when User A presses Play:
-
-1. **User A's browser:** `DeckEngine.applyLocalAction({ type: "PLAY" })` calls `deck.play()` immediately (optimistic).
-2. **User A's browser:** Sends `DECK_PLAY` event to server.
-3. **Server:** Validates, creates new epoch (`epochId=xyz`, `epochStartPlayheadSec=0`, `epochStartTimeMs=now`), sets `playState="playing"`, broadcasts `DECK_PLAY` mutation to all clients.
-4. **Server:** Next `BEACON_TICK` (within 250ms) includes the new epoch in its payload.
-5. **User B's browser:** Receives `BEACON_TICK`, `DeckEngine.applyServerBeacon()` detects epoch change (`epochId` differs), calls `handleEpochChange()` which resets state and starts playback at the epoch's playhead.
-6. **Subsequent beacons:** Both clients now have the same `epochId`. Each beacon triggers `applyPLLCorrection()` which keeps playheads aligned within ~10ms through gentle rate adjustments.
-
-### 5.6 DeckTransport -- Bridge Between Server and Audio
-
-`apps/web/src/components/DeckTransport.tsx` is an invisible React component (renders nothing) that:
-
-1. Watches server state changes for its deck (track loading, play state, BPM)
-2. Syncs local `Deck` instance with server state
-3. Routes `BEACON_TICK` payloads to `DeckEngine`
-4. Integrates with queue pre-loading for YouTube tracks
-
-**Pre-loaded buffer integration:** When loading a track to the deck, DeckTransport checks if the queue item has a pre-loaded `AudioBuffer` (populated by `useQueueAudioLoader` for YouTube tracks):
-
-```typescript
-// Check if we have a pre-loaded buffer (for YouTube tracks)
-const preloadedBuffer = queueItem.audioBuffer;
-
-initAudioEngine()
-  .then(() => getAudioUrl())
-  .then((audioUrl) => {
-    if (preloadedBuffer) {
-      console.log(`[DeckTransport-${deckId}]   ✓ Using pre-loaded buffer from queue`);
-    }
-    return loadTrack(serverTrackId, audioUrl, preloadedBuffer);
-  });
-```
-
-If a pre-loaded buffer exists, the deck loads instantly (no download/decode). Otherwise, it fetches and decodes as normal.
-
-**`justLoadedRef` guard:** After loading a track, there is a 500ms window where auto-play from server state is suppressed. This prevents a race condition where the server's play command arrives before the client finishes loading the track.
-
-**BPM display logic:** Prefers locally-detected BPM (which is available sooner), falls back to server-propagated BPM. The displayed BPM is always `detectedBpm * playbackRate`.
+**Key behaviors:**
+- Watches server state changes for track loading, play state, BPM
+- Checks for pre-loaded `AudioBuffer` in queue items (from `useQueueAudioLoader`)
+- Routes `BEACON_TICK` payloads to `DeckEngine`
+- **`justLoadedRef` guard:** 500ms window where auto-play is suppressed after track load
+- **BPM display:** Prefers locally-detected BPM, falls back to server-propagated BPM
 
 ---
 
@@ -1000,7 +752,7 @@ If a pre-loaded buffer exists, the deck loads instantly (no download/decode). Ot
 
 ### 6.1 Performance Pad Panel
 
-`apps/web/src/components/PerformancePadPanel.tsx` renders a 2x2 grid of pads per deck. Each pad has a fixed function:
+`apps/web/src/components/PerformancePadPanel.tsx` renders a 2x2 grid of pads per deck using `PerformancePadButton.tsx`.
 
 | Pad | Function | Color | Click | Hold | Release |
 |-----|----------|-------|-------|------|---------|
@@ -1013,187 +765,387 @@ If a pre-loaded buffer exists, the deck loads instantly (no download/decode). Ot
 - Deck A: `1`, `2`, `3`, `4`
 - Deck B: `7`, `8`, `9`, `0`
 
-The Jump pad calculates beat/bar durations from the detected BPM:
-
-```typescript
-const beatsPerSecond = deck.bpm / 60;
-const secondsPerBeat = 1 / beatsPerSecond;
-// Tap: back 1 beat
-const jumpBack = -secondsPerBeat;
-// Hold: forward 1 bar
-const jumpForward = secondsPerBeat * 4;
-```
-
-**Note:** Loop and Roll are currently placeholder implementations (marked with TODO comments). The Hot Cue and Jump pads are fully functional.
+**Note:** Loop and Roll are currently placeholder implementations (marked with TODO comments). Hot Cue and Jump are fully functional.
 
 ### 6.2 Sampler System
 
-The sampler is a separate audio system that plays short samples **directly to the master gain**, bypassing the mixer chain entirely. This means samples always play at full volume regardless of crossfader, channel fader, or EQ settings.
+The sampler is a separate audio system that plays short samples **directly to the master gain**, bypassing the mixer chain entirely.
 
 **Architecture:**
 
 ```
-SamplerPanel ─> playSample(slot) ─> AudioBufferSourceNode ─> GainNode(0.8) ─> MasterGain ─> Destination
+SamplerPanel -> playSample(slot) -> AudioBufferSourceNode -> GainNode(0.8) -> MasterGain -> Destination
 ```
 
 **Sample slots:** 4 slots (0-3), each with a default sample:
 
 | Slot | Default | Keybind |
 |------|---------|---------|
-| 0 | Kick | R |
-| 1 | Snare | T |
-| 2 | Hi-Hat | Y |
-| 3 | Clap | U |
+| 0 | Airhorn | R |
+| 1 | Horse Neigh | T |
+| 2 | Gunshot | Y |
+| 3 | Explosion | U |
 
-Samples are loaded from `/assets/audio/samples/*.wav`. If loading fails (e.g., files not found), each slot falls back to an **oscillator-based tone** with distinct frequency and waveform:
+Samples are loaded from `/assets/audio/samples/*.mp3`. If loading fails, each slot falls back to an **oscillator-based tone** with distinct frequency and waveform.
 
-```typescript
-const FALLBACK_CONFIGS = {
-  0: { frequency: 440, duration: 0.15, type: "sine" },
-  1: { frequency: 587.33, duration: 0.15, type: "square" },
-  2: { frequency: 783.99, duration: 0.2, type: "triangle" },
-  3: { frequency: 880, duration: 0.25, type: "sawtooth" },
-};
-```
+**Custom samples:** The API supports `loadCustomSample(slot, url, name)` and `resetSlotToDefault(slot)`. Changes are notified via `onSampleChange(listener)`.
 
-**Custom samples:** The API supports loading custom samples via `loadCustomSample(slot, url, name)`. Custom samples override the defaults for their slot. `resetSlotToDefault(slot)` reverts to the original.
+**Server-side sampler API** (`apps/realtime/src/services/samplerSounds.ts` and `apps/realtime/src/db/samplerSoundStore.ts`):
+- Upload custom sampler sounds (per client, per room, per slot)
+- List/delete sounds
+- Reset slot to default
 
-**Server-side sampler API:**
-- `POST /api/sampler/upload` -- upload a custom sample sound
-- `GET /api/sampler/sounds` -- list available sampler sounds
-- `DELETE /api/sampler/sounds/:id` -- delete a custom sampler sound
+### 6.3 Sampler Components
 
-**Event system:** `onSampleChange(listener)` lets components subscribe to slot changes for UI updates.
-
-### 6.3 Sampler Panel Component
-
-`apps/web/src/components/SamplerPanel.tsx` renders 4 buttons in a horizontal row. It handles keyboard events using `e.code` (e.g., `KeyR`, `KeyT`) for layout-independent detection. When a key is pressed, it triggers `playSample(slot)` and provides visual feedback via a 150ms pressed state.
-
-All 4 buttons share the same orange color (#FF8C3B) for a unified look.
+- `SamplerPanel.tsx` -- renders 4 `SamplerButton` components in a horizontal row. All buttons use orange color (#FF8C3B). Some buttons have SVG icons (`airhorn.svg`, `gunshot.svg`).
+- `SamplerButton.tsx` -- individual pad button with keybind display, press animation, optional icon overlay.
+- `SamplerSettings.tsx` -- modal dialog for managing sampler sounds (upload custom samples, record from microphone, preview, reset to default). Accessible via gear button in the queue panel area.
 
 ---
 
-## 7. Key Architecture Decisions
+## 7. Deployment and Infrastructure
 
-### 7.1 Server-Authoritative State
+### 7.1 Docker
+
+`apps/realtime/Dockerfile` builds a production image:
+- Base: `node:20-alpine` with `python3`, `ffmpeg`, `yt-dlp` installed
+- Multi-stage build: deps stage + runner stage
+- Pre-built TypeScript artifacts are copied in (build locally first)
+- Storage directories created at `/app/apps/realtime/.storage/tracks` and `/app/.storage`
+
+### 7.2 Fly.io
+
+Both apps have `fly.toml` configs for deployment to Fly.io:
+- `apps/realtime/fly.toml` -- realtime server
+- `apps/web/fly.toml` -- Next.js frontend
+
+The server auto-detects Fly.io via `FLY_APP_NAME` env var for CDN URL generation.
+
+GitHub Actions (`.github/workflows/`) automate deployment on push to main.
+
+### 7.3 Environment Variables
+
+**Realtime server:**
+- `PORT` (default: 3001)
+- `CORS_ORIGINS` -- comma-separated allowed origins
+- `YOUTUBE_API_KEY` -- YouTube Data API v3 key
+- `YOUTUBE_COOKIES` -- cookie content for yt-dlp (written to disk on startup)
+- `YOUTUBE_COOKIES_PATH` -- path to static cookie file
+- `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` -- Supabase storage
+- `REDIS_URL` or `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` -- Redis persistence
+- `STORAGE_DIR` -- override storage directory
+- `CDN_BASE_URL` -- override CDN URL
+- `SNAPSHOT_INTERVAL_MS`, `SNAPSHOT_TTL_MS` -- persistence tuning
+
+**Web frontend:**
+- `NEXT_PUBLIC_REALTIME_URL` -- URL of the realtime server
+
+---
+
+## 8. Dead Code and Technical Debt
+
+### 8.1 Dead Files (not imported anywhere)
+
+| File | Status | Notes |
+|------|--------|-------|
+| `apps/web/src/audio/youtubePlayer.ts` | **DEAD** | YouTube IFrame Player API wrapper. Was an attempt at client-side YouTube playback. Never imported (only referenced in `.bak` files). The system uses server-side yt-dlp + streaming proxy instead. |
+| `apps/web/src/audio/deck.ts.bak` | **DEAD** | Backup of old deck implementation. Should be deleted. |
+| `apps/web/src/audio/deck.ts.bak2` | **DEAD** | Another backup. Should be deleted. |
+| `apps/web/src/components/AutoplayGate.tsx` | **DEAD** | Component exists but is never imported. The room page handles autoplay inline via a `useEffect` + click listener. |
+| `apps/web/src/components/FXStrip.tsx` | **DEAD** | Never imported. FX controls are handled by `FXControlPanel.tsx` instead. |
+| `apps/web/src/components/controls/EQControl.tsx` | **UNUSED** | Exported from `controls/index.ts` but never imported by any other component. The DJ board uses individual `Knob` components for EQ instead. |
+| `apps/web/src/components/ClippingIndicator.tsx` | **DEAD** | Import is commented out in `DJBoard.tsx` with `// TODO: add clipping indicator later`. |
+| `apps/web/src/components/displays/DeckStatusDisplay.tsx` | **UNUSED** | Exported from `displays/index.ts` but never imported by any component. |
+
+### 8.2 Deprecated Code (Being Removed)
+
+The `chore/remove-dead-code` branch removes the following deprecated code:
+
+| File/Export | Status | Notes |
+|-------------|--------|-------|
+| `apps/realtime/src/timers/syncTick.ts` | **REMOVED** | Old 2-second sync timer. All sync now goes through BEACON_TICK (250ms). |
+| `apps/web/src/audio/sync/drift.ts` | **REMOVED** | Legacy drift correction module. Was all no-ops. PLL in `DeckEngine` handles drift now. |
+| `DeckState.serverStartTime` | **TO REMOVE** | Marked `@deprecated` in state schema ("Use epochStartTimeMs instead"). Still present in schema but no longer used by any timer. Should be removed from the shared schema. |
+
+### 8.3 Untracked/Temporary Files in Git
+
+From `git status`, these files are untracked and likely should be in `.gitignore` or deleted:
+
+- `YOUTUBE_API_ANALYSIS.md`, `YOUTUBE_BACKEND_INTEGRATION.md`, `YOUTUBE_COOKIES_SETUP.md`, etc. -- temporary analysis/documentation files
+- `apps/web/.env.local.bak` -- backup env file
+- `test-youtube-apis.js`, `upload-cookies.sh`, `youtube-cookies.txt` -- development scripts
+- `sounds/` -- unknown directory
+- `system_overview.md.backup` -- backup of this file
+
+### 8.4 Comment-Noted TODOs
+
+- `DJBoard.tsx:15` -- `// import ClippingIndicator from "./ClippingIndicator"; // TODO: add clipping indicator later`
+- `PerformancePadPanel.tsx` -- Loop and Roll pad functions are placeholder implementations
+- Headphone cue mix knob in `MixerKnobs` is rendered but not wired to any audio functionality (hardcoded `value={0.5}`)
+
+---
+
+## 9. Key Architecture Decisions
+
+### 9.1 Server-Authoritative State
 
 **Decision:** All mutations flow through the server. Clients apply changes optimistically but the server's `BEACON_TICK` is the final authority.
 
-**Why:** In a multi-user DJ session, conflicting operations (two users adjusting the same control, seeking at the same time) must resolve deterministically. Server authority ensures all clients converge to the same state. Without it, clients would diverge and require complex conflict resolution.
+**Why:** In a multi-user DJ session, conflicting operations must resolve deterministically. Server authority ensures all clients converge to the same state.
 
-**Tradeoff:** Added latency for actions (round-trip to server). Mitigated by optimistic local updates -- the user sees the effect immediately and the server confirms within ~250ms.
+**Tradeoff:** Added latency for actions (round-trip to server). Mitigated by optimistic local updates.
 
-### 7.2 Epoch-Based Sync over Continuous Timestamp Sync
+### 9.2 Epoch-Based Sync over Continuous Timestamp Sync
 
 **Decision:** Use epochs (UUID + sequence number + start position + start time) instead of continuously broadcasting absolute positions.
 
-**Why:** With continuous timestamps, every seek or tempo change creates a discontinuity that confuses drift correction. The PLL would see a huge drift and try to correct for it, causing audio glitches. Epochs explicitly mark discontinuities, letting the system do a clean hard reset and then resume smooth correction.
+**Why:** With continuous timestamps, every seek or tempo change creates a discontinuity that confuses drift correction. Epochs explicitly mark discontinuities, letting the system do a clean hard reset.
 
-**Tradeoff:** More complex protocol and state management. The benefit is dramatically more robust sync that handles seeks, tempo changes, and scrubbing gracefully.
+### 9.3 PLL over Hard Snap
 
-### 7.3 PLL over Hard Snap
+**Decision:** Use a proportional-gain PLL with median filtering for drift correction.
 
-**Decision:** Use a proportional-gain PLL with median filtering for drift correction instead of directly seeking to the expected position.
+**Why:** Hard snaps cause audible clicks and glitches. The PLL makes corrections invisible by adjusting playback rate by at most 2%.
 
-**Why:** Hard snaps cause audible clicks and glitches. The PLL makes corrections invisible to the listener by adjusting playback rate by at most 2%. At 500ms+ drift, it does snap (the listener would notice being that far off anyway), but for normal network jitter (10-100ms), corrections are imperceptible.
+### 9.4 Fixed Canvas + CSS Scale
 
-**Tradeoff:** Convergence takes multiple beacon cycles (1-2 seconds to correct a 100ms drift). This is acceptable because the alternative (audible glitches) is worse.
+**Decision:** Design the UI at a fixed resolution (1600x600) and use CSS `transform: scale()`.
 
-### 7.4 Fixed Canvas + CSS Scale
+**Why:** 50+ precisely positioned controls must align with the SVG background. Fixed coordinates are simple and trivially debuggable.
 
-**Decision:** Design the UI at a fixed resolution (1600x600) and use CSS `transform: scale()` instead of responsive CSS.
-
-**Why:** The DJ board has 50+ precisely positioned controls that must align with the SVG background. Responsive layouts with flexbox/grid would require complex dynamic positioning that is fragile and hard to maintain. Fixed coordinates are simple, predictable, and trivially debuggable (change a number, see the result).
-
-**Tradeoff:** The board scales uniformly -- it cannot rearrange for portrait mobile layouts. This is acceptable because a DJ controller is inherently a landscape interface.
-
-### 7.5 Content-Addressed Storage
+### 9.5 Content-Addressed Storage
 
 **Decision:** Use SHA256 hash of file contents as the storage key.
 
-**Why:** Automatic deduplication with zero additional logic. Two users uploading the same song produce the same hash and the same storage key. The file is stored once. This saves storage space and simplifies the upload flow (just check if the hash exists already).
+**Why:** Automatic deduplication with zero additional logic.
 
-**Tradeoff:** No way to have multiple copies of the same file with different metadata (e.g., different titles). The system handles this by separating storage (file bytes, keyed by hash) from metadata (track records, which reference storage keys). Multiple track records can point to the same storage key.
-
-### 7.6 Sampler Bypasses Mixer
+### 9.6 Sampler Bypasses Mixer
 
 **Decision:** Sampler output goes directly to master gain, not through the per-channel mixer chain.
 
-**Why:** Samples (kick, snare, etc.) are performance elements that should always be audible regardless of crossfader position or channel fader settings. If they went through a channel, moving the crossfader would cut them off. Direct-to-master ensures consistent behavior.
+**Why:** Samples are performance elements that should always be audible regardless of crossfader/fader position. Standard behavior in real DJ hardware.
 
-**Tradeoff:** Samples cannot be EQ'd or filtered through the mixer. This is standard behavior in real DJ hardware (e.g., Pioneer DJM mixers route the sampler to a separate master bus).
+### 9.7 Shared Package as Contract
 
-### 7.7 Shared Package as Contract
+**Decision:** All types, schemas, and event definitions live in `@puid-board/shared`.
 
-**Decision:** All types, schemas, and event definitions live in `@puid-board/shared`, consumed by both client and server.
+**Why:** Type safety across the network boundary. Schema changes are compile-time errors in both packages.
 
-**Why:** Type safety across the network boundary. When the server sends a `BEACON_TICK`, both the server's emit and the client's handler reference the same TypeScript type derived from the same Zod schema. Schema changes are compile-time errors in both packages. This eliminates an entire class of bugs (mismatched field names, wrong types, missing fields).
+### 9.8 Single Writer Rule for Transport State
 
-**Tradeoff:** Changes to the shared package require rebuilding both dependent packages. In practice, Turborepo handles this automatically.
+**Decision:** Only `DeckEngine` modifies deck transport state.
 
-### 7.8 Single Writer Rule for Transport State
+**Why:** Multiple code paths modifying transport state would create race conditions. One writer = one place to reason about state transitions.
 
-**Decision:** Only `DeckEngine` is allowed to modify deck transport state (playhead, playback rate, play state).
+### 9.9 In-Memory Room State with Optional Persistence
 
-**Why:** Multiple code paths modifying transport state (UI handlers, sync corrections, server events) would create race conditions and inconsistencies. By funneling everything through DeckEngine, there is one place to reason about state transitions, one place to log, and one place to debug.
+**Decision:** Room state is held entirely in memory on the server, with optional Redis snapshots for reconnect resilience.
 
-**Tradeoff:** UI code cannot directly call `deck.play()` -- it must go through `DeckEngine.applyLocalAction()`. This adds a level of indirection but provides much stronger correctness guarantees.
+**Why:** Latency. Every mixer knob adjustment touches room state. In-memory access is nanoseconds vs. milliseconds for a database. Redis snapshots provide crash recovery without runtime overhead.
 
-### 7.9 In-Memory Room State
-
-**Decision:** Room state is held entirely in memory on the server (no database for real-time state).
-
-**Why:** Latency. Every mixer knob adjustment, every beacon tick, every cursor move touches room state. Database round-trips would add unacceptable latency. In-memory access is nanoseconds vs. milliseconds for a database.
-
-**Tradeoff:** State is lost on server restart. Rooms are inherently ephemeral (a DJ session), so this is acceptable. Track storage (the files themselves) uses persistent storage (filesystem or Supabase).
-
-### 7.10 Zod for Runtime Validation
+### 9.10 Zod for Runtime Validation
 
 **Decision:** Use Zod schemas for both TypeScript types (compile-time) and event validation (runtime).
 
-**Why:** The server processes untrusted input from WebSocket connections. Every event must be validated before it touches room state. Zod gives us both the TypeScript type (via `z.infer<>`) and the runtime validator (via `.safeParse()`) from a single schema definition. This eliminates drift between types and validation.
+**Why:** Single schema definition gives both TypeScript type (via `z.infer<>`) and runtime validator (via `.safeParse()`). Eliminates drift between types and validation.
+
+### 9.11 Buffered Download for YouTube
+
+**Decision:** Download and decode entire YouTube audio to an AudioBuffer instead of streaming.
+
+**Why:** Streaming via MediaElementAudioSourceNode doesn't provide the decoded buffer required for BPM detection (autocorrelation) and waveform generation. By downloading completely, YouTube tracks get identical functionality to uploaded tracks.
+
+---
+
+## 10. Architecture Analysis
+
+### 10.1 Comparison to Game Networking Patterns
+
+puidBoard's realtime system maps closely to the authoritative server model used by multiplayer games (Fortnite, Valorant, Figma, etc.). Here is how each standard game networking concept applies:
+
+| Game Networking Concept | puidBoard Equivalent | Notes |
+|---|---|---|
+| **Authoritative server** | RoomStore is single source of truth | All mutations validated + applied server-side |
+| **Tick rate** | Beacon at 250ms (4 Hz) | Games use 30-128 Hz, but audio playhead is deterministic between ticks |
+| **Client sends inputs, server sends state** | Client sends mutation events, server broadcasts `ServerMutationEvent` + `BEACON_TICK` | Same pattern |
+| **World snapshot on connect** | `ROOM_SNAPSHOT` sent on CREATE/JOIN | Full state transfer |
+| **Client-side prediction** | Mixer controls apply locally, confirmed by server broadcast | Lightweight — deck transport does NOT predict (waits for server) |
+| **Server reconciliation** | `applyServerEvent()` overwrites local state | Server broadcast is authority |
+| **Snapshot interpolation** | DeckEngine PLL smooths between 250ms beacon ticks | Same concept, audio domain |
+| **Deterministic simulation** | Epoch model: `playhead = epochStart + elapsed * rate` | Clients calculate exact playhead independently between beacons |
+| **Clock sync** | `TIME_PING`/`TIME_PONG` with NTP-style offset estimation | 7-sample window, RTT spike rejection, weighted averaging |
+| **Interest management** | Socket.IO rooms — clients only receive events for their room | Rooms ARE the spatial partitions |
+| **Input deduplication** | Per-client `clientSeq` + rolling event window | Protects against retries and reconnection |
+| **Lag compensation / server rewind** | Not needed | No "did this hit?" questions — audio playback is continuous, not collision-based |
+
+**Key architectural difference from games:** Games have continuous physics that must be simulated server-side every tick. puidBoard's "physics" (audio playback) is mathematically deterministic — once the server sets an epoch, every client can independently calculate the exact playhead at any moment. This is why 4 Hz ticks work instead of 60-128 Hz.
+
+### 10.2 What the Architecture Gets Right
+
+1. **Server-authoritative model** — prevents divergent state, cheating, race conditions
+2. **Epoch-based deterministic playback** — eliminates accumulated drift, handles discontinuities cleanly
+3. **PLL over hard snap** — corrections are inaudible (max 2% rate adjustment vs. audible clicks from hard snaps)
+4. **Idempotent event processing** — protects against network retries without extra client logic
+5. **Soft control locking with TTL** — prevents conflicting edits without deadlocks
+6. **Zod schemas as shared contract** — type safety across the network boundary, compile-time + runtime validation
+
+### 10.3 Known Scaling Boundaries
+
+These are NOT problems today but define where the architecture would need changes:
+
+| Boundary | Current State | When It Matters |
+|---|---|---|
+| **Single-server rooms** | All room state in one Node process's memory | If you need multiple server instances (>1000 concurrent rooms), rooms can't span servers. Would need sticky sessions or distributed state. |
+| **Socket.IO overhead** | Convenient, battle-tested, but adds framing/encoding overhead | At very high scale (>10K connections per instance), raw WebSockets or uWebSockets would reduce overhead. Not relevant now. |
+| **Beacon interval (250ms)** | Fine for play/pause/seek sync | For tighter scratch sync or beat-grid matching, 100ms would improve PLL convergence. Easy constant change. |
+| **Snapshot persistence (10s)** | Up to 10s of state loss on crash | Acceptable for ephemeral rooms. Event sourcing would give zero loss but adds massive complexity. Not worth it. |
+| **Reconnection gap** | Client gets fresh `ROOM_SNAPSHOT` on reconnect | Misses events from last 0-10s window. The snapshot has current state so this is fine — playback position and mixer state are all captured. |
+
+### 10.4 Sampler Sync Gap
+
+The sampler currently fires audio **locally only** — `playSample(slot)` plays directly to the master gain with no server event. This means:
+
+- User A triggers airhorn — only User A hears it
+- No `SAMPLER_PLAY` event exists in the protocol
+- This is a deliberate simplification but worth noting as a feature gap
+
+Adding sampler sync would require a new event type and careful latency handling (samples are short, so network delay would make them feel late on remote clients).
 
 ---
 
 ## Appendix: File Reference
 
+### packages/shared/src/
+
 | File | Description |
 |------|-------------|
-| `packages/shared/src/state.ts` | All state schemas (RoomState, DeckState, MixerState, etc.) |
-| `packages/shared/src/events.ts` | All event schemas (client mutations, server broadcasts) |
-| `packages/shared/src/controlIds.ts` | Control ID constants and ownership TTL |
-| `packages/shared/src/validators.ts` | Bounds checking and validation utilities |
-| `apps/web/src/audio/engine.ts` | AudioContext singleton |
-| `apps/web/src/audio/deck.ts` | Deck class (per-deck playback) |
-| `apps/web/src/audio/DeckEngine.ts` | Single writer for transport state, epoch + PLL sync |
-| `apps/web/src/audio/mixerGraph.ts` | Full mixer audio graph (EQ, faders, crossfade, FX) |
-| `apps/web/src/audio/params.ts` | Audio parameter smoothing utilities |
-| `apps/web/src/audio/sampler.ts` | Sampler engine (sample loading, playback, fallback) |
-| `apps/web/src/audio/useDeck.ts` | React hook for deck state + control methods |
-| `apps/web/src/audio/useMixer.ts` | React hook for mixer state sync |
-| `apps/web/src/audio/useQueueAudioLoader.ts` | React hook for queue-level YouTube pre-loading |
-| `apps/web/src/audio/sync/pll.ts` | PLL drift correction controller |
-| `apps/web/src/audio/sync/clock.ts` | TIME_PING/PONG clock synchronization |
-| `apps/web/src/audio/sync/drift.ts` | Legacy drift correction (deprecated) |
-| `apps/web/src/audio/analysis/bpmDetector.ts` | Autocorrelation-based BPM detection |
-| `apps/web/src/audio/analysis/waveformGenerator.ts` | RMS waveform generation |
-| `apps/web/src/audio/fx/manager.ts` | FX processor lifecycle and routing |
-| `apps/web/src/components/DJBoard.tsx` | Main board component (layout, coordinates) |
-| `apps/web/src/components/controls/JogWheel.tsx` | Dual-zone jog wheel |
-| `apps/web/src/components/DeckTransport.tsx` | Server-to-audio sync bridge |
-| `apps/web/src/components/SamplerPanel.tsx` | Sampler UI panel |
-| `apps/web/src/components/PerformancePadPanel.tsx` | Performance pad UI panel |
-| `apps/web/src/hooks/useBoardScale.ts` | Viewport scale calculation |
-| `apps/web/src/realtime/client.ts` | RealtimeClient (Socket.IO wrapper) |
-| `apps/web/src/app/room/[code]/page.tsx` | Room page with autoplay gate |
-| `apps/realtime/src/server.ts` | HTTP + Socket.IO server setup |
-| `apps/realtime/src/rooms/store.ts` | In-memory room state store |
-| `apps/realtime/src/timers/beacon.ts` | BEACON_TICK timer (250ms) |
-| `apps/realtime/src/timers/syncTick.ts` | SYNC_TICK timer (deprecated, 2s) |
-| `apps/realtime/src/handlers/deck.ts` | Deck action handlers + epoch creation |
-| `apps/realtime/src/protocol/handlers.ts` | Socket.IO event handler registration |
-| `apps/realtime/src/services/storage.ts` | File storage (Supabase or local) |
-| `apps/realtime/src/services/tracks.ts` | Track upload validation and deduplication |
-| `apps/realtime/src/services/youtube.ts` | YouTube search via YouTube Data API v3 (client-side playback) |
-| `apps/realtime/src/http/api.ts` | HTTP API endpoints (including YouTube streaming) |
-| `apps/web/src/components/YouTubeSearch.tsx` | YouTube search UI component |
+| `state.ts` | All state schemas (RoomState, DeckState, MixerState, QueueItem, etc.) + factory functions |
+| `events.ts` | All event schemas (client mutations, server broadcasts, BEACON_TICK) |
+| `controlIds.ts` | Control ID constants, grouped IDs, ownership TTL (2000ms) |
+| `validators.ts` | Bounds checking, control validation, event classification utilities |
+| `index.ts` | Barrel export of all schemas, types, validators, constants. Exports `VERSION = "0.1.0"` |
+
+### apps/web/src/audio/
+
+| File | Description |
+|------|-------------|
+| `engine.ts` | AudioContext singleton + master GainNode |
+| `deck.ts` | Deck class (per-deck playback, track loading, YouTube loading, analysis) |
+| `DeckEngine.ts` | Single writer for transport state, epoch + PLL sync |
+| `mixerGraph.ts` | Full mixer audio graph (EQ, faders, crossfade, FX routing) |
+| `params.ts` | Audio parameter smoothing utilities + `equalPowerCrossfade()` + `bipolarToGain()` |
+| `sampler.ts` | Sampler engine (sample loading, playback, oscillator fallback, custom samples) |
+| `useDeck.ts` | React hook for deck state + control methods |
+| `useMixer.ts` | React hook for mixer state sync to audio graph |
+| `useQueueAudioLoader.ts` | React hook for queue-level YouTube pre-loading |
+| `controlOptimizer.ts` | RAF manager, optimized control hooks, pointer coalescing, momentum physics |
+| `index.ts` | Barrel exports (does NOT export sampler, sync, analysis, controlOptimizer, or youtubePlayer) |
+| `youtubePlayer.ts` | **DEAD CODE** -- YouTube IFrame API wrapper, never imported. Should be deleted. |
+
+### apps/web/src/audio/sync/
+
+| File | Description |
+|------|-------------|
+| `pll.ts` | PLL drift correction controller (active, used by DeckEngine) |
+| `clock.ts` | TIME_PING/PONG clock synchronization (active) |
+| `drift.ts` | **REMOVED** -- Legacy drift correction, was all no-ops. Deleted on `chore/remove-dead-code` branch |
+| `index.ts` | Barrel re-exports from clock.ts and drift.ts |
+
+### apps/web/src/audio/analysis/
+
+| File | Description |
+|------|-------------|
+| `bpmDetector.ts` | Autocorrelation-based BPM detection |
+| `waveformGenerator.ts` | RMS waveform generation (480 buckets) |
+
+### apps/web/src/audio/fx/
+
+| File | Description |
+|------|-------------|
+| `manager.ts` | FX processor lifecycle and routing |
+| `echo.ts` | Echo/delay effect |
+| `reverb.ts` | Reverb effect |
+| `filter.ts` | Variable filter effect |
+| `types.ts` | FX type definitions |
+| `index.ts` | Barrel exports |
+
+### apps/web/src/components/
+
+| File | Description |
+|------|-------------|
+| `DJBoard.tsx` | Main board component (layout, coordinates, all subcomponents) |
+| `DeckTransport.tsx` | Server-to-audio sync bridge + transport UI (play/pause/cue/BPM) |
+| `QueuePanel.tsx` | Track queue panel with upload and YouTube search |
+| `QueueItemRow.tsx` | Individual queue item with deck load buttons |
+| `YouTubeSearch.tsx` | YouTube search UI component |
+| `TrackUploader.tsx` | File upload component |
+| `SamplerPanel.tsx` | Sampler UI panel (4 buttons) |
+| `SamplerButton.tsx` | Individual sampler pad button |
+| `SamplerSettings.tsx` | Modal for sampler sound management |
+| `PerformancePadPanel.tsx` | 2x2 performance pad grid per deck |
+| `PerformancePadButton.tsx` | Individual performance pad button |
+| `FXControlPanel.tsx` | FX controls + channel faders + BPM displays |
+| `TopBar.tsx` | Room code display, latency indicator |
+| `CursorsLayer.tsx` | Multi-user cursor overlay + `buildMemberColorMap` utility |
+| `ClippingIndicator.tsx` | **DEAD** -- not imported |
+| `AutoplayGate.tsx` | **DEAD** -- not imported |
+| `FXStrip.tsx` | **DEAD** -- not imported |
+
+### apps/web/src/components/controls/
+
+| File | Description |
+|------|-------------|
+| `JogWheel.tsx` | Dual-zone jog wheel (vinyl scratch + pitch bend) |
+| `Knob.tsx` | Rotary knob (used for EQ, master volume, FX params) |
+| `Fader.tsx` | Vertical fader (used for channel faders) |
+| `Crossfader.tsx` | Horizontal crossfader |
+| `EQControl.tsx` | **UNUSED** -- exported but never imported by any component |
+| `useControlInteraction.ts` | Shared control interaction hook |
+| `index.ts` | Barrel exports |
+
+### apps/web/src/components/displays/
+
+| File | Description |
+|------|-------------|
+| `LCDScreen.tsx` | Styled LCD container |
+| `WaveformDisplay.tsx` | Waveform visualization |
+| `TrackInfoDisplay.tsx` | Track title and status |
+| `TimeDisplay.tsx` | Current time / duration |
+| `FXDisplay.tsx` | FX state readout |
+| `LoadingBar.tsx` | YouTube loading progress |
+| `DeckControlPanel.tsx` | Deck control panel layout |
+| `DeckStatusDisplay.tsx` | **UNUSED** -- exported but never used |
+| `index.ts` | Barrel exports |
+
+### apps/realtime/src/
+
+| File | Description |
+|------|-------------|
+| `server.ts` | HTTP + Socket.IO server setup, CORS, startup sequence |
+| `http/api.ts` | All HTTP API endpoints (tracks, sampler, YouTube) |
+| `rooms/store.ts` | In-memory room state store |
+| `rooms/persistence.ts` | Redis/in-memory persistence manager |
+| `timers/beacon.ts` | BEACON_TICK timer (250ms) |
+| `timers/syncTick.ts` | **REMOVED** -- old SYNC_TICK timer (2s), deleted on `chore/remove-dead-code` branch |
+| `handlers/deck.ts` | Deck action handlers + epoch creation |
+| `handlers/queue.ts` | Queue mutation handlers |
+| `handlers/controls.ts` | Control ownership + MIXER_SET handler |
+| `handlers/cursor.ts` | Cursor position handler |
+| `handlers/fx.ts` | FX parameter handlers |
+| `handlers/time.ts` | TIME_PING/PONG handler |
+| `protocol/handlers.ts` | Socket.IO event handler registration |
+| `protocol/ack.ts` | Event acknowledgment |
+| `protocol/idempotency.ts` | Client sequence deduplication |
+| `security/limits.ts` | Rate limiter |
+| `security/validate.ts` | Bounds validation |
+| `security/index.ts` | Security barrel exports |
+| `services/storage.ts` | File storage (Supabase + local filesystem) |
+| `services/supabaseStorage.ts` | Supabase storage wrapper |
+| `services/tracks.ts` | Track upload validation and deduplication |
+| `services/samplerSounds.ts` | Sampler sound management service |
+| `services/youtube.ts` | YouTube search (Data API v3) + audio extraction (yt-dlp) |
+| `services/youtube-cookies.ts` | YouTube cookie fetcher for yt-dlp auth |
+| `db/trackStore.ts` | In-memory track metadata store |
+| `db/samplerSoundStore.ts` | In-memory sampler sound metadata store |
+| `db/types.ts` | Database type definitions |
+| `db/schema.sql` | SQL schema (reference only, not used -- stores are in-memory) |

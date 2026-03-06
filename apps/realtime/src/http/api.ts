@@ -357,13 +357,15 @@ async function handleServeFile(
   try {
     const buffer = await storageService.read(storageKey);
 
-    // Determine content type from storage key extension
     const ext = storageKey.split(".").pop()?.toLowerCase();
     const mimeTypes: Record<string, string> = {
       mp3: "audio/mpeg",
       wav: "audio/wav",
       aiff: "audio/aiff",
       flac: "audio/flac",
+      webm: "audio/webm",
+      ogg: "audio/ogg",
+      m4a: "audio/mp4",
     };
     const contentType = mimeTypes[ext || ""] || "application/octet-stream";
 

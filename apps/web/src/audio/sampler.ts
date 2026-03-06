@@ -18,10 +18,10 @@ interface SampleConfig {
 
 /** Default sample configurations for each slot */
 const DEFAULT_SAMPLE_CONFIGS: Record<SampleSlot, SampleConfig> = {
-  0: { name: "Airhorn", defaultUrl: "/assets/audio/samples/kick.wav" },
-  1: { name: "Snare", defaultUrl: "/assets/audio/samples/snare.wav" },
-  2: { name: "Hi-Hat", defaultUrl: "/assets/audio/samples/hihat.wav" },
-  3: { name: "Gunshot", defaultUrl: "/assets/audio/samples/clap.wav" },
+  0: { name: "Airhorn", defaultUrl: "/assets/audio/samples/airhorn.mp3" },
+  1: { name: "Horse Neigh", defaultUrl: "/assets/audio/samples/horse-neigh.mp3" },
+  2: { name: "Gunshot", defaultUrl: "/assets/audio/samples/gunshot.mp3" },
+  3: { name: "Explosion", defaultUrl: "/assets/audio/samples/explosion.mp3" },
 };
 
 /** Fallback oscillator config if audio files can't be loaded */
@@ -415,9 +415,9 @@ export const SLOT_COLORS: Record<SampleSlot, string> = {
  */
 export const DEFAULT_SAMPLE_NAMES: Record<SampleSlot, string> = {
   0: "Airhorn",
-  1: "Snare",
-  2: "Hi-Hat",
-  3: "Gunshot",
+  1: "Horse Neigh",
+  2: "Gunshot",
+  3: "Explosion",
 };
 
 /**
@@ -426,6 +426,6 @@ export const DEFAULT_SAMPLE_NAMES: Record<SampleSlot, string> = {
 export const SLOT_ICONS: Record<SampleSlot, string | null> = {
   0: "/assets/performance-pads/DJ Mixer Airhorn.svg",
   1: null,
-  2: null,
-  3: "/assets/performance-pads/DJ Mixer Gunshot.svg",
+  2: "/assets/performance-pads/DJ Mixer Gunshot.svg",
+  3: null,
 };
