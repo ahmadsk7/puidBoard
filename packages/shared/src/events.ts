@@ -483,6 +483,27 @@ export const LeaveRoomEventSchema = z.object({
 });
 export type LeaveRoomEvent = z.infer<typeof LeaveRoomEventSchema>;
 
+/** Rejoin room request (reconnection) */
+export const RejoinRoomEventSchema = z.object({
+  type: z.literal("REJOIN_ROOM"),
+  roomCode: z.string().min(4).max(8),
+  name: z.string().min(1).max(32),
+  previousClientId: z.string().min(1),
+  lastVersion: z.number().int().nonnegative(),
+});
+export type RejoinRoomEvent = z.infer<typeof RejoinRoomEventSchema>;
+
+/** Rejoin snapshot response */
+export const RoomRejoinSnapshotEventSchema = z.object({
+  type: z.literal("ROOM_REJOIN_SNAPSHOT"),
+  roomId: RoomIdSchema,
+  serverTs: z.number(),
+  state: RoomStateSchema,
+  clientId: z.string().min(1),
+  missedEvents: z.array(z.any()),
+});
+export type RoomRejoinSnapshotEvent = z.infer<typeof RoomRejoinSnapshotEventSchema>;
+
 // ============================================================================
 // Union Types
 // ============================================================================
@@ -520,6 +541,7 @@ export const ClientEventSchema = z.union([
   JoinRoomEventSchema,
   CreateRoomEventSchema,
   LeaveRoomEventSchema,
+  RejoinRoomEventSchema,
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
 

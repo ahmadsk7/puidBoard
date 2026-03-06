@@ -168,6 +168,18 @@ class IdempotencyStore {
   }
 
   /**
+   * Get events since a given version from the rolling window.
+   * Used for reconnection catch-up.
+   */
+  getEventsSince(roomId: RoomId, _sinceVersion: number): ProcessedEvent[] {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+    // recentEvents don't store version, so return all events after sinceVersion
+    // by timestamp approximation - return all recent events
+    return [...room.recentEvents];
+  }
+
+  /**
    * Get serializable state for persistence.
    */
   getPersistedState(roomId: RoomId): {

@@ -39,12 +39,26 @@ const MEMBER_COLORS = [
   "#F7DC6F", // Gold
 ];
 
+/** Disconnect grace period in ms */
+const DISCONNECT_GRACE_MS = 30_000;
+
 /** Client connection tracking */
 interface ClientConnection {
   clientId: ClientId;
   roomId: RoomId | null;
   socketId: string;
   lastPingMs: number;
+}
+
+/** Disconnected member awaiting rejoin */
+interface DisconnectedMember {
+  clientId: ClientId;
+  roomId: RoomId;
+  name: string;
+  color: string;
+  isHost: boolean;
+  disconnectedAt: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 class RoomStore {
@@ -59,6 +73,9 @@ class RoomStore {
 
   /** Map of clientId -> socketId for reverse lookup */
   private clientSocketIndex: Map<ClientId, string> = new Map();
+
+  /** Map of clientId -> disconnected member info (grace period) */
+  private disconnectedMembers: Map<ClientId, DisconnectedMember> = new Map();
 
   /**
    * Create a new room.
@@ -307,6 +324,132 @@ class RoomStore {
    */
   getClientCount(): number {
     return this.clients.size;
+  }
+
+  /**
+   * Mark a member as disconnected with grace period instead of removing immediately.
+   * Returns the disconnected member info, or null if not in a room.
+   */
+  disconnectWithGrace(
+    socketId: string,
+    onGraceExpired: (clientId: ClientId, roomId: RoomId) => void
+  ): { roomId: RoomId; clientId: ClientId; room: RoomState } | null {
+    const client = this.clients.get(socketId);
+    if (!client || !client.roomId) return null;
+
+    const { roomId, clientId } = client;
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+
+    const member = room.members.find((m) => m.clientId === clientId);
+    if (!member) return null;
+
+    // Store disconnected member info
+    const timer = setTimeout(() => {
+      // Grace period expired - do full removal
+      const dc = this.disconnectedMembers.get(clientId);
+      if (dc) {
+        this.disconnectedMembers.delete(clientId);
+        // Actually remove from room now
+        const r = this.rooms.get(dc.roomId);
+        if (r) {
+          r.members = r.members.filter((m) => m.clientId !== dc.clientId);
+          r.version++;
+          for (const controlId of Object.keys(r.controlOwners)) {
+            if (r.controlOwners[controlId]?.clientId === dc.clientId) {
+              delete r.controlOwners[controlId];
+            }
+          }
+          if (r.members.length === 0) {
+            this.rooms.delete(dc.roomId);
+            this.roomCodeIndex.delete(r.roomCode);
+          } else if (r.hostId === dc.clientId) {
+            const newHost = r.members[0]!;
+            r.hostId = newHost.clientId;
+            newHost.isHost = true;
+          }
+        }
+        onGraceExpired(dc.clientId, dc.roomId);
+      }
+    }, DISCONNECT_GRACE_MS);
+
+    this.disconnectedMembers.set(clientId, {
+      clientId,
+      roomId,
+      name: member.name,
+      color: member.color,
+      isHost: member.isHost,
+      disconnectedAt: Date.now(),
+      timer,
+    });
+
+    // Clean up client tracking but keep member in room
+    this.clients.delete(socketId);
+    this.clientSocketIndex.delete(clientId);
+
+    console.log(
+      `[room:disconnect-grace] clientId=${clientId} roomId=${roomId} grace=${DISCONNECT_GRACE_MS}ms`
+    );
+
+    return { roomId, clientId, room };
+  }
+
+  /**
+   * Rejoin a room during grace period.
+   * Restores membership if the client was disconnected within the grace window.
+   */
+  rejoinRoom(
+    roomCode: string,
+    previousClientId: ClientId,
+    name: string,
+    socketId: string
+  ): { room: RoomState; clientId: ClientId; rejoined: boolean } | null {
+    const roomId = this.roomCodeIndex.get(roomCode.toUpperCase());
+    if (!roomId) return null;
+
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+
+    // Check if this client is in the grace period
+    const dc = this.disconnectedMembers.get(previousClientId);
+    if (dc && dc.roomId === roomId) {
+      // Cancel grace timer
+      clearTimeout(dc.timer);
+      this.disconnectedMembers.delete(previousClientId);
+
+      // Restore client tracking with same clientId
+      this.clients.set(socketId, {
+        clientId: previousClientId,
+        roomId,
+        socketId,
+        lastPingMs: 0,
+      });
+      this.clientSocketIndex.set(previousClientId, socketId);
+
+      // Update member name if changed
+      const member = room.members.find((m) => m.clientId === previousClientId);
+      if (member) {
+        member.name = name;
+      }
+
+      console.log(
+        `[room:rejoin] restored clientId=${previousClientId} roomId=${roomId}`
+      );
+
+      return { room, clientId: previousClientId, rejoined: true };
+    }
+
+    // Not in grace period - do normal join
+    const result = this.joinRoom(roomCode, name, socketId);
+    if (!result) return null;
+    return { ...result, rejoined: false };
+  }
+
+  /**
+   * Check if a client is in disconnect grace period.
+   */
+  isInGracePeriod(clientId: ClientId): boolean {
+    return this.disconnectedMembers.has(clientId);
   }
 
   /**

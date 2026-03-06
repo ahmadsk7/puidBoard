@@ -78,7 +78,8 @@ The board's background is an SVG image (`/assets/dj-controls/backgrounds/mixer-p
 - **DeckDisplay** (x2) -- LCD screen with waveform display, track info, time display; click-to-seek on the waveform
 - **DeckControls** (x2) -- wraps `DeckTransport` which provides play/pause/cue buttons and BPM display
 - **PositionedJogWheel** (x2) -- dual-zone jog wheels with vinyl scratch and pitch bend
-- **MixerKnobs** -- 4 knobs: Master Volume, HI A (EQ high), HI B (EQ high), CUE (headphone mix, placeholder)
+- **MixerKnobs** -- 8 knobs in 3 columns: Channel A EQ (HI/MID/LOW), Center (Master Volume, CUE headphone mix), Channel B EQ (HI/MID/LOW)
+- **ClippingIndicator** -- LED-style indicator near master volume (green/orange/red)
 - **MixerFaders** -- wraps `FXControlPanel` which combines channel faders, FX controls, and BPM displays
 - **CrossfaderSection** -- horizontal crossfader
 - **TempoFader** (x2) -- vertical tempo sliders that map 0-1 fader position to 0.92-1.08 playback rate (plus/minus 8%)
@@ -235,9 +236,14 @@ async loadTrack(trackId: string, url: string, preloadedBuffer?: AudioBuffer): Pr
 
 ```
 Deck A -> InputGain -> EQ(Low) -> EQ(Mid) -> EQ(High) -> ChannelFader -> CrossfaderGainA -+
-                                                                                          +-> PreMaster -> FX -> Analyser -> MasterGain -> Destination
-Deck B -> InputGain -> EQ(Low) -> EQ(Mid) -> EQ(High) -> ChannelFader -> CrossfaderGainB -+
+                                              |                                            +-> PreMaster -> FX -> Analyser -> MainGain -+-> MasterGain -> Destination
+Deck B -> InputGain -> EQ(Low) -> EQ(Mid) -> EQ(High) -> ChannelFader -> CrossfaderGainB -+                                            |
+                                              |                                                                                        |
+                                              +-- PFL Tap A ---+                                                                       |
+                                              +-- PFL Tap B ---+-> CueMix (headphone blend) -------------------------------------------+
 ```
+
+**Headphone Cue / PFL (Pre-Fader Listen):** The CUE knob (0-1) blends between PFL (raw channel signal after EQ, before fader/crossfader) and the main mix. At 0.0, you hear only PFL for previewing tracks. At 1.0, you hear only the main mix. Both PFL and main feed into the same output (Web Audio has one destination), but the blend ratio is adjustable.
 
 **3-Band EQ** uses three `BiquadFilterNode`s:
 
@@ -258,7 +264,7 @@ export function equalPowerCrossfade(position: number): { gainA: number; gainB: n
 }
 ```
 
-**Clipping detection** runs in a `requestAnimationFrame` loop. It reads the peak sample from the analyser node and flags clipping when the peak exceeds 0.99.
+**Clipping detection** runs in a `requestAnimationFrame` loop. It reads the peak sample from the analyser node and flags clipping when the peak exceeds 0.99. The `ClippingIndicator` component subscribes via `useClipping()` and displays a green/orange/red LED with 500ms red hold.
 
 **`getDeckInput(deckId)`** returns the `inputGain` node for the specified channel. This is what each `Deck` instance connects its `GainNode` to.
 
@@ -854,7 +860,7 @@ GitHub Actions (`.github/workflows/`) automate deployment on push to main.
 | `apps/web/src/components/AutoplayGate.tsx` | **DEAD** | Component exists but is never imported. The room page handles autoplay inline via a `useEffect` + click listener. |
 | `apps/web/src/components/FXStrip.tsx` | **DEAD** | Never imported. FX controls are handled by `FXControlPanel.tsx` instead. |
 | `apps/web/src/components/controls/EQControl.tsx` | **UNUSED** | Exported from `controls/index.ts` but never imported by any other component. The DJ board uses individual `Knob` components for EQ instead. |
-| `apps/web/src/components/ClippingIndicator.tsx` | **DEAD** | Import is commented out in `DJBoard.tsx` with `// TODO: add clipping indicator later`. |
+| `apps/web/src/components/ClippingIndicator.tsx` | **ACTIVE** | LED-style clipping indicator, wired into DJBoard near master volume knob. |
 | `apps/web/src/components/displays/DeckStatusDisplay.tsx` | **UNUSED** | Exported from `displays/index.ts` but never imported by any component. |
 
 ### 8.2 Deprecated Code (Being Removed)
@@ -879,9 +885,8 @@ From `git status`, these files are untracked and likely should be in `.gitignore
 
 ### 8.4 Comment-Noted TODOs
 
-- `DJBoard.tsx:15` -- `// import ClippingIndicator from "./ClippingIndicator"; // TODO: add clipping indicator later`
-- `PerformancePadPanel.tsx` -- Loop and Roll pad functions are placeholder implementations
-- Headphone cue mix knob in `MixerKnobs` is rendered but not wired to any audio functionality (hardcoded `value={0.5}`)
+- `PerformancePadPanel.tsx` -- Loop and Roll pads send server events (DECK_LOOP_SET, DECK_ROLL_START/STOP) but audio-side enforcement is basic
+- Headphone cue mix knob is wired to PFL audio routing but the value is not yet synced to server state (local-only)
 
 ---
 
@@ -997,19 +1002,13 @@ These are NOT problems today but define where the architecture would need change
 |---|---|---|
 | **Single-server rooms** | All room state in one Node process's memory | If you need multiple server instances (>1000 concurrent rooms), rooms can't span servers. Would need sticky sessions or distributed state. |
 | **Socket.IO overhead** | Convenient, battle-tested, but adds framing/encoding overhead | At very high scale (>10K connections per instance), raw WebSockets or uWebSockets would reduce overhead. Not relevant now. |
-| **Beacon interval (250ms)** | Fine for play/pause/seek sync | For tighter scratch sync or beat-grid matching, 100ms would improve PLL convergence. Easy constant change. |
+| **Beacon interval (100ms)** | 10 Hz PLL sync, good for scratch and beat-grid | Could go lower (50ms) for tighter sync but would increase server bandwidth. |
 | **Snapshot persistence (10s)** | Up to 10s of state loss on crash | Acceptable for ephemeral rooms. Event sourcing would give zero loss but adds massive complexity. Not worth it. |
-| **Reconnection gap** | Client gets fresh `ROOM_SNAPSHOT` on reconnect | Misses events from last 0-10s window. The snapshot has current state so this is fine — playback position and mixer state are all captured. |
+| **Reconnection gap** | 30s grace period + `REJOIN_ROOM` for seamless reconnect | Client restores identity without leave/join flicker. Falls back to fresh `ROOM_SNAPSHOT` if grace expires. |
 
-### 10.4 Sampler Sync Gap
+### 10.4 Sampler Sync (Resolved)
 
-The sampler currently fires audio **locally only** — `playSample(slot)` plays directly to the master gain with no server event. This means:
-
-- User A triggers airhorn — only User A hears it
-- No `SAMPLER_PLAY` event exists in the protocol
-- This is a deliberate simplification but worth noting as a feature gap
-
-Adding sampler sync would require a new event type and careful latency handling (samples are short, so network delay would make them feel late on remote clients).
+The sampler fires locally first for instant feedback, then sends `SAMPLER_PLAY` to the server. Remote clients receive the broadcast and play via `playRemoteSample()`. The source client is identified via `clientId` to avoid double-play. Fire-on-receive is used instead of timestamp scheduling — 50ms jitter is imperceptible for 0.5-2s samples.
 
 ---
 
@@ -1020,7 +1019,7 @@ Adding sampler sync would require a new event type and careful latency handling 
 | File | Description |
 |------|-------------|
 | `state.ts` | All state schemas (RoomState, DeckState, MixerState, QueueItem, etc.) + factory functions |
-| `events.ts` | All event schemas (client mutations, server broadcasts, BEACON_TICK) |
+| `events.ts` | All event schemas (client mutations, server broadcasts, BEACON_TICK, REJOIN_ROOM) |
 | `controlIds.ts` | Control ID constants, grouped IDs, ownership TTL (2000ms) |
 | `validators.ts` | Bounds checking, control validation, event classification utilities |
 | `index.ts` | Barrel export of all schemas, types, validators, constants. Exports `VERSION = "0.1.0"` |
@@ -1032,7 +1031,7 @@ Adding sampler sync would require a new event type and careful latency handling 
 | `engine.ts` | AudioContext singleton + master GainNode |
 | `deck.ts` | Deck class (per-deck playback, track loading, YouTube loading, analysis) |
 | `DeckEngine.ts` | Single writer for transport state, epoch + PLL sync |
-| `mixerGraph.ts` | Full mixer audio graph (EQ, faders, crossfade, FX routing) |
+| `mixerGraph.ts` | Full mixer audio graph (EQ, faders, crossfade, FX routing, PFL/headphone cue) |
 | `params.ts` | Audio parameter smoothing utilities + `equalPowerCrossfade()` + `bipolarToGain()` |
 | `sampler.ts` | Sampler engine (sample loading, playback, oscillator fallback, custom samples) |
 | `useDeck.ts` | React hook for deck state + control methods |
@@ -1087,7 +1086,7 @@ Adding sampler sync would require a new event type and careful latency handling 
 | `FXControlPanel.tsx` | FX controls + channel faders + BPM displays |
 | `TopBar.tsx` | Room code display, latency indicator |
 | `CursorsLayer.tsx` | Multi-user cursor overlay + `buildMemberColorMap` utility |
-| `ClippingIndicator.tsx` | **DEAD** -- not imported |
+| `ClippingIndicator.tsx` | LED-style clipping indicator (green/orange/red with 500ms red hold) |
 | `AutoplayGate.tsx` | **DEAD** -- not imported |
 | `FXStrip.tsx` | **DEAD** -- not imported |
 
@@ -1123,15 +1122,16 @@ Adding sampler sync would require a new event type and careful latency handling 
 |------|-------------|
 | `server.ts` | HTTP + Socket.IO server setup, CORS, startup sequence |
 | `http/api.ts` | All HTTP API endpoints (tracks, sampler, YouTube) |
-| `rooms/store.ts` | In-memory room state store |
+| `rooms/store.ts` | In-memory room state store (with 30s disconnect grace period for reconnection) |
 | `rooms/persistence.ts` | Redis/in-memory persistence manager |
-| `timers/beacon.ts` | BEACON_TICK timer (250ms) |
+| `timers/beacon.ts` | BEACON_TICK timer (100ms) |
 | `timers/syncTick.ts` | **REMOVED** -- old SYNC_TICK timer (2s), deleted on `chore/remove-dead-code` branch |
 | `handlers/deck.ts` | Deck action handlers + epoch creation |
 | `handlers/queue.ts` | Queue mutation handlers |
 | `handlers/controls.ts` | Control ownership + MIXER_SET handler |
 | `handlers/cursor.ts` | Cursor position handler |
 | `handlers/fx.ts` | FX parameter handlers |
+| `handlers/sampler.ts` | Sampler play handler + broadcast |
 | `handlers/time.ts` | TIME_PING/PONG handler |
 | `protocol/handlers.ts` | Socket.IO event handler registration |
 | `protocol/ack.ts` | Event acknowledgment |

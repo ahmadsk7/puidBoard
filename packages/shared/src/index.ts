@@ -156,6 +156,8 @@ export {
   JoinRoomEventSchema,
   CreateRoomEventSchema,
   LeaveRoomEventSchema,
+  RejoinRoomEventSchema,
+  RoomRejoinSnapshotEventSchema,
   // Union schemas
   ClientMutationEventSchema,
   ClientEventSchema,
@@ -223,6 +225,8 @@ export type {
   JoinRoomEvent,
   CreateRoomEvent,
   LeaveRoomEvent,
+  RejoinRoomEvent,
+  RoomRejoinSnapshotEvent,
   ClientMutationEvent,
   ClientEvent,
   ServerEvent,
