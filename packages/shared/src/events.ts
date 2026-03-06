@@ -325,37 +325,6 @@ export const BeaconTickEventSchema = z.object({
 });
 export type BeaconTickEvent = z.infer<typeof BeaconTickEventSchema>;
 
-/** Deck state for sync tick (subset of full state) */
-export const SyncTickDeckStateSchema = z.object({
-  deckId: DeckIdSchema,
-  loadedTrackId: z.string().nullable(),
-  playState: z.enum(["stopped", "playing", "paused", "cued"]),
-  serverStartTime: z.number().nullable(),
-  playheadSec: z.number().nonnegative(),
-  /** Playback rate for accurate sync calculations (1.0 = normal) */
-  playbackRate: z.number().min(0.5).max(2.0),
-});
-export type SyncTickDeckState = z.infer<typeof SyncTickDeckStateSchema>;
-
-export const SyncTickPayloadSchema = z.object({
-  /** Server timestamp when this tick was generated */
-  serverTs: z.number(),
-  /** Current room version */
-  version: z.number().int().nonnegative(),
-  /** Deck A state */
-  deckA: SyncTickDeckStateSchema,
-  /** Deck B state */
-  deckB: SyncTickDeckStateSchema,
-});
-export type SyncTickPayload = z.infer<typeof SyncTickPayloadSchema>;
-
-export const SyncTickEventSchema = z.object({
-  type: z.literal("SYNC_TICK"),
-  roomId: RoomIdSchema,
-  payload: SyncTickPayloadSchema,
-});
-export type SyncTickEvent = z.infer<typeof SyncTickEventSchema>;
-
 /** Full room snapshot sent on join */
 export const RoomSnapshotEventSchema = z.object({
   type: z.literal("ROOM_SNAPSHOT"),
@@ -488,7 +457,6 @@ export type ClientEvent = z.infer<typeof ClientEventSchema>;
 
 /** All server → client events */
 export const ServerEventSchema = z.discriminatedUnion("type", [
-  SyncTickEventSchema,
   BeaconTickEventSchema,
   RoomSnapshotEventSchema,
   TimePongEventSchema,

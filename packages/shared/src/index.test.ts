@@ -41,7 +41,6 @@ describe("@puid-board/shared", () => {
     it("exports THROTTLE constants", () => {
       expect(THROTTLE.CURSOR_MS).toBe(33);
       expect(THROTTLE.CONTROL_MS).toBe(16);
-      expect(THROTTLE.SYNC_TICK_MS).toBe(2000);
     });
 
     it("exports CONTROL_OWNERSHIP_TTL_MS", () => {

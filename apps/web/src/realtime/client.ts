@@ -12,19 +12,11 @@ import type {
   MemberLeftEvent,
   TimePongEvent,
   Member,
-  // DISABLED: DeckId was used by applyDriftCorrection (old SYNC_TICK system)
-  // DeckId,
 } from "@puid-board/shared";
 import {
   processPong,
-  // DISABLED: These were used by applyDriftCorrection (old SYNC_TICK system)
-  // measureDrift,
-  // recordSnapCorrection,
-  resetDriftState,
   resetClockSync,
 } from "../audio/sync";
-// DISABLED: getDeck was used by applyDriftCorrection (old SYNC_TICK system)
-// import { getDeck, getDeckEngine } from "../audio/useDeck";
 import { getDeckEngine } from "../audio/useDeck";
 import type { BeaconTickEvent } from "@puid-board/shared";
 
@@ -136,8 +128,6 @@ export class RealtimeClient {
 
     // Reset sync state on disconnect
     resetClockSync();
-    resetDriftState("A");
-    resetDriftState("B");
   }
 
   /** Create a new room */
@@ -571,49 +561,7 @@ export class RealtimeClient {
       this.notifyStateListeners();
     });
 
-    // SYNC_TICK for playback synchronization (2s interval)
-    // @deprecated This is the legacy sync system. BEACON_TICK (250ms) is now
-    // the primary sync mechanism. SYNC_TICK is kept for backwards compatibility
-    // and fallback, but will be phased out in future versions.
-    this.socket.on("SYNC_TICK", (event: {
-      roomId: string;
-      payload: {
-        serverTs: number;
-        version: number;
-        deckA: { deckId: "A"; loadedTrackId: string | null; playState: string; serverStartTime: number | null; playheadSec: number };
-        deckB: { deckId: "B"; loadedTrackId: string | null; playState: string; serverStartTime: number | null; playheadSec: number };
-      };
-    }) => {
-      if (!this.state) return;
-
-      // Update legacy state fields for backwards compatibility
-      const { deckA, deckB } = event.payload;
-      this.state = {
-        ...this.state,
-        deckA: {
-          ...this.state.deckA,
-          playState: deckA.playState as "stopped" | "playing" | "paused" | "cued",
-          serverStartTime: deckA.serverStartTime,
-          playheadSec: deckA.playheadSec,
-        },
-        deckB: {
-          ...this.state.deckB,
-          playState: deckB.playState as "stopped" | "playing" | "paused" | "cued",
-          serverStartTime: deckB.serverStartTime,
-          playheadSec: deckB.playheadSec,
-        },
-      };
-
-      // DISABLED: Old SYNC_TICK drift correction was fighting with BEACON_TICK PLL.
-      // BEACON_TICK (250ms) is now the sole sync mechanism.
-      // See: https://github.com/puidBoard/issues/XXX - "Multiple sync systems fighting"
-      // this.applyDriftCorrection("A", deckA);
-      // this.applyDriftCorrection("B", deckB);
-
-      this.notifyStateListeners();
-    });
-
-    // BEACON_TICK for fast epoch-based synchronization (250ms interval)
+    // BEACON_TICK for epoch-based synchronization (250ms interval)
     this.socket.on("BEACON_TICK", (event: BeaconTickEvent) => {
       if (!this.state) return;
 
@@ -802,65 +750,6 @@ export class RealtimeClient {
       this.emitError(error);
     });
   }
-
-  // DISABLED: applyDriftCorrection was part of the old SYNC_TICK system.
-  // BEACON_TICK + DeckEngine PLL is now the sole sync mechanism.
-  // Keeping the code commented out for reference.
-  // See: https://github.com/puidBoard/issues/XXX - "Multiple sync systems fighting"
-  /*
-  private applyDriftCorrection(
-    deckId: DeckId,
-    serverDeckState: {
-      loadedTrackId: string | null;
-      playState: string;
-      serverStartTime: number | null;
-      playheadSec: number;
-      playbackRate?: number;
-    }
-  ): void {
-    // Only measure drift if the deck is playing
-    if (serverDeckState.playState !== "playing" || !serverDeckState.serverStartTime) {
-      return;
-    }
-
-    try {
-      const deck = getDeck(deckId);
-      const localState = deck.getState();
-
-      // Only measure drift if local deck is also playing
-      if (localState.playState !== "playing") {
-        return;
-      }
-
-      // Get current local playhead
-      const localPlayhead = deck.getCurrentPlayhead();
-
-      // Measure drift using the simplified API
-      // The playbackRate is now included in the measurement calculation
-      const measurement = measureDrift(
-        deckId,
-        localPlayhead,
-        serverDeckState.serverStartTime,
-        serverDeckState.playheadSec,
-        serverDeckState.playbackRate ?? localState.playbackRate,
-        true // isPlaying
-      );
-
-      // Only apply snap corrections for large drift
-      // Small drift is ignored - user tempo changes are the priority
-      if (measurement.shouldSnap && measurement.snapToSec !== undefined) {
-        deck.seekSmooth(measurement.snapToSec, 50);
-        recordSnapCorrection(deckId);
-        console.log(
-          `[sync-${deckId}] Snap correction applied: drift=${measurement.driftMs.toFixed(1)}ms -> ${measurement.snapToSec.toFixed(2)}s`
-        );
-      }
-    } catch (error) {
-      // Deck may not be initialized yet, ignore
-      console.debug(`[sync-${deckId}] Could not apply drift correction:`, error);
-    }
-  }
-  */
 
   private startPing(): void {
     this.stopPing();

@@ -21,8 +21,6 @@ export const THROTTLE = {
   CURSOR_MS: 33,
   /** Continuous controls (faders, knobs): max 60 per second */
   CONTROL_MS: 16,
-  /** Sync tick interval from server */
-  SYNC_TICK_MS: 2000,
 } as const;
 
 // ============================================================================
@@ -138,9 +136,6 @@ export {
   // Server events
   DeckBeaconPayloadSchema,
   BeaconTickEventSchema,
-  SyncTickDeckStateSchema,
-  SyncTickPayloadSchema,
-  SyncTickEventSchema,
   RoomSnapshotEventSchema,
   TimePongEventSchema,
   MemberJoinedEventSchema,
@@ -201,9 +196,6 @@ export type {
   FxToggleEvent,
   DeckBeaconPayload,
   BeaconTickEvent,
-  SyncTickDeckState,
-  SyncTickPayload,
-  SyncTickEvent,
   RoomSnapshotEvent,
   TimePongEvent,
   MemberJoinedEvent,

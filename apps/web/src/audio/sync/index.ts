@@ -20,20 +20,3 @@ export {
   subscribeToClockSync,
 } from "./clock";
 
-export {
-  // Drift measurement (simplified API)
-  measureDrift,
-  recordSnapCorrection,
-  getDeckDriftState,
-  resetDriftState,
-  resetAllDriftState,
-  subscribeToDriftMeasurement,
-  type DriftMeasurement,
-  type CorrectionType,
-  // Deprecated exports for backwards compatibility
-  calculateDriftCorrection,
-  getCurrentPlaybackRate,
-  resetToNormalRate,
-  subscribeToDriftCorrection,
-  type DriftCorrection,
-} from "./drift";

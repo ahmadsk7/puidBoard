@@ -3,6 +3,5 @@ export { WaveformDisplay } from "./WaveformDisplay";
 export { TrackInfoDisplay } from "./TrackInfoDisplay";
 export { TimeDisplay } from "./TimeDisplay";
 export { FXDisplay } from "./FXDisplay";
-export { DeckStatusDisplay } from "./DeckStatusDisplay";
 export { DeckControlPanel } from "./DeckControlPanel";
 export { LoadingBar } from "./LoadingBar";
