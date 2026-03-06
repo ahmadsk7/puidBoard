@@ -12,8 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - run: flyctl deploy --remote-only
-        working-directory: apps/web
+      - run: flyctl deploy --config apps/web/fly.toml --dockerfile apps/web/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
@@ -24,8 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - run: flyctl deploy --remote-only
-        working-directory: apps/realtime
+      - run: flyctl deploy --config apps/realtime/fly.toml --dockerfile apps/realtime/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
