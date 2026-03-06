@@ -10,6 +10,7 @@ import {
   RoomId,
   createDefaultDeck,
   createDefaultMixer,
+  createDefaultSampler,
 } from "@puid-board/shared";
 
 /** Generate a random 6-character room code */
@@ -120,6 +121,7 @@ class RoomStore {
       deckB: createDefaultDeck("B"),
       mixer: createDefaultMixer(),
       controlOwners: {},
+      sampler: createDefaultSampler(),
     };
 
     // Store room

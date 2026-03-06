@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { RoomState } from "@puid-board/shared";
-import { createDefaultDeck, createDefaultMixer } from "@puid-board/shared";
+import { createDefaultDeck, createDefaultMixer, createDefaultSampler } from "@puid-board/shared";
 
 describe("Persistence (in-memory fallback)", () => {
   // We'll test the in-memory fallback since Redis is optional
@@ -32,6 +32,7 @@ describe("Persistence (in-memory fallback)", () => {
     deckB: createDefaultDeck("B"),
     mixer: createDefaultMixer(),
     controlOwners: {},
+    sampler: createDefaultSampler(),
   };
 
   it("should save and load snapshots in-memory", async () => {

@@ -8,6 +8,7 @@ import {
   RoomStateSchema,
   createDefaultMixer,
   createDefaultDeck,
+  createDefaultSampler,
   validateClientMutationEvent,
   isValidControlId,
   isValidControlValue,
@@ -51,6 +52,7 @@ export function createInitialRoomState(
     deckB: createDefaultDeck("B"),
     mixer: createDefaultMixer(),
     controlOwners: {},
+    sampler: createDefaultSampler(),
   });
 }
 

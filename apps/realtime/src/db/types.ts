@@ -38,7 +38,6 @@ export interface TrackQuery {
  */
 export interface SamplerSound {
   id: string;
-  clientId: string;  // Client/user identifier
   roomId: string;    // Room identifier for scoping
   slot: 0 | 1 | 2 | 3;  // Sampler slot (0-3)
   fileName: string;  // Original filename
@@ -49,7 +48,6 @@ export interface SamplerSound {
 }
 
 export interface CreateSamplerSoundInput {
-  clientId: string;
   roomId: string;
   slot: 0 | 1 | 2 | 3;
   fileName: string;
@@ -60,7 +58,6 @@ export interface CreateSamplerSoundInput {
 
 export interface SamplerSoundQuery {
   id?: string;
-  clientId?: string;
   roomId?: string;
   slot?: 0 | 1 | 2 | 3;
 }

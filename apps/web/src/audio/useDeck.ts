@@ -160,6 +160,10 @@ export function useDeck(deckId: "A" | "B") {
     deckRef.current.clearHotCue();
   }, []);
 
+  const setHotCuePosition = useCallback((positionSec: number | null) => {
+    deckRef.current.setHotCuePosition(positionSec);
+  }, []);
+
   const getAnalyser = useCallback(() => {
     return deckRef.current.getAnalyser();
   }, []);
@@ -199,6 +203,7 @@ export function useDeck(deckId: "A" | "B") {
     setHotCue,
     jumpToHotCue,
     clearHotCue,
+    setHotCuePosition,
     /** Current playhead in seconds */
     playhead: state.playheadSec,
     /** Track duration in seconds */

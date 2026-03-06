@@ -200,6 +200,23 @@ export const DeckBpmDetectedEventSchema = ClientEventMetaSchema.extend({
 export type DeckBpmDetectedEvent = z.infer<typeof DeckBpmDetectedEventSchema>;
 
 // ============================================================================
+// Hot Cue Events
+// ============================================================================
+
+export const DeckHotCueSetPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  /** Hot cue position in seconds, or null to clear */
+  hotCuePointSec: z.number().nonnegative().nullable(),
+});
+export type DeckHotCueSetPayload = z.infer<typeof DeckHotCueSetPayloadSchema>;
+
+export const DeckHotCueSetEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_HOT_CUE_SET"),
+  payload: DeckHotCueSetPayloadSchema,
+});
+export type DeckHotCueSetEvent = z.infer<typeof DeckHotCueSetEventSchema>;
+
+// ============================================================================
 // Sampler Events
 // ============================================================================
 
@@ -213,6 +230,21 @@ export const SamplerPlayEventSchema = ClientEventMetaSchema.extend({
   payload: SamplerPlayPayloadSchema,
 });
 export type SamplerPlayEvent = z.infer<typeof SamplerPlayEventSchema>;
+
+export const SamplerSoundChangedPayloadSchema = z.object({
+  slot: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+  url: z.string().url().nullable(),
+  name: z.string(),
+  isCustom: z.boolean(),
+});
+export type SamplerSoundChangedPayload = z.infer<typeof SamplerSoundChangedPayloadSchema>;
+
+export const SamplerSoundChangedEventSchema = z.object({
+  type: z.literal("SAMPLER_SOUND_CHANGED"),
+  roomId: RoomIdSchema,
+  payload: SamplerSoundChangedPayloadSchema,
+});
+export type SamplerSoundChangedEvent = z.infer<typeof SamplerSoundChangedEventSchema>;
 
 // ============================================================================
 // Loop / Roll Events
@@ -521,6 +553,7 @@ export const ClientMutationEventSchema = z.discriminatedUnion("type", [
   DeckSeekEventSchema,
   DeckTempoSetEventSchema,
   DeckBpmDetectedEventSchema,
+  DeckHotCueSetEventSchema,
   SamplerPlayEventSchema,
   DeckLoopSetEventSchema,
   DeckRollStartEventSchema,
@@ -570,6 +603,7 @@ export const ServerMutationEventSchema = z.intersection(
     z.object({ type: z.literal("DECK_SEEK"), payload: DeckSeekPayloadSchema }),
     z.object({ type: z.literal("DECK_TEMPO_SET"), payload: DeckTempoSetPayloadSchema }),
     z.object({ type: z.literal("DECK_BPM_DETECTED"), payload: DeckBpmDetectedPayloadSchema }),
+    z.object({ type: z.literal("DECK_HOT_CUE_SET"), payload: DeckHotCueSetPayloadSchema }),
     z.object({ type: z.literal("SAMPLER_PLAY"), payload: SamplerPlayPayloadSchema }),
     z.object({ type: z.literal("DECK_LOOP_SET"), payload: DeckLoopSetPayloadSchema }),
     z.object({ type: z.literal("DECK_ROLL_START"), payload: DeckRollStartPayloadSchema }),
@@ -601,6 +635,7 @@ export const MUTATION_EVENT_TYPES = [
   "DECK_SEEK",
   "DECK_TEMPO_SET",
   "DECK_BPM_DETECTED",
+  "DECK_HOT_CUE_SET",
   "SAMPLER_PLAY",
   "DECK_LOOP_SET",
   "DECK_ROLL_START",
@@ -626,6 +661,7 @@ export const DISCRETE_EVENT_TYPES = [
   "DECK_CUE",
   "DECK_SEEK",
   "DECK_TEMPO_SET",
+  "DECK_HOT_CUE_SET",
   "SAMPLER_PLAY",
   "DECK_LOOP_SET",
   "DECK_ROLL_START",

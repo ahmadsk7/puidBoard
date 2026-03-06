@@ -22,7 +22,6 @@ export interface UploadSamplerSoundInput {
   buffer: Buffer;
   filename: string;
   mimeType: string;
-  clientId: string;
   roomId: string;
   slot: 0 | 1 | 2 | 3;
 }
@@ -85,7 +84,6 @@ class SamplerSoundsService {
 
     // Create sampler sound record
     const sound = await samplerSoundStore.create({
-      clientId: input.clientId,
       roomId: input.roomId,
       slot: input.slot,
       fileName: input.filename,
@@ -111,21 +109,20 @@ class SamplerSoundsService {
   }
 
   /**
-   * Get all custom sounds for a client in a room.
+   * Get all custom sounds for a room.
    */
-  async getClientRoomSounds(clientId: string, roomId: string): Promise<SamplerSound[]> {
-    return await samplerSoundStore.getClientRoomSounds(clientId, roomId);
+  async getRoomSounds(roomId: string): Promise<SamplerSound[]> {
+    return await samplerSoundStore.getRoomSounds(roomId);
   }
 
   /**
    * Get sound for a specific slot.
    */
   async getSlotSound(
-    clientId: string,
     roomId: string,
     slot: 0 | 1 | 2 | 3
   ): Promise<SamplerSound | null> {
-    return await samplerSoundStore.findByClientRoomSlot(clientId, roomId, slot);
+    return await samplerSoundStore.findByRoomSlot(roomId, slot);
   }
 
   /**
@@ -148,11 +145,10 @@ class SamplerSoundsService {
    * Reset a slot to default (delete custom sound).
    */
   async resetSlot(
-    clientId: string,
     roomId: string,
     slot: 0 | 1 | 2 | 3
   ): Promise<boolean> {
-    return await samplerSoundStore.deleteByClientRoomSlot(clientId, roomId, slot);
+    return await samplerSoundStore.deleteByRoomSlot(roomId, slot);
   }
 
   /**

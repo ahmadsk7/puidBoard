@@ -11,6 +11,7 @@ import {
   // Factory functions
   createDefaultDeck,
   createDefaultMixer,
+  createDefaultSampler,
   createDefaultEq,
   createDefaultChannel,
   createDefaultFx,
@@ -122,6 +123,7 @@ describe("@puid-board/shared", () => {
         deckB: createDefaultDeck("B"),
         mixer: createDefaultMixer(),
         controlOwners: {},
+        sampler: createDefaultSampler(),
       };
       expect(RoomStateSchema.safeParse(room).success).toBe(true);
     });

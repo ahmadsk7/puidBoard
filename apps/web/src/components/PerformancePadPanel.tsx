@@ -127,9 +127,20 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
     }
 
     // Hold: Set hot cue at current position
-    console.log(`[HOT_CUE] Deck ${deckId}: Setting hot cue at ${deck.playhead.toFixed(2)}s`);
+    const position = deck.playhead;
+    console.log(`[HOT_CUE] Deck ${deckId}: Setting hot cue at ${position.toFixed(2)}s`);
     deck.setHotCue();
-  }, [deck, deckId]);
+
+    // Send DECK_HOT_CUE_SET event to server so all clients sync
+    sendEvent({
+      type: "DECK_HOT_CUE_SET",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, hotCuePointSec: position },
+    });
+    console.log(`[HOT_CUE] Deck ${deckId}: DECK_HOT_CUE_SET event sent to server`);
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleHotCueRelease = useCallback(() => {
     // No action on release for hot cue

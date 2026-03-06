@@ -101,6 +101,7 @@ export function applyServerEvent(
       deck.playState = "stopped";
       deck.playheadSec = 0;
       deck.cuePointSec = null;
+      deck.hotCuePointSec = null;
       deck.durationSec = item.durationSec;
       // Update queue item status
       const queueIdx = base.queue.findIndex((q) => q.id === queueItemId);
@@ -272,6 +273,12 @@ export function applyServerEvent(
       return base;
     }
 
+    case "DECK_HOT_CUE_SET": {
+      const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
+      deck.hotCuePointSec = event.payload.hotCuePointSec;
+      return base;
+    }
+
     default:
       return state;
   }
@@ -331,6 +338,9 @@ function setMixerValue(
       break;
     case "fx.param":
       mixer.fx.param = clamp(0, 1);
+      break;
+    case "headphoneMix":
+      mixer.headphoneMix = clamp(0, 1);
       break;
     default:
       break;

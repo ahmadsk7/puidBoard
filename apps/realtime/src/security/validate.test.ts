@@ -34,6 +34,7 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     epochStartTimeMs: Date.now(),
     loop: null,
     roll: null,
+    hotCuePointSec: null,
     ...overrides,
   };
 }
@@ -102,8 +103,17 @@ function createMockRoom(overrides: Partial<RoomState> = {}): RoomState {
       channelA: { fader: 1, gain: 0, eq: { low: 0, mid: 0, high: 0 }, filter: 0.5 },
       channelB: { fader: 1, gain: 0, eq: { low: 0, mid: 0, high: 0 }, filter: 0.5 },
       fx: { type: "none", wetDry: 0, param: 0.5, enabled: false },
+      headphoneMix: 1.0,
     },
     controlOwners: {},
+    sampler: {
+      slots: [
+        { url: null, name: "Kick", isCustom: false },
+        { url: null, name: "Clap", isCustom: false },
+        { url: null, name: "Hi-Hat", isCustom: false },
+        { url: null, name: "Airhorn", isCustom: false },
+      ],
+    },
     ...overrides,
   };
 }

@@ -80,7 +80,7 @@ const httpServer = createServer(async (req, res) => {
   }
 
   // Track API endpoints
-  const handled = await handleTrackApiRequest(req, res);
+  const handled = await handleTrackApiRequest(req, res, io);
   if (handled) {
     return;
   }

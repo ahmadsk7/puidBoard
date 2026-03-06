@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { applyServerEvent } from "./applyEvent";
 import type { RoomState, ServerMutationEvent } from "@puid-board/shared";
-import { createDefaultDeck, createDefaultMixer } from "@puid-board/shared";
+import { createDefaultDeck, createDefaultMixer, createDefaultSampler } from "@puid-board/shared";
 
 function createTestState(): RoomState {
   return {
@@ -35,6 +35,7 @@ function createTestState(): RoomState {
     deckB: createDefaultDeck("B"),
     mixer: createDefaultMixer(),
     controlOwners: {},
+    sampler: createDefaultSampler(),
   };
 }
 

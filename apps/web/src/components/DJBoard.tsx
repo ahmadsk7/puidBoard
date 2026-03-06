@@ -131,6 +131,13 @@ function DeckDisplay({
   const loadedItem = queue.find(q => q.id === deck.loadedQueueItemId);
   const progress = localDeck.duration > 0 ? localDeck.playhead / localDeck.duration : 0;
 
+  // Sync server hot cue state to local deck engine
+  useEffect(() => {
+    if (deck.hotCuePointSec !== localDeck.hotCuePointSec) {
+      localDeck.setHotCuePosition(deck.hotCuePointSec ?? null);
+    }
+  }, [deck.hotCuePointSec]);
+
   // Handle click-to-seek on the display panel
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only seek if a track is loaded and has duration
@@ -447,7 +454,7 @@ function MixerKnobs({
       <PositionedKnob
         label="CUE"
         controlId="headphoneMix"
-        value={0.5}
+        value={mixer.headphoneMix ?? 1.0}
         roomId={roomId}
         clientId={clientId}
         sendEvent={sendEvent}
@@ -1389,7 +1396,6 @@ export default function DJBoard({
       <SamplerSettings
         isOpen={isSamplerSettingsOpen}
         onClose={() => setIsSamplerSettingsOpen(false)}
-        clientId={clientId}
         roomId={state.roomId}
       />
     </div>

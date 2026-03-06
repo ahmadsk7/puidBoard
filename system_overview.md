@@ -534,9 +534,9 @@ All endpoints are defined in `apps/realtime/src/http/api.ts`:
 
 **Sampler sound endpoints:**
 - `POST /api/sampler/upload` -- upload a custom sampler sound
-- `GET /api/sampler/sounds?clientId=X&roomId=Y` -- list custom sounds for client/room
+- `GET /api/sampler/sounds?roomId=Y` -- list custom sounds for room
 - `DELETE /api/sampler/sounds/:id` -- delete a custom sound
-- `POST /api/sampler/reset` -- reset slot to default (body: `{clientId, roomId, slot}`)
+- `POST /api/sampler/reset` -- reset slot to default (body: `{roomId, slot}`)
 
 **YouTube endpoints:**
 - `GET /api/youtube/search?q=...&limit=15` -- search YouTube
@@ -629,7 +629,7 @@ Events are split into two categories defined in `packages/shared/src/events.ts`:
 
 `apps/realtime/src/protocol/handlers.ts` registers all Socket.IO event handlers for a connected socket. Individual handler files:
 
-- `handlers/deck.ts` -- DECK_LOAD, DECK_PLAY, DECK_PAUSE, DECK_CUE, DECK_SEEK, DECK_TEMPO_SET, DECK_BPM_DETECTED
+- `handlers/deck.ts` -- DECK_LOAD, DECK_PLAY, DECK_PAUSE, DECK_CUE, DECK_SEEK, DECK_TEMPO_SET, DECK_BPM_DETECTED, DECK_HOT_CUE_SET
 - `handlers/queue.ts` -- QUEUE_ADD, QUEUE_REMOVE, QUEUE_REORDER, QUEUE_EDIT
 - `handlers/controls.ts` -- CONTROL_GRAB, CONTROL_RELEASE, MIXER_SET
 - `handlers/cursor.ts` -- CURSOR_MOVE
@@ -762,7 +762,7 @@ Receive BEACON_TICK
 
 | Pad | Function | Color | Click | Hold | Release |
 |-----|----------|-------|-------|------|---------|
-| 1 | Hot Cue | Red (#FF3B3B) | Jump to cue (or set if unset) | Override/re-set at current position | -- |
+| 1 | Hot Cue | Red (#FF3B3B) | Jump to cue (sends DECK_SEEK) | Set hot cue at current position (sends DECK_HOT_CUE_SET, server-authoritative) | -- |
 | 2 | Loop | Orange (#FF9F1C) | Toggle loop on/off | Cycle loop length: 1, 2, 4, 8 bars | -- |
 | 3 | Roll | Blue (#3B82F6) | -- (hold-based only) | Start momentary roll, save return position | Stop roll, snap back to saved position |
 | 4 | Jump | Purple (#8B5CF6) | Jump back 1 beat | Jump forward 1 bar (4 beats) | -- |
@@ -771,7 +771,7 @@ Receive BEACON_TICK
 - Deck A: `1`, `2`, `3`, `4`
 - Deck B: `7`, `8`, `9`, `0`
 
-**Note:** Loop and Roll are currently placeholder implementations (marked with TODO comments). Hot Cue and Jump are fully functional.
+**Note:** Loop and Roll send server events for sync. Hot Cue is server-authoritative (`DECK_HOT_CUE_SET` event, stored in `DeckState.hotCuePointSec`). Hot Cue and Jump are fully functional.
 
 ### 6.2 Sampler System
 
@@ -796,10 +796,13 @@ Samples are loaded from `/assets/audio/samples/*.mp3`. If loading fails, each sl
 
 **Custom samples:** The API supports `loadCustomSample(slot, url, name)` and `resetSlotToDefault(slot)`. Changes are notified via `onSampleChange(listener)`.
 
+**Room-scoped sampler state:** Sampler sound assignments are room-scoped (shared by all members), stored in `RoomState.sampler.slots[0-3]`. Each slot has `{ url, name, isCustom }`. When a custom sound is uploaded or reset, the server updates room state and broadcasts `SAMPLER_SOUND_CHANGED` to all clients, who then load the custom sample locally.
+
 **Server-side sampler API** (`apps/realtime/src/services/samplerSounds.ts` and `apps/realtime/src/db/samplerSoundStore.ts`):
-- Upload custom sampler sounds (per client, per room, per slot)
+- Upload custom sampler sounds (per room, per slot — room-scoped, not client-scoped)
 - List/delete sounds
 - Reset slot to default
+- On upload/reset, broadcasts `SAMPLER_SOUND_CHANGED` event to all room members via Socket.IO
 
 ### 6.3 Sampler Components
 
@@ -886,7 +889,7 @@ From `git status`, these files are untracked and likely should be in `.gitignore
 ### 8.4 Comment-Noted TODOs
 
 - `PerformancePadPanel.tsx` -- Loop and Roll pads send server events (DECK_LOOP_SET, DECK_ROLL_START/STOP) but audio-side enforcement is basic
-- Headphone cue mix knob is wired to PFL audio routing but the value is not yet synced to server state (local-only)
+- Headphone cue mix (`headphoneMix`) is wired to PFL audio routing and synced to server state via `MIXER_SET` events with control ID `"headphoneMix"`
 
 ---
 

@@ -37,6 +37,9 @@ export const CHANNEL_B_FILTER = "channelB.filter" as const;
 export const FX_WET_DRY = "fx.wetDry" as const;
 export const FX_PARAM = "fx.param" as const;
 
+/** Headphone/PFL controls */
+export const HEADPHONE_MIX = "headphoneMix" as const;
+
 /** Deck controls */
 export const DECK_A_JOG = "deckA.jog" as const;
 export const DECK_B_JOG = "deckB.jog" as const;
@@ -65,6 +68,7 @@ export const ALL_CONTROL_IDS = [
   CHANNEL_B_FILTER,
   FX_WET_DRY,
   FX_PARAM,
+  HEADPHONE_MIX,
   DECK_A_JOG,
   DECK_B_JOG,
   DECK_A_TEMPO,
@@ -114,6 +118,7 @@ export const CONTINUOUS_CONTROLS = [
   CHANNEL_B_FILTER,
   FX_WET_DRY,
   FX_PARAM,
+  HEADPHONE_MIX,
 ] as const;
 
 // ============================================================================

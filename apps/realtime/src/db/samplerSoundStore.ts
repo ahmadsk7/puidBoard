@@ -2,7 +2,7 @@
  * Sampler sound database store.
  *
  * MVP implementation uses in-memory storage.
- * Production implementation will use Postgres/Supabase.
+ * Sounds are scoped per-room (not per-client).
  */
 
 import { randomUUID } from "crypto";
@@ -17,7 +17,6 @@ class SamplerSoundStore {
   async create(input: CreateSamplerSoundInput): Promise<SamplerSound> {
     const sound: SamplerSound = {
       id: randomUUID(),
-      clientId: input.clientId,
       roomId: input.roomId,
       slot: input.slot,
       fileName: input.fileName,
@@ -27,15 +26,15 @@ class SamplerSoundStore {
       isDefault: input.isDefault ?? false,
     };
 
-    // Remove any existing sound for this client+room+slot combination
-    const existing = await this.findByClientRoomSlot(input.clientId, input.roomId, input.slot);
+    // Remove any existing sound for this room+slot combination
+    const existing = await this.findByRoomSlot(input.roomId, input.slot);
     if (existing) {
       this.sounds.delete(existing.id);
       console.log(`[samplerSoundStore] Replaced existing sound: ${existing.id}`);
     }
 
     this.sounds.set(sound.id, sound);
-    console.log(`[samplerSoundStore] Created sound: ${sound.id} for client=${input.clientId}, room=${input.roomId}, slot=${input.slot}`);
+    console.log(`[samplerSoundStore] Created sound: ${sound.id} for room=${input.roomId}, slot=${input.slot}`);
     return sound;
   }
 
@@ -56,10 +55,6 @@ class SamplerSoundStore {
       results = results.filter((s) => s.id === query.id);
     }
 
-    if (query.clientId) {
-      results = results.filter((s) => s.clientId === query.clientId);
-    }
-
     if (query.roomId) {
       results = results.filter((s) => s.roomId === query.roomId);
     }
@@ -75,22 +70,21 @@ class SamplerSoundStore {
   }
 
   /**
-   * Find sampler sound by client, room, and slot.
+   * Find sampler sound by room and slot.
    */
-  async findByClientRoomSlot(
-    clientId: string,
+  async findByRoomSlot(
     roomId: string,
     slot: 0 | 1 | 2 | 3
   ): Promise<SamplerSound | null> {
-    const results = await this.find({ clientId, roomId, slot });
+    const results = await this.find({ roomId, slot });
     return results[0] ?? null;
   }
 
   /**
-   * Get all custom sounds for a client in a room.
+   * Get all custom sounds for a room.
    */
-  async getClientRoomSounds(clientId: string, roomId: string): Promise<SamplerSound[]> {
-    return await this.find({ clientId, roomId });
+  async getRoomSounds(roomId: string): Promise<SamplerSound[]> {
+    return await this.find({ roomId });
   }
 
   /**
@@ -105,14 +99,13 @@ class SamplerSoundStore {
   }
 
   /**
-   * Delete sampler sound by client, room, and slot.
+   * Delete sampler sound by room and slot.
    */
-  async deleteByClientRoomSlot(
-    clientId: string,
+  async deleteByRoomSlot(
     roomId: string,
     slot: 0 | 1 | 2 | 3
   ): Promise<boolean> {
-    const sound = await this.findByClientRoomSlot(clientId, roomId, slot);
+    const sound = await this.findByRoomSlot(roomId, slot);
     if (sound) {
       return this.sounds.delete(sound.id);
     }

@@ -197,6 +197,11 @@ export const DeckStateSchema = z.object({
     endSec: z.number().nonnegative(),
     returnSec: z.number().nonnegative(),
   }).nullable(),
+  /**
+   * Hot cue point position in seconds (null if not set).
+   * Server-authoritative - synced across all clients.
+   */
+  hotCuePointSec: z.number().nullable().default(null),
 });
 export type DeckState = z.infer<typeof DeckStateSchema>;
 
@@ -253,6 +258,8 @@ export const MixerStateSchema = z.object({
   channelB: ChannelStateSchema,
   /** FX slot (MVP: single FX) */
   fx: FxStateSchema,
+  /** Headphone cue mix (0 = PFL only, 1 = main only) */
+  headphoneMix: z.number().min(0).max(1).default(1.0),
 });
 export type MixerState = z.infer<typeof MixerStateSchema>;
 
@@ -270,6 +277,32 @@ export const ControlOwnershipSchema = z.object({
   lastMovedAt: z.number(),
 });
 export type ControlOwnership = z.infer<typeof ControlOwnershipSchema>;
+
+// ============================================================================
+// Sampler State
+// ============================================================================
+
+/** A single sampler slot state */
+export const SamplerSlotStateSchema = z.object({
+  /** Custom sound URL (null = default sample) */
+  url: z.string().url().nullable(),
+  /** Display name of the loaded sample */
+  name: z.string(),
+  /** Whether a custom sound is loaded */
+  isCustom: z.boolean(),
+});
+export type SamplerSlotState = z.infer<typeof SamplerSlotStateSchema>;
+
+/** Room-scoped sampler state (4 slots) */
+export const SamplerStateSchema = z.object({
+  slots: z.tuple([
+    SamplerSlotStateSchema,
+    SamplerSlotStateSchema,
+    SamplerSlotStateSchema,
+    SamplerSlotStateSchema,
+  ]),
+});
+export type SamplerState = z.infer<typeof SamplerStateSchema>;
 
 // ============================================================================
 // Room State (Top Level)
@@ -302,6 +335,8 @@ export const RoomStateSchema = z.object({
    * Key is control ID (e.g., "crossfader", "channelA.fader", "deckA.jog")
    */
   controlOwners: z.record(ControlIdSchema, ControlOwnershipSchema),
+  /** Room-scoped sampler state */
+  sampler: SamplerStateSchema,
 });
 export type RoomState = z.infer<typeof RoomStateSchema>;
 
@@ -342,6 +377,7 @@ export function createDefaultMixer(): MixerState {
     channelA: createDefaultChannel(),
     channelB: createDefaultChannel(),
     fx: createDefaultFx(),
+    headphoneMix: 1.0,
   };
 }
 
@@ -365,5 +401,21 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     // Loop/Roll state
     loop: null,
     roll: null,
+    // Hot cue
+    hotCuePointSec: null,
+  };
+}
+
+const DEFAULT_SAMPLE_NAMES = ["Kick", "Clap", "Hi-Hat", "Airhorn"] as const;
+
+/** Create default sampler state (4 slots with default names) */
+export function createDefaultSampler(): SamplerState {
+  return {
+    slots: [
+      { url: null, name: DEFAULT_SAMPLE_NAMES[0], isCustom: false },
+      { url: null, name: DEFAULT_SAMPLE_NAMES[1], isCustom: false },
+      { url: null, name: DEFAULT_SAMPLE_NAMES[2], isCustom: false },
+      { url: null, name: DEFAULT_SAMPLE_NAMES[3], isCustom: false },
+    ],
   };
 }

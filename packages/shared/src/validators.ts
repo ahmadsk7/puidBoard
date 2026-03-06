@@ -52,6 +52,8 @@ export const VALID_CONTROL_IDS = [
   // FX controls
   "fx.wetDry",
   "fx.param",
+  // Headphone/PFL controls
+  "headphoneMix",
   // Deck controls (for jog/scratch)
   "deckA.jog",
   "deckB.jog",

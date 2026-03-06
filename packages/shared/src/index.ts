@@ -52,12 +52,15 @@ export {
   MixerStateSchema,
   ControlOwnershipSchema,
   RoomStateSchema,
+  SamplerSlotStateSchema,
+  SamplerStateSchema,
   // Factory functions
   createDefaultEq,
   createDefaultChannel,
   createDefaultFx,
   createDefaultMixer,
   createDefaultDeck,
+  createDefaultSampler,
 } from "./state.js";
 
 export type {
@@ -83,6 +86,8 @@ export type {
   MixerState,
   ControlOwnership,
   RoomState,
+  SamplerSlotState,
+  SamplerState,
 } from "./state.js";
 
 // ============================================================================
@@ -119,9 +124,14 @@ export {
   DeckTempoSetEventSchema,
   DeckBpmDetectedPayloadSchema,
   DeckBpmDetectedEventSchema,
+  // Hot cue events
+  DeckHotCueSetPayloadSchema,
+  DeckHotCueSetEventSchema,
   // Sampler events
   SamplerPlayPayloadSchema,
   SamplerPlayEventSchema,
+  SamplerSoundChangedPayloadSchema,
+  SamplerSoundChangedEventSchema,
   // Loop / Roll events
   DeckLoopSetPayloadSchema,
   DeckLoopSetEventSchema,
@@ -194,8 +204,12 @@ export type {
   DeckTempoSetEvent,
   DeckBpmDetectedPayload,
   DeckBpmDetectedEvent,
+  DeckHotCueSetPayload,
+  DeckHotCueSetEvent,
   SamplerPlayPayload,
   SamplerPlayEvent,
+  SamplerSoundChangedPayload,
+  SamplerSoundChangedEvent,
   DeckLoopSetPayload,
   DeckLoopSetEvent,
   DeckRollStartPayload,
@@ -278,6 +292,7 @@ export {
   CHANNEL_B_FILTER,
   FX_WET_DRY,
   FX_PARAM,
+  HEADPHONE_MIX,
   DECK_A_JOG,
   DECK_B_JOG,
   DECK_A_TEMPO,

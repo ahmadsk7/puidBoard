@@ -838,6 +838,14 @@ export class Deck {
   }
 
   /**
+   * Set hot cue point to a specific position (from server state sync).
+   */
+  setHotCuePosition(positionSec: number | null): void {
+    this.state.hotCuePointSec = positionSec;
+    this.notify();
+  }
+
+  /**
    * Clear hot cue point.
    */
   clearHotCue(): void {

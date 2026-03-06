@@ -54,6 +54,7 @@ export class RealtimeClient {
   private statusListeners = new Set<StatusListener>();
   private latencyListeners = new Set<LatencyListener>();
   private errorListeners = new Set<ErrorListener>();
+  private samplerListeners = new Set<(payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }) => void>();
 
   /** Pending room to rejoin on reconnect */
   private pendingRejoin: { roomCode: string; name: string } | null = null;
@@ -87,6 +88,12 @@ export class RealtimeClient {
   onStatusChange(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     return () => this.statusListeners.delete(listener);
+  }
+
+  /** Subscribe to sampler sound changes from other clients */
+  onSamplerChange(listener: (payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }) => void): () => void {
+    this.samplerListeners.add(listener);
+    return () => this.samplerListeners.delete(listener);
   }
 
   /** Subscribe to latency updates */
@@ -747,6 +754,8 @@ export class RealtimeClient {
             else if (controlId === "channelB.eq.mid") mixer.channelB.eq.mid = value;
             else if (controlId === "channelB.eq.high") mixer.channelB.eq.high = value;
           }
+        } else if (controlId === "headphoneMix") {
+          mixer.headphoneMix = value;
         }
 
         this.state = { ...this.state, mixer };
@@ -810,6 +819,60 @@ export class RealtimeClient {
         this.notifyStateListeners();
       } catch (error) {
         console.error("[RealtimeClient] FX_TOGGLE handler error:", error);
+      }
+    });
+
+    // DECK_HOT_CUE_SET - update hot cue point on deck
+    this.socket.on("DECK_HOT_CUE_SET", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      version: number;
+      payload: {
+        deckId: "A" | "B";
+        hotCuePointSec: number | null;
+      };
+    }) => {
+      try {
+        if (!this.state) return;
+        const deck = event.payload.deckId === "A"
+          ? { ...this.state.deckA }
+          : { ...this.state.deckB };
+        deck.hotCuePointSec = event.payload.hotCuePointSec;
+        this.state = {
+          ...this.state,
+          version: event.version ?? this.state.version,
+          [event.payload.deckId === "A" ? "deckA" : "deckB"]: deck,
+        };
+        this.notifyStateListeners();
+      } catch (error) {
+        console.error("[RealtimeClient] DECK_HOT_CUE_SET handler error:", error);
+      }
+    });
+
+    // SAMPLER_SOUND_CHANGED - another client changed a sampler slot
+    this.socket.on("SAMPLER_SOUND_CHANGED", (event: {
+      type: string;
+      roomId: string;
+      payload: {
+        slot: 0 | 1 | 2 | 3;
+        url: string | null;
+        name: string;
+        isCustom: boolean;
+      };
+    }) => {
+      try {
+        if (!this.state) return;
+        const { slot, url, name, isCustom } = event.payload;
+        const sampler = { ...this.state.sampler };
+        const slots = [...sampler.slots] as typeof sampler.slots;
+        slots[slot] = { url, name, isCustom };
+        sampler.slots = slots;
+        this.state = { ...this.state, sampler };
+        this.notifyStateListeners();
+        this.notifySamplerListeners(event.payload);
+      } catch (error) {
+        console.error("[RealtimeClient] SAMPLER_SOUND_CHANGED handler error:", error);
       }
     });
 
@@ -880,6 +943,10 @@ export class RealtimeClient {
 
   private notifyLatencyListeners(): void {
     this.latencyListeners.forEach((l) => l(this.latencyMs));
+  }
+
+  private notifySamplerListeners(payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }): void {
+    this.samplerListeners.forEach((l) => l(payload));
   }
 
   private emitError(error: { type: string; message: string }): void {

@@ -20,11 +20,13 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "http";
+import type { Server as SocketIOServer } from "socket.io";
 import busboy from "busboy";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
 import { searchYouTube, getYouTubeAudioUrl } from "../services/youtube.js";
+import { roomStore } from "../rooms/store.js";
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -423,7 +425,8 @@ async function handleListSamplePack(
  */
 async function handleSamplerUpload(
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  io?: SocketIOServer
 ): Promise<void> {
   try {
     console.log("[samplerUpload] Starting sampler sound upload...");
@@ -438,14 +441,8 @@ async function handleSamplerUpload(
 
     console.log(`[samplerUpload] Received file: ${filename} (${file.length} bytes), parsedMimeType=${parsedMimeType}, fieldMimeType=${fields.mimeType}`);
 
-    const clientId = fields.clientId;
     const roomId = fields.roomId;
     const slot = parseInt(fields.slot || "-1", 10) as 0 | 1 | 2 | 3;
-
-    if (!clientId) {
-      sendError(res, 400, "Missing required field: clientId");
-      return;
-    }
 
     if (!roomId) {
       sendError(res, 400, "Missing required field: roomId");
@@ -477,12 +474,25 @@ async function handleSamplerUpload(
       buffer: file,
       filename: filename || "sample",
       mimeType,
-      clientId,
       roomId,
       slot,
     });
 
     console.log(`[samplerUpload] Success: soundId=${result.soundId}`);
+
+    // Update room sampler state and broadcast
+    const room = roomStore.getRoomByCode(roomId) ?? roomStore.getRoom(roomId);
+    if (room) {
+      const name = (filename || "sample").replace(/\.[^.]+$/, "");
+      room.sampler.slots[slot] = { url: result.url, name, isCustom: true };
+      if (io) {
+        io.to(room.roomId).emit("SAMPLER_SOUND_CHANGED", {
+          type: "SAMPLER_SOUND_CHANGED",
+          roomId: room.roomId,
+          payload: { slot, url: result.url, name, isCustom: true },
+        });
+      }
+    }
 
     sendJson(res, 200, {
       soundId: result.soundId,
@@ -502,7 +512,7 @@ async function handleSamplerUpload(
 }
 
 /**
- * Handle GET /api/sampler/sounds?clientId=X&roomId=Y
+ * Handle GET /api/sampler/sounds?roomId=Y
  */
 async function handleGetSamplerSounds(
   req: IncomingMessage,
@@ -510,17 +520,16 @@ async function handleGetSamplerSounds(
 ): Promise<void> {
   try {
     const params = parseQueryParams(req.url || "");
-    const clientId = params.clientId;
     const roomId = params.roomId;
 
-    if (!clientId || !roomId) {
-      sendError(res, 400, "Missing required query params: clientId and roomId");
+    if (!roomId) {
+      sendError(res, 400, "Missing required query param: roomId");
       return;
     }
 
-    console.log(`[getSamplerSounds] Getting sounds for client=${clientId}, room=${roomId}`);
+    console.log(`[getSamplerSounds] Getting sounds for room=${roomId}`);
 
-    const sounds = await samplerSoundsService.getClientRoomSounds(clientId, roomId);
+    const sounds = await samplerSoundsService.getRoomSounds(roomId);
 
     sendJson(res, 200, {
       sounds: sounds.map((s) => ({
@@ -565,18 +574,19 @@ async function handleDeleteSamplerSound(
 
 /**
  * Handle POST /api/sampler/reset
- * Body: { clientId, roomId, slot }
+ * Body: { roomId, slot }
  */
 async function handleResetSamplerSlot(
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  io?: SocketIOServer
 ): Promise<void> {
   try {
     const body = await readJsonBody(req);
-    const { clientId, roomId, slot } = body;
+    const { roomId, slot } = body;
 
-    if (!clientId || !roomId || slot === undefined) {
-      sendError(res, 400, "Missing required fields: clientId, roomId, slot");
+    if (!roomId || slot === undefined) {
+      sendError(res, 400, "Missing required fields: roomId, slot");
       return;
     }
 
@@ -585,9 +595,24 @@ async function handleResetSamplerSlot(
       return;
     }
 
-    console.log(`[resetSamplerSlot] Resetting slot ${slot} for client=${clientId}, room=${roomId}`);
+    console.log(`[resetSamplerSlot] Resetting slot ${slot} for room=${roomId}`);
 
-    await samplerSoundsService.resetSlot(clientId, roomId, slot);
+    await samplerSoundsService.resetSlot(roomId, slot);
+
+    // Update room sampler state and broadcast
+    const DEFAULT_SAMPLE_NAMES = ["Kick", "Clap", "Hi-Hat", "Airhorn"];
+    const name = DEFAULT_SAMPLE_NAMES[slot] ?? "Sample";
+    const room = roomStore.getRoomByCode(roomId) ?? roomStore.getRoom(roomId);
+    if (room) {
+      room.sampler.slots[slot as 0 | 1 | 2 | 3] = { url: null, name, isCustom: false };
+      if (io) {
+        io.to(room.roomId).emit("SAMPLER_SOUND_CHANGED", {
+          type: "SAMPLER_SOUND_CHANGED",
+          roomId: room.roomId,
+          payload: { slot, url: null, name, isCustom: false },
+        });
+      }
+    }
 
     sendJson(res, 200, { success: true, slot });
   } catch (error) {
@@ -744,7 +769,8 @@ async function handleYouTubeStream(
  */
 export async function handleTrackApiRequest(
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  io?: SocketIOServer
 ): Promise<boolean> {
   const url = req.url || "";
   const method = req.method || "GET";
@@ -793,7 +819,7 @@ export async function handleTrackApiRequest(
 
   // POST /api/sampler/upload
   if (method === "POST" && url === "/api/sampler/upload") {
-    await handleSamplerUpload(req, res);
+    await handleSamplerUpload(req, res, io);
     return true;
   }
 
@@ -812,7 +838,7 @@ export async function handleTrackApiRequest(
 
   // POST /api/sampler/reset
   if (method === "POST" && url === "/api/sampler/reset") {
-    await handleResetSamplerSlot(req, res);
+    await handleResetSamplerSlot(req, res, io);
     return true;
   }
 

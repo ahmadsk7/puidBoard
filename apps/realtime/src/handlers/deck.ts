@@ -28,6 +28,7 @@ import {
   DeckLoopSetEventSchema,
   DeckRollStartEventSchema,
   DeckRollStopEventSchema,
+  DeckHotCueSetEventSchema,
   type DeckLoadEvent,
   type DeckPlayEvent,
   type DeckPauseEvent,
@@ -38,6 +39,7 @@ import {
   type DeckLoopSetEvent,
   type DeckRollStartEvent,
   type DeckRollStopEvent,
+  type DeckHotCueSetEvent,
   type ServerMutationEvent,
   type DeckId,
 } from "@puid-board/shared";
@@ -161,6 +163,9 @@ export function handleDeckLoad(
 
   // Create new epoch on load (fresh start)
   createNewEpoch(deck, serverTs, 0);
+
+  // Clear hot cue on load
+  deck.hotCuePointSec = null;
 
   // Update queue item status
   queueItem.status = deckId === "A" ? "loaded_A" : "loaded_B";
@@ -1014,6 +1019,81 @@ export function handleDeckRollStop(
 }
 
 /**
+ * Handle DECK_HOT_CUE_SET event.
+ * Sets or clears the hot cue point on a deck. Server-authoritative.
+ */
+export function handleDeckHotCueSet(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckHotCueSetEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_HOT_CUE_SET] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckHotCueSetEvent;
+  const { deckId, hotCuePointSec } = event.payload;
+
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_HOT_CUE_SET");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_HOT_CUE_SET", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  // Validate position is within track bounds (if setting, not clearing)
+  if (hotCuePointSec !== null && deck.durationSec !== null) {
+    if (hotCuePointSec < 0 || hotCuePointSec > deck.durationSec) {
+      sendRejectedAck(socket, event.clientSeq, "", "Hot cue position out of bounds");
+      return;
+    }
+  }
+
+  deck.hotCuePointSec = hotCuePointSec;
+  room.version++;
+
+  const eventId = `${room.roomId}-${room.version}`;
+
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs: Date.now(),
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_HOT_CUE_SET",
+    payload: { deckId, hotCuePointSec },
+  };
+
+  io.to(room.roomId).emit("DECK_HOT_CUE_SET", serverEvent);
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_HOT_CUE_SET] deck=${deckId} hotCue=${hotCuePointSec?.toFixed(2) ?? "null"} roomId=${room.roomId}`
+  );
+}
+
+/**
  * Register deck event handlers on a socket.
  */
 export function registerDeckHandlers(io: Server, socket: Socket): void {
@@ -1055,5 +1135,9 @@ export function registerDeckHandlers(io: Server, socket: Socket): void {
 
   socket.on("DECK_ROLL_STOP", (data: unknown) => {
     handleDeckRollStop(io, socket, data);
+  });
+
+  socket.on("DECK_HOT_CUE_SET", (data: unknown) => {
+    handleDeckHotCueSet(io, socket, data);
   });
 }

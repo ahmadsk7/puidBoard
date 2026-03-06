@@ -17,7 +17,6 @@ import {
 export type SamplerSettingsProps = {
   isOpen: boolean;
   onClose: () => void;
-  clientId: string;
   roomId: string;
 };
 
@@ -37,7 +36,6 @@ const REALTIME_URL = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3
 export default function SamplerSettings({
   isOpen,
   onClose,
-  clientId,
   roomId,
 }: SamplerSettingsProps) {
   const [slots, setSlots] = useState<Record<SampleSlot, SlotState>>({
@@ -84,7 +82,7 @@ export default function SamplerSettings({
 
     // Fetch custom sounds from server
     fetchCustomSounds();
-  }, [isOpen, clientId, roomId]);
+  }, [isOpen, roomId]);
 
   // Subscribe to sample changes
   useEffect(() => {
@@ -106,7 +104,7 @@ export default function SamplerSettings({
   // Fetch custom sounds from server
   const fetchCustomSounds = useCallback(async () => {
     try {
-      const url = `${REALTIME_URL}/api/sampler/sounds?clientId=${encodeURIComponent(clientId)}&roomId=${encodeURIComponent(roomId)}`;
+      const url = `${REALTIME_URL}/api/sampler/sounds?roomId=${encodeURIComponent(roomId)}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -125,7 +123,7 @@ export default function SamplerSettings({
     } catch (error) {
       console.error("[SamplerSettings] Error fetching custom sounds:", error);
     }
-  }, [clientId, roomId]);
+  }, [roomId]);
 
   // Handle file upload
   const handleFileSelect = useCallback(async (slot: SampleSlot, file: File) => {
@@ -167,7 +165,6 @@ export default function SamplerSettings({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("clientId", clientId);
       formData.append("roomId", roomId);
       formData.append("slot", slot.toString());
 
@@ -203,7 +200,7 @@ export default function SamplerSettings({
         },
       }));
     }
-  }, [clientId, roomId]);
+  }, [roomId]);
 
   // Handle recording
   const startRecording = useCallback(async (slot: SampleSlot) => {
@@ -313,7 +310,7 @@ export default function SamplerSettings({
       await fetch(`${REALTIME_URL}/api/sampler/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, roomId, slot }),
+        body: JSON.stringify({ roomId, slot }),
       });
 
       // Reset locally
@@ -339,7 +336,7 @@ export default function SamplerSettings({
         },
       }));
     }
-  }, [clientId, roomId]);
+  }, [roomId]);
 
   // Handle preview
   const handlePreview = useCallback((slot: SampleSlot) => {
