@@ -16,6 +16,7 @@ import FXControlPanel from "./FXControlPanel";
 import SamplerPanel from "./SamplerPanel";
 import PerformancePadPanel from "./PerformancePadPanel";
 import { useMixerSync } from "@/audio/useMixer";
+import ClippingIndicator from "./ClippingIndicator";
 import { useDeck, getDeck } from "@/audio/useDeck";
 import { useBoardScale } from "@/hooks/useBoardScale";
 import { LCDScreen, WaveformDisplay, TrackInfoDisplay, TimeDisplay } from "./displays";
@@ -74,14 +75,22 @@ const DECK_B_TEMPO = {
 // Mixer positions (center)
 const MIXER = {
   display: { x: 688, y: 170, width: 224, height: 160 }, // From SVG: <rect x="688" y="170" width="224" height="160"/>
-  // Knob positions - EXACT centers from SVG circles
+  // Knob positions - 3 EQ rows per channel + master + headphone
+  // Layout: Left column (Channel A EQ) | Center (Master/CUE) | Right column (Channel B EQ)
   knobs: {
-    masterVolume: { cx: 744, cy: 238 },   // <circle cx="744" cy="238" r="26"/>
-    channelAHigh: { cx: 856, cy: 238 },   // <circle cx="856" cy="238" r="26"/>
-    channelBHigh: { cx: 744, cy: 302 },   // <circle cx="744" cy="302" r="26"/>
-    headphoneMix: { cx: 856, cy: 302 },   // <circle cx="856" cy="302" r="26"/>
+    // Center column - utility knobs
+    masterVolume: { cx: 800, cy: 202 },
+    headphoneMix: { cx: 800, cy: 258 },
+    // Channel A EQ (left column) - HI/MID/LOW top to bottom
+    channelAHigh: { cx: 726, cy: 202 },
+    channelAMid:  { cx: 726, cy: 258 },
+    channelALow:  { cx: 726, cy: 314 },
+    // Channel B EQ (right column) - HI/MID/LOW top to bottom
+    channelBHigh: { cx: 874, cy: 202 },
+    channelBMid:  { cx: 874, cy: 258 },
+    channelBLow:  { cx: 874, cy: 314 },
   },
-  knobRadius: 26, // From SVG: r="26"
+  knobRadius: 22, // Slightly smaller to fit 3 rows
   // Fader track positions
   faders: { x: 688, y: 346, width: 224, height: 132 },
   channelA: { x: 730, y: 384, width: 18, height: 84 }, // From SVG: <rect x="730" y="384" width="18" height="84"/>
@@ -288,7 +297,85 @@ function PositionedJogWheel({
   );
 }
 
-/** Mixer knobs section - centered at exact SVG coordinates */
+/** Single labeled knob positioned absolutely */
+function PositionedKnob({
+  label,
+  controlId,
+  value,
+  roomId,
+  clientId,
+  sendEvent,
+  nextSeq,
+  ownership,
+  memberColors,
+  position,
+  size,
+  min,
+  max,
+  bipolar,
+}: {
+  label: string;
+  controlId: string;
+  value: number;
+  roomId: string;
+  clientId: string;
+  sendEvent: (e: ClientMutationEvent) => void;
+  nextSeq: () => number;
+  ownership?: ControlOwnership;
+  memberColors: Record<string, string>;
+  position: { cx: number; cy: number };
+  size: number;
+  min?: number;
+  max?: number;
+  bipolar?: boolean;
+}) {
+  return (
+    <>
+      <div
+        style={{
+          position: "absolute",
+          left: position.cx,
+          top: position.cy - size / 2 - 12,
+          transform: "translateX(-50%)",
+          fontSize: "0.5rem",
+          color: "#9ca3af",
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+          whiteSpace: "nowrap",
+          zIndex: 101,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: position.cx,
+          top: position.cy,
+          transform: "translate(-50%, -50%)",
+          zIndex: 100,
+        }}
+      >
+        <Knob
+          controlId={controlId}
+          value={value}
+          roomId={roomId}
+          clientId={clientId}
+          sendEvent={sendEvent}
+          nextSeq={nextSeq}
+          ownership={ownership}
+          memberColors={memberColors}
+          size={size}
+          min={min}
+          max={max}
+          bipolar={bipolar}
+        />
+      </div>
+    </>
+  );
+}
+
+/** Mixer knobs section - 3-band EQ per channel + Master + CUE */
 function MixerKnobs({
   mixer,
   roomId,
@@ -306,20 +393,21 @@ function MixerKnobs({
   controlOwners: Record<string, ControlOwnership>;
   memberColors: Record<string, string>;
 }) {
-  const knobSize = MIXER.knobRadius * 2; // 52px diameter
+  const knobSize = MIXER.knobRadius * 2;
 
   return (
     <>
-      {/* Signal level indicators - positioned above knobs */}
+      {/* Signal level indicators */}
       <div
         style={{
           position: "absolute",
           left: MIXER.display.x + MIXER.display.width / 2,
-          top: MIXER.display.y + 20,
+          top: MIXER.display.y + 8,
           transform: "translateX(-50%)",
           display: "flex",
           gap: 4,
           alignItems: "center",
+          zIndex: 101,
         }}
       >
         {[0.1, 0.3, 0.5, 0.7, 0.9].map((threshold, i) => (
@@ -342,163 +430,133 @@ function MixerKnobs({
         ))}
       </div>
 
-      {/* Master volume label */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.masterVolume.cx,
-          top: MIXER.knobs.masterVolume.cy - 36,
-          transform: "translateX(-50%)",
-          fontSize: "0.625rem",
-          color: "#9ca3af",
-          fontWeight: 600,
-          letterSpacing: "0.05em",
-        }}
-      >
-        MASTER
-      </div>
+      {/* Center column: Master + CUE */}
+      <PositionedKnob
+        label="MASTER"
+        controlId="masterVolume"
+        value={mixer.masterVolume}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["masterVolume"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.masterVolume}
+        size={knobSize}
+      />
+      <PositionedKnob
+        label="CUE"
+        controlId="headphoneMix"
+        value={0.5}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["headphoneMix"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.headphoneMix}
+        size={knobSize}
+      />
 
-      {/* Master volume knob - centered at (744, 238) */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.masterVolume.cx,
-          top: MIXER.knobs.masterVolume.cy,
-          transform: "translate(-50%, -50%)",
-        }}
-      >
-        <Knob
-          controlId="masterVolume"
-          value={mixer.masterVolume}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["masterVolume"]}
-          memberColors={memberColors}
-          size={knobSize}
-        />
-      </div>
+      {/* Channel A EQ: HI / MID / LOW */}
+      <PositionedKnob
+        label="HI A"
+        controlId="channelA.eq.high"
+        value={mixer.channelA.eq.high}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelA.eq.high"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelAHigh}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
+      <PositionedKnob
+        label="MID A"
+        controlId="channelA.eq.mid"
+        value={mixer.channelA.eq.mid}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelA.eq.mid"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelAMid}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
+      <PositionedKnob
+        label="LOW A"
+        controlId="channelA.eq.low"
+        value={mixer.channelA.eq.low}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelA.eq.low"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelALow}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
 
-      {/* HI A label */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.channelAHigh.cx,
-          top: MIXER.knobs.channelAHigh.cy - 36,
-          transform: "translateX(-50%)",
-          fontSize: "0.625rem",
-          color: "#9ca3af",
-          fontWeight: 600,
-          letterSpacing: "0.05em",
-        }}
-      >
-        HI A
-      </div>
-
-      {/* Channel A EQ High - centered at (856, 238) */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.channelAHigh.cx,
-          top: MIXER.knobs.channelAHigh.cy,
-          transform: "translate(-50%, -50%)",
-        }}
-      >
-        <Knob
-          controlId="channelA.eq.high"
-          value={mixer.channelA.eq.high}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["channelA.eq.high"]}
-          memberColors={memberColors}
-          size={knobSize}
-          min={-1}
-          max={1}
-          bipolar
-        />
-      </div>
-
-      {/* HI B label */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.channelBHigh.cx,
-          top: MIXER.knobs.channelBHigh.cy - 36,
-          transform: "translateX(-50%)",
-          fontSize: "0.625rem",
-          color: "#9ca3af",
-          fontWeight: 600,
-          letterSpacing: "0.05em",
-        }}
-      >
-        HI B
-      </div>
-
-      {/* Channel B EQ High - centered at (744, 302) */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.channelBHigh.cx,
-          top: MIXER.knobs.channelBHigh.cy,
-          transform: "translate(-50%, -50%)",
-        }}
-      >
-        <Knob
-          controlId="channelB.eq.high"
-          value={mixer.channelB.eq.high}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["channelB.eq.high"]}
-          memberColors={memberColors}
-          size={knobSize}
-          min={-1}
-          max={1}
-          bipolar
-        />
-      </div>
-
-      {/* CUE label */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.headphoneMix.cx,
-          top: MIXER.knobs.headphoneMix.cy - 36,
-          transform: "translateX(-50%)",
-          fontSize: "0.625rem",
-          color: "#9ca3af",
-          fontWeight: 600,
-          letterSpacing: "0.05em",
-        }}
-      >
-        CUE
-      </div>
-
-      {/* Headphone cue mix - centered at (856, 302) */}
-      <div
-        style={{
-          position: "absolute",
-          left: MIXER.knobs.headphoneMix.cx,
-          top: MIXER.knobs.headphoneMix.cy,
-          transform: "translate(-50%, -50%)",
-        }}
-      >
-        <Knob
-          controlId="headphoneMix"
-          value={0.5}
-          roomId={roomId}
-          clientId={clientId}
-          sendEvent={sendEvent}
-          nextSeq={nextSeq}
-          ownership={controlOwners["headphoneMix"]}
-          memberColors={memberColors}
-          size={knobSize}
-        />
-      </div>
+      {/* Channel B EQ: HI / MID / LOW */}
+      <PositionedKnob
+        label="HI B"
+        controlId="channelB.eq.high"
+        value={mixer.channelB.eq.high}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelB.eq.high"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelBHigh}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
+      <PositionedKnob
+        label="MID B"
+        controlId="channelB.eq.mid"
+        value={mixer.channelB.eq.mid}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelB.eq.mid"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelBMid}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
+      <PositionedKnob
+        label="LOW B"
+        controlId="channelB.eq.low"
+        value={mixer.channelB.eq.low}
+        roomId={roomId}
+        clientId={clientId}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        ownership={controlOwners["channelB.eq.low"]}
+        memberColors={memberColors}
+        position={MIXER.knobs.channelBLow}
+        size={knobSize}
+        min={-1}
+        max={1}
+        bipolar
+      />
     </>
   );
 }
@@ -1127,6 +1185,19 @@ export default function DJBoard({
           controlOwners={state.controlOwners}
           memberColors={memberColors}
         />
+
+        {/* Clipping Indicator - near master volume knob */}
+        <div
+          style={{
+            position: "absolute",
+            left: MIXER.knobs.masterVolume.cx + MIXER.knobRadius + 8,
+            top: MIXER.knobs.masterVolume.cy,
+            transform: "translateY(-50%)",
+            zIndex: 101,
+          }}
+        >
+          <ClippingIndicator />
+        </div>
 
         <MixerFaders
           mixer={state.mixer}

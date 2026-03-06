@@ -58,6 +58,9 @@ export class RealtimeClient {
   /** Pending room to rejoin on reconnect */
   private pendingRejoin: { roomCode: string; name: string } | null = null;
 
+  /** Last known state version for reconnection */
+  private lastVersion = 0;
+
   getState(): RoomState | null {
     return this.state;
   }
@@ -123,6 +126,7 @@ export class RealtimeClient {
     }
     this.state = null;
     this.clientId = null;
+    this.lastVersion = 0;
     this.pendingRejoin = null;
     this.setStatus("disconnected");
     this.notifyStateListeners();
@@ -203,11 +207,23 @@ export class RealtimeClient {
 
       // Rejoin room if we had one before disconnect
       if (this.pendingRejoin && this.pendingRejoin.roomCode) {
-        this.socket?.emit("JOIN_ROOM", {
-          type: "JOIN_ROOM",
-          roomCode: this.pendingRejoin.roomCode,
-          name: this.pendingRejoin.name,
-        });
+        if (this.clientId && this.lastVersion > 0) {
+          // Try graceful rejoin with previous identity
+          this.socket?.emit("REJOIN_ROOM", {
+            type: "REJOIN_ROOM",
+            roomCode: this.pendingRejoin.roomCode,
+            name: this.pendingRejoin.name,
+            previousClientId: this.clientId,
+            lastVersion: this.lastVersion,
+          });
+        } else {
+          // No previous identity, do normal join
+          this.socket?.emit("JOIN_ROOM", {
+            type: "JOIN_ROOM",
+            roomCode: this.pendingRejoin.roomCode,
+            name: this.pendingRejoin.name,
+          });
+        }
       }
     });
 
@@ -231,7 +247,26 @@ export class RealtimeClient {
 
     this.socket.on("ROOM_SNAPSHOT", (event: RoomSnapshotEvent) => {
       this.state = event.state;
+      this.lastVersion = event.state.version;
       // Update pending rejoin with actual room code
+      if (this.pendingRejoin) {
+        this.pendingRejoin.roomCode = event.state.roomCode;
+      }
+      this.notifyStateListeners();
+    });
+
+    this.socket.on("ROOM_REJOIN_SNAPSHOT", (event: {
+      type: string;
+      roomId: string;
+      serverTs: number;
+      state: RoomState;
+      clientId: string;
+      missedEvents: unknown[];
+    }) => {
+      console.log("[RealtimeClient] ROOM_REJOIN_SNAPSHOT received - seamless reconnect");
+      this.state = event.state;
+      this.clientId = event.clientId;
+      this.lastVersion = event.state.version;
       if (this.pendingRejoin) {
         this.pendingRejoin.roomCode = event.state.roomCode;
       }

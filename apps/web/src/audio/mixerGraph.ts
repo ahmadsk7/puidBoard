@@ -67,6 +67,16 @@ interface MixerGraphState {
   preMaster: GainNode | null;
   /** Analyser for metering */
   analyser: AnalyserNode | null;
+  /** PFL (pre-fader listen) gain for channel A */
+  pflA: GainNode | null;
+  /** PFL gain for channel B */
+  pflB: GainNode | null;
+  /** Cue mix node - blends PFL and main */
+  cueMix: GainNode | null;
+  /** Main output gain (before headphone blend) */
+  mainGain: GainNode | null;
+  /** Current cue mix value (0=PFL, 1=Main) */
+  cueMixValue: number;
   /** Is initialized */
   initialized: boolean;
 }
@@ -79,6 +89,11 @@ let mixerGraph: MixerGraphState = {
   crossfaderB: null,
   preMaster: null,
   analyser: null,
+  pflA: null,
+  pflB: null,
+  cueMix: null,
+  mainGain: null,
+  cueMixValue: 1.0,
   initialized: false,
 };
 
@@ -183,6 +198,28 @@ export function initMixerGraph(): boolean {
   mixerGraph.analyser.fftSize = 256;
   mixerGraph.analyser.smoothingTimeConstant = 0.3;
 
+  // Create PFL tap points (after EQ, before fader)
+  mixerGraph.pflA = ctx.createGain();
+  mixerGraph.pflA.gain.value = 0; // Off by default (cueMix=1 means main only)
+  mixerGraph.pflB = ctx.createGain();
+  mixerGraph.pflB.gain.value = 0;
+
+  // Tap EQ output to PFL (before fader)
+  mixerGraph.channelA.eqHigh.connect(mixerGraph.pflA);
+  mixerGraph.channelB.eqHigh.connect(mixerGraph.pflB);
+
+  // Create cue mix summing node
+  mixerGraph.cueMix = ctx.createGain();
+  mixerGraph.cueMix.gain.value = 1.0;
+
+  // Create main output gain
+  mixerGraph.mainGain = ctx.createGain();
+  mixerGraph.mainGain.gain.value = 1.0;
+
+  // PFL channels → cue mix
+  mixerGraph.pflA.connect(mixerGraph.cueMix);
+  mixerGraph.pflB.connect(mixerGraph.cueMix);
+
   // Connect channels → crossfader gains → pre-master
   mixerGraph.channelA.output.connect(mixerGraph.crossfaderA);
   mixerGraph.channelB.output.connect(mixerGraph.crossfaderB);
@@ -192,18 +229,25 @@ export function initMixerGraph(): boolean {
 
   // Initialize FX manager and insert into signal path
   const fxNodes = initFXManager();
-  
+
   if (fxNodes) {
     const [fxInput, fxOutput] = fxNodes;
-    // Connect: pre-master → FX input → FX output → analyser → master
+    // Connect: pre-master → FX input → FX output → analyser → mainGain
     mixerGraph.preMaster.connect(fxInput);
     fxOutput.connect(mixerGraph.analyser);
   } else {
     // No FX available, bypass directly
     mixerGraph.preMaster.connect(mixerGraph.analyser);
   }
-  
-  mixerGraph.analyser.connect(masterGain);
+
+  // Main signal path: analyser → mainGain → masterGain
+  mixerGraph.analyser.connect(mixerGraph.mainGain);
+  // CueMix + mainGain both feed into masterGain
+  mixerGraph.cueMix.connect(masterGain);
+  mixerGraph.mainGain.connect(masterGain);
+
+  // Apply default cue mix (1.0 = main only)
+  updateCueMix(1.0);
 
   mixerGraph.initialized = true;
   console.log("[mixer-graph] Initialized successfully (with FX)");
@@ -267,6 +311,29 @@ function updateCrossfader(position: number): void {
   
   setParamFast(mixerGraph.crossfaderA.gain, gainA);
   setParamFast(mixerGraph.crossfaderB.gain, gainB);
+}
+
+/**
+ * Update headphone cue mix.
+ * 0 = PFL only (pre-fader listen), 1 = main only
+ */
+function updateCueMix(value: number): void {
+  const mix = clamp(value, 0, 1);
+  mixerGraph.cueMixValue = mix;
+
+  // Main gain follows the mix value (1 = full main, 0 = no main)
+  if (mixerGraph.mainGain) {
+    setParamSmooth(mixerGraph.mainGain.gain, mix);
+  }
+
+  // PFL gains are inverse (0 = full PFL, 1 = no PFL)
+  const pflLevel = 1 - mix;
+  if (mixerGraph.pflA) {
+    setParamSmooth(mixerGraph.pflA.gain, pflLevel);
+  }
+  if (mixerGraph.pflB) {
+    setParamSmooth(mixerGraph.pflB.gain, pflLevel);
+  }
 }
 
 /**
@@ -334,6 +401,11 @@ export function updateMixerParam(controlId: string, value: number): void {
 
   if (controlId === "masterVolume") {
     updateMasterVolume(value);
+    return;
+  }
+
+  if (controlId === "headphoneMix") {
+    updateCueMix(value);
     return;
   }
 
@@ -485,6 +557,22 @@ export function disposeMixerGraph(): void {
   if (mixerGraph.analyser) {
     mixerGraph.analyser.disconnect();
     mixerGraph.analyser = null;
+  }
+  if (mixerGraph.pflA) {
+    mixerGraph.pflA.disconnect();
+    mixerGraph.pflA = null;
+  }
+  if (mixerGraph.pflB) {
+    mixerGraph.pflB.disconnect();
+    mixerGraph.pflB = null;
+  }
+  if (mixerGraph.cueMix) {
+    mixerGraph.cueMix.disconnect();
+    mixerGraph.cueMix = null;
+  }
+  if (mixerGraph.mainGain) {
+    mixerGraph.mainGain.disconnect();
+    mixerGraph.mainGain = null;
   }
 
   mixerGraph.initialized = false;

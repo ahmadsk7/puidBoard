@@ -7,6 +7,7 @@ import {
   CreateRoomEventSchema,
   JoinRoomEventSchema,
   LeaveRoomEventSchema,
+  RejoinRoomEventSchema,
   RoomSnapshotEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -45,6 +46,11 @@ export function registerHandlers(io: Server, socket: Socket): void {
   // Handle room leave
   socket.on("LEAVE_ROOM", (data: unknown) => {
     handleLeaveRoom(io, socket, data);
+  });
+
+  // Handle room rejoin (reconnection)
+  socket.on("REJOIN_ROOM", (data: unknown) => {
+    handleRejoinRoom(io, socket, data);
   });
 
   // Handle disconnect
@@ -248,6 +254,79 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
 }
 
 /**
+ * Handle REJOIN_ROOM event (reconnection with grace period).
+ */
+function handleRejoinRoom(io: Server, socket: Socket, data: unknown): void {
+  const parsed = RejoinRoomEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[REJOIN_ROOM] invalid payload socket=${socket.id}`);
+    socket.emit("ERROR", {
+      type: "VALIDATION_ERROR",
+      message: "Invalid REJOIN_ROOM payload",
+    });
+    return;
+  }
+
+  const { roomCode, name, previousClientId } = parsed.data;
+
+  const result = roomStore.rejoinRoom(roomCode, previousClientId, name, socket.id);
+
+  if (!result) {
+    console.log(`[REJOIN_ROOM] room not found or rejoin failed code=${roomCode}`);
+    socket.emit("ERROR", {
+      type: "ROOM_NOT_FOUND",
+      message: `Room with code ${roomCode} not found`,
+    });
+    return;
+  }
+
+  const { room, clientId, rejoined } = result;
+
+  // Join the socket.io room for broadcasts
+  socket.join(room.roomId);
+
+  // Send rejoin snapshot
+  socket.emit("ROOM_REJOIN_SNAPSHOT", {
+    type: "ROOM_REJOIN_SNAPSHOT",
+    roomId: room.roomId,
+    serverTs: Date.now(),
+    state: room,
+    clientId,
+    missedEvents: [], // Events from idempotency store could be added here
+  });
+
+  // Also send the client their ID
+  socket.emit("CLIENT_ID", { clientId });
+
+  if (!rejoined) {
+    // Normal join - notify other members
+    const newMember = room.members.find((m) => m.clientId === clientId);
+    if (newMember) {
+      const memberJoined: MemberJoinedEvent = {
+        type: "MEMBER_JOINED",
+        roomId: room.roomId,
+        serverTs: Date.now(),
+        payload: {
+          clientId: newMember.clientId,
+          name: newMember.name,
+          color: newMember.color,
+          isHost: newMember.isHost,
+        },
+      };
+      socket.to(room.roomId).emit("MEMBER_JOINED", memberJoined);
+    }
+  }
+  // If rejoined via grace period, no MEMBER_JOINED needed (they never left)
+
+  // Ensure beacon is running
+  startBeacon(io, room.roomId);
+
+  console.log(
+    `[REJOIN_ROOM] ${rejoined ? "restored" : "joined"} roomId=${room.roomId} clientId=${clientId}`
+  );
+}
+
+/**
  * Handle LEAVE_ROOM event.
  */
 async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
@@ -331,6 +410,7 @@ async function handleLeaveRoom(io: Server, socket: Socket, data: unknown): Promi
 
 /**
  * Handle socket disconnect.
+ * Uses grace period to allow seamless reconnection.
  */
 async function handleDisconnect(io: Server, socket: Socket, reason: string): Promise<void> {
   console.log(`[disconnect] socket=${socket.id} reason=${reason}`);
@@ -341,60 +421,61 @@ async function handleDisconnect(io: Server, socket: Socket, reason: string): Pro
   // Clean up mixer throttle tracking
   clearMixerThrottle(socket.id);
 
-  // Get client info before leaving to release controls and clear rate limits
+  // Get client info before processing
   const client = roomStore.getClient(socket.id);
-  const clientIdForCleanup = client?.clientId;
-  const roomIdForCleanup = client?.roomId;
+  if (!client || !client.roomId) return;
 
-  // Clean up rate limit tracking
-  if (clientIdForCleanup) {
-    rateLimiter.clearClient(clientIdForCleanup);
-  }
-
-  const result = roomStore.leaveRoom(socket.id);
-  if (!result) {
-    return; // Client wasn't in a room
-  }
-
-  const { roomId, clientId, room } = result;
+  const clientIdForCleanup = client.clientId;
+  const roomIdForCleanup = client.roomId;
 
   // Release all controls owned by this client
-  if (clientIdForCleanup && roomIdForCleanup) {
-    const releasedControls = releaseAllClientControls(roomIdForCleanup, clientIdForCleanup);
-    // Broadcast control releases to remaining members
-    for (const controlId of releasedControls) {
-      io.to(roomIdForCleanup).emit("CONTROL_OWNERSHIP", {
-        type: "CONTROL_OWNERSHIP",
-        roomId: roomIdForCleanup,
-        controlId,
-        ownership: null,
-      });
+  const releasedControls = releaseAllClientControls(roomIdForCleanup, clientIdForCleanup);
+  for (const controlId of releasedControls) {
+    io.to(roomIdForCleanup).emit("CONTROL_OWNERSHIP", {
+      type: "CONTROL_OWNERSHIP",
+      roomId: roomIdForCleanup,
+      controlId,
+      ownership: null,
+    });
+  }
+
+  // Use grace period instead of immediate removal
+  const result = roomStore.disconnectWithGrace(
+    socket.id,
+    async (expiredClientId, expiredRoomId) => {
+      // Grace period expired callback - finalize cleanup
+      console.log(`[disconnect] grace expired clientId=${expiredClientId} roomId=${expiredRoomId}`);
+
+      rateLimiter.clearClient(expiredClientId);
+
+      const room = roomStore.getRoom(expiredRoomId);
+
+      // If room is now empty, stop beacon and clean up
+      if (!room || room.members.length === 0) {
+        stopBeacon(expiredRoomId);
+        const persistence = getPersistence();
+        await persistence.deleteSnapshot(expiredRoomId);
+        idempotencyStore.deleteRoom(expiredRoomId);
+      }
+
+      // Notify remaining members that this client has left
+      if (room && room.members.length > 0) {
+        const memberLeft: MemberLeftEvent = {
+          type: "MEMBER_LEFT",
+          roomId: expiredRoomId,
+          serverTs: Date.now(),
+          payload: { clientId: expiredClientId },
+        };
+        io.to(expiredRoomId).emit("MEMBER_LEFT", memberLeft);
+      }
     }
-  }
+  );
 
-  // If room is now empty, stop beacon and clean up persistence
-  if (!room || room.members.length === 0) {
-    stopBeacon(roomId);
-
-    // Clean up persistence
-    const persistence = getPersistence();
-    await persistence.deleteSnapshot(roomId);
-    idempotencyStore.deleteRoom(roomId);
-  }
-
-  // Notify remaining members
-  if (room && room.members.length > 0) {
-    const memberLeft: MemberLeftEvent = {
-      type: "MEMBER_LEFT",
-      roomId,
-      serverTs: Date.now(),
-      payload: { clientId },
-    };
-
-    io.to(roomId).emit("MEMBER_LEFT", memberLeft);
+  if (!result) {
+    return;
   }
 
   console.log(
-    `[disconnect] cleaned up roomId=${roomId} clientId=${clientId}`
+    `[disconnect] grace period started roomId=${result.roomId} clientId=${result.clientId}`
   );
 }
