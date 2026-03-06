@@ -19,6 +19,13 @@ import { getServerTime, getAverageRtt } from "./sync/clock";
 import { Deck } from "./deck";
 import type { DeckBeaconPayload } from "@puid-board/shared";
 
+/** Loop bounds from beacon */
+interface LoopBounds {
+  enabled: boolean;
+  startSec: number;
+  endSec: number;
+}
+
 /** Transport state managed by DeckEngine */
 interface TransportState {
   playState: "stopped" | "playing" | "paused" | "cued";
@@ -26,6 +33,7 @@ interface TransportState {
   playbackRate: number;
   epochId: string;
   epochSeq: number;
+  loop: LoopBounds | null;
 }
 
 /**
@@ -48,6 +56,7 @@ export class DeckEngine {
       playbackRate: 1.0,
       epochId: "",
       epochSeq: 0,
+      loop: null,
     };
 
     this.pllController = new PLLController();
@@ -104,6 +113,7 @@ export class DeckEngine {
       playbackRate: beacon.playbackRate,
       epochId: beacon.epochId,
       epochSeq: beacon.epochSeq,
+      loop: beacon.loop ?? null,
     };
 
     this.lastBeaconEpochSeq = beacon.epochSeq;
@@ -111,6 +121,13 @@ export class DeckEngine {
 
     // Reset PLL
     this.pllController.reset();
+
+    // Update loop bounds on Deck
+    if (beacon.loop?.enabled) {
+      this.deck.setLoopBounds({ startSec: beacon.loop.startSec, endSec: beacon.loop.endSec });
+    } else {
+      this.deck.setLoopBounds(null);
+    }
 
     // Sync to Deck
     this.syncToDeck(beacon.playheadSec, beacon.playbackRate, beacon.playState);
@@ -135,8 +152,18 @@ export class DeckEngine {
 
     // Account for one-way latency in playhead calculation
     const latencyCompensatedElapsed = elapsedSinceBeacon + oneWayLatencyMs / 1000;
-    const expectedPlayhead =
+    let expectedPlayhead =
       beacon.playheadSec + latencyCompensatedElapsed * beacon.playbackRate;
+
+    // Apply loop wrapping to expected playhead
+    const loop = beacon.loop;
+    if (loop?.enabled && loop.endSec > loop.startSec && expectedPlayhead >= loop.endSec) {
+      const loopLength = loop.endSec - loop.startSec;
+      expectedPlayhead = loop.startSec + ((expectedPlayhead - loop.startSec) % loopLength);
+    }
+
+    // Update loop state
+    this.state.loop = loop ?? null;
 
     // Get local playhead from Deck
     const localPlayhead = this.deck.getCurrentPlayhead();

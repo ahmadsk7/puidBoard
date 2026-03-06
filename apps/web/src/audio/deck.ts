@@ -87,6 +87,8 @@ export class Deck {
   private listeners = new Set<DeckStateListener>();
   private animationFrameId: number | null = null;
   private currentAnalysisId: number = 0;
+  /** Active loop bounds (set by DeckEngine from server state) */
+  private loopBounds: { startSec: number; endSec: number } | null = null;
 
   constructor(deckId: "A" | "B") {
     this.state = {
@@ -569,6 +571,21 @@ export class Deck {
       }
     }
     return this.state.playheadSec;
+  }
+
+  /**
+   * Set loop bounds for loop/roll enforcement.
+   * Called by DeckEngine when server sets loop state.
+   */
+  setLoopBounds(bounds: { startSec: number; endSec: number } | null): void {
+    this.loopBounds = bounds;
+  }
+
+  /**
+   * Get current loop bounds.
+   */
+  getLoopBounds(): { startSec: number; endSec: number } | null {
+    return this.loopBounds;
   }
 
   /**
@@ -1277,7 +1294,17 @@ export class Deck {
 
     const update = () => {
       if (this.state.playState === "playing") {
-        this.state.playheadSec = this.getCurrentPlayhead();
+        let playhead = this.getCurrentPlayhead();
+        // Loop enforcement: wrap playhead when it exceeds loop end
+        if (this.loopBounds && playhead >= this.loopBounds.endSec) {
+          const loopLength = this.loopBounds.endSec - this.loopBounds.startSec;
+          if (loopLength > 0) {
+            const newPlayhead = this.loopBounds.startSec + ((playhead - this.loopBounds.startSec) % loopLength);
+            this.seek(newPlayhead);
+            playhead = newPlayhead;
+          }
+        }
+        this.state.playheadSec = playhead;
         this.notify();
         this.animationFrameId = requestAnimationFrame(update);
       }
@@ -1296,7 +1323,17 @@ export class Deck {
 
     const update = () => {
       if (this.state.playState === "playing" && this.state.audioElement) {
-        this.state.playheadSec = this.state.audioElement.currentTime;
+        let playhead = this.state.audioElement.currentTime;
+        // Loop enforcement for streaming tracks
+        if (this.loopBounds && playhead >= this.loopBounds.endSec) {
+          const loopLength = this.loopBounds.endSec - this.loopBounds.startSec;
+          if (loopLength > 0) {
+            const newPlayhead = this.loopBounds.startSec + ((playhead - this.loopBounds.startSec) % loopLength);
+            this.state.audioElement.currentTime = newPlayhead;
+            playhead = newPlayhead;
+          }
+        }
+        this.state.playheadSec = playhead;
         this.notify();
         this.animationFrameId = requestAnimationFrame(update);
       }

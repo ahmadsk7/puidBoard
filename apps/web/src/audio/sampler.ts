@@ -348,6 +348,15 @@ export async function playSample(slot: SampleSlot): Promise<void> {
 }
 
 /**
+ * Play a sample from a remote client broadcast.
+ * Same as playSample but does NOT send a network event.
+ * Used when receiving SAMPLER_PLAY from another client.
+ */
+export async function playRemoteSample(slot: SampleSlot): Promise<void> {
+  return playSample(slot);
+}
+
+/**
  * Preview a sample (alias for playSample, but could have different behavior)
  */
 export async function previewSample(slot: SampleSlot): Promise<void> {

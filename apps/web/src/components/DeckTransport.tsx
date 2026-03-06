@@ -250,8 +250,11 @@ export default function DeckTransport({
     }
   }, [deck.state.analysis.bpm, deck.state.analysis.status, deckId, roomId, clientId, sendEvent, nextSeq]);
 
-  // Send DECK_PLAY event
+  // Send DECK_PLAY event (optimistic: play locally first, then notify server)
   const handlePlay = useCallback(async () => {
+    if (deck.isLoaded) {
+      await deck.play();
+    }
     sendEvent({
       type: "DECK_PLAY",
       roomId,
@@ -259,14 +262,11 @@ export default function DeckTransport({
       clientSeq: nextSeq(),
       payload: { deckId },
     });
-    // Play locally (auto-initializes audio on user interaction)
-    if (deck.isLoaded) {
-      await deck.play();
-    }
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
-  // Send DECK_PAUSE event
+  // Send DECK_PAUSE event (optimistic: pause locally first)
   const handlePause = useCallback(() => {
+    deck.pause();
     sendEvent({
       type: "DECK_PAUSE",
       roomId,
@@ -274,11 +274,11 @@ export default function DeckTransport({
       clientSeq: nextSeq(),
       payload: { deckId },
     });
-    deck.pause();
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
-  // Send DECK_CUE event
+  // Send DECK_CUE event (optimistic: cue locally first)
   const handleCue = useCallback(async () => {
+    deck.cue();
     sendEvent({
       type: "DECK_CUE",
       roomId,
@@ -286,7 +286,6 @@ export default function DeckTransport({
       clientSeq: nextSeq(),
       payload: { deckId },
     });
-    deck.cue();
   }, [sendEvent, roomId, clientId, nextSeq, deckId, deck]);
 
   // Track if this deck is synced (rate !== 1.0)

@@ -32,6 +32,8 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     epochSeq: 0,
     epochStartPlayheadSec: 0,
     epochStartTimeMs: Date.now(),
+    loop: null,
+    roll: null,
     ...overrides,
   };
 }

@@ -25,6 +25,9 @@ import {
   DeckSeekEventSchema,
   DeckTempoSetEventSchema,
   DeckBpmDetectedEventSchema,
+  DeckLoopSetEventSchema,
+  DeckRollStartEventSchema,
+  DeckRollStopEventSchema,
   type DeckLoadEvent,
   type DeckPlayEvent,
   type DeckPauseEvent,
@@ -32,6 +35,9 @@ import {
   type DeckSeekEvent,
   type DeckTempoSetEvent,
   type DeckBpmDetectedEvent,
+  type DeckLoopSetEvent,
+  type DeckRollStartEvent,
+  type DeckRollStopEvent,
   type ServerMutationEvent,
   type DeckId,
 } from "@puid-board/shared";
@@ -749,6 +755,265 @@ export function handleDeckBpmDetected(
 }
 
 /**
+ * Handle DECK_LOOP_SET event.
+ * Sets or clears a loop on a deck.
+ */
+export function handleDeckLoopSet(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckLoopSetEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_LOOP_SET] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckLoopSetEvent;
+  const { deckId, enabled, startSec, endSec, lengthBars } = event.payload;
+
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_LOOP_SET");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_LOOP_SET", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  if (!deck.loadedTrackId) {
+    sendRejectedAck(socket, event.clientSeq, "", "No track loaded");
+    return;
+  }
+
+  // Validate start < end
+  if (enabled && startSec >= endSec) {
+    sendRejectedAck(socket, event.clientSeq, "", "Loop start must be before end");
+    return;
+  }
+
+  const serverTs = Date.now();
+
+  if (enabled) {
+    deck.loop = { enabled: true, startSec, endSec, lengthBars };
+  } else {
+    deck.loop = null;
+  }
+
+  // Create new epoch when loop state changes (affects playhead calculation)
+  if (deck.playState === "playing") {
+    const elapsedMs = serverTs - deck.epochStartTimeMs;
+    const elapsedSec = elapsedMs / 1000;
+    let currentPlayhead = deck.epochStartPlayheadSec + (elapsedSec * deck.playbackRate);
+    if (deck.durationSec !== null) {
+      currentPlayhead = Math.min(currentPlayhead, deck.durationSec);
+    }
+    // If enabling loop and playhead is past loop end, wrap it
+    if (enabled && currentPlayhead > endSec) {
+      const loopLength = endSec - startSec;
+      currentPlayhead = startSec + ((currentPlayhead - startSec) % loopLength);
+    }
+    deck.playheadSec = currentPlayhead;
+    createNewEpoch(deck, serverTs, currentPlayhead);
+  }
+
+  room.version++;
+  const eventId = `${room.roomId}-${room.version}`;
+
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs,
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_LOOP_SET",
+    payload: { deckId, enabled, startSec, endSec, lengthBars },
+  };
+
+  io.to(room.roomId).emit("DECK_LOOP_SET", serverEvent);
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_LOOP_SET] deck=${deckId} enabled=${enabled} start=${startSec.toFixed(2)}s end=${endSec.toFixed(2)}s bars=${lengthBars} roomId=${room.roomId}`
+  );
+}
+
+/**
+ * Handle DECK_ROLL_START event.
+ * Starts a momentary loop roll on a deck.
+ */
+export function handleDeckRollStart(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckRollStartEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_ROLL_START] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckRollStartEvent;
+  const { deckId, startSec, lengthBars, returnSec } = event.payload;
+
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  const rateResult = rateLimiter.checkAndRecord(client.clientId, "DECK_ROLL_START");
+  if (!rateResult.allowed) {
+    logRateLimitViolation("DECK_ROLL_START", client.clientId, client.roomId, rateResult.error);
+    sendRejectedAck(socket, event.clientSeq, "", rateResult.error);
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  if (!deck.loadedTrackId) {
+    sendRejectedAck(socket, event.clientSeq, "", "No track loaded");
+    return;
+  }
+
+  // Calculate roll end based on BPM and bars
+  const bpm = deck.detectedBpm ?? 120;
+  const beatsPerBar = 4;
+  const secondsPerBeat = 60 / (bpm * deck.playbackRate);
+  const rollLengthSec = secondsPerBeat * beatsPerBar * lengthBars;
+  const endSec = startSec + rollLengthSec;
+
+  const serverTs = Date.now();
+
+  deck.roll = { active: true, startSec, endSec, returnSec };
+
+  // Create new epoch when roll starts
+  if (deck.playState === "playing") {
+    deck.playheadSec = startSec;
+    createNewEpoch(deck, serverTs, startSec);
+  }
+
+  room.version++;
+  const eventId = `${room.roomId}-${room.version}`;
+
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs,
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_ROLL_START",
+    payload: { deckId, startSec, lengthBars, returnSec },
+  };
+
+  io.to(room.roomId).emit("DECK_ROLL_START", serverEvent);
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_ROLL_START] deck=${deckId} start=${startSec.toFixed(2)}s end=${endSec.toFixed(2)}s return=${returnSec.toFixed(2)}s roomId=${room.roomId}`
+  );
+}
+
+/**
+ * Handle DECK_ROLL_STOP event.
+ * Stops a roll and snaps back to return position.
+ */
+export function handleDeckRollStop(
+  io: Server,
+  socket: Socket,
+  data: unknown
+): void {
+  const parsed = DeckRollStopEventSchema.safeParse(data);
+  if (!parsed.success) {
+    console.log(`[DECK_ROLL_STOP] invalid payload socket=${socket.id}`);
+    return;
+  }
+
+  const event = parsed.data as DeckRollStopEvent;
+  const { deckId } = event.payload;
+
+  const client = roomStore.getClient(socket.id);
+  if (!client || !client.roomId) {
+    sendRejectedAck(socket, event.clientSeq, "", "Not in a room");
+    return;
+  }
+
+  const room = roomStore.getRoom(client.roomId);
+  if (!room) {
+    sendRejectedAck(socket, event.clientSeq, "", "Room not found");
+    return;
+  }
+
+  const deck = getDeck(room, deckId);
+  if (!deck) {
+    sendRejectedAck(socket, event.clientSeq, "", "Invalid deck ID");
+    return;
+  }
+
+  const serverTs = Date.now();
+
+  // Calculate where playhead would naturally be without roll
+  // Use returnSec + time elapsed since roll started
+  const returnSec = deck.roll?.returnSec ?? deck.playheadSec;
+
+  deck.roll = null;
+  deck.playheadSec = returnSec;
+
+  if (deck.playState === "playing") {
+    createNewEpoch(deck, serverTs, returnSec);
+  }
+
+  room.version++;
+  const eventId = `${room.roomId}-${room.version}`;
+
+  const serverEvent: ServerMutationEvent = {
+    eventId,
+    serverTs,
+    version: room.version,
+    roomId: room.roomId,
+    clientId: client.clientId,
+    clientSeq: event.clientSeq,
+    type: "DECK_ROLL_STOP",
+    payload: { deckId },
+  };
+
+  io.to(room.roomId).emit("DECK_ROLL_STOP", serverEvent);
+  sendAcceptedAck(socket, event.clientSeq, eventId);
+
+  console.log(
+    `[DECK_ROLL_STOP] deck=${deckId} returnTo=${returnSec.toFixed(2)}s roomId=${room.roomId}`
+  );
+}
+
+/**
  * Register deck event handlers on a socket.
  */
 export function registerDeckHandlers(io: Server, socket: Socket): void {
@@ -778,5 +1043,17 @@ export function registerDeckHandlers(io: Server, socket: Socket): void {
 
   socket.on("DECK_BPM_DETECTED", (data: unknown) => {
     handleDeckBpmDetected(io, socket, data);
+  });
+
+  socket.on("DECK_LOOP_SET", (data: unknown) => {
+    handleDeckLoopSet(io, socket, data);
+  });
+
+  socket.on("DECK_ROLL_START", (data: unknown) => {
+    handleDeckRollStart(io, socket, data);
+  });
+
+  socket.on("DECK_ROLL_STOP", (data: unknown) => {
+    handleDeckRollStop(io, socket, data);
   });
 }

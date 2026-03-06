@@ -18,6 +18,7 @@ import {
   resetClockSync,
 } from "../audio/sync";
 import { getDeckEngine } from "../audio/useDeck";
+import { playRemoteSample, type SampleSlot } from "../audio/sampler";
 import type { BeaconTickEvent } from "@puid-board/shared";
 
 const REALTIME_URL =
@@ -550,6 +551,74 @@ export class RealtimeClient {
       const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
       deck.detectedBpm = bpm;
 
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    // SAMPLER_PLAY - play sample on remote clients
+    this.socket.on("SAMPLER_PLAY", (event: {
+      roomId: string;
+      clientId: string;
+      serverTs: number;
+      payload: { slot: 0 | 1 | 2 | 3 };
+    }) => {
+      if (!this.state) return;
+      // Only play if this came from another client (local already played optimistically)
+      if (event.clientId !== this.clientId) {
+        playRemoteSample(event.payload.slot as SampleSlot).catch((err) => {
+          console.warn("[RealtimeClient] Failed to play remote sample:", err);
+        });
+      }
+    });
+
+    // DECK_LOOP_SET - update loop state
+    this.socket.on("DECK_LOOP_SET", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B"; enabled: boolean; startSec: number; endSec: number; lengthBars: number };
+    }) => {
+      if (!this.state) return;
+      const { deckId, enabled, startSec, endSec, lengthBars } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.loop = enabled ? { enabled, startSec, endSec, lengthBars } : null;
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    // DECK_ROLL_START - update roll state
+    this.socket.on("DECK_ROLL_START", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B"; startSec: number; lengthBars: number; returnSec: number };
+    }) => {
+      if (!this.state) return;
+      const { deckId, startSec, returnSec } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      // Calculate endSec from BPM (same as server)
+      const bpm = deck.detectedBpm ?? 120;
+      const secondsPerBeat = 60 / (bpm * deck.playbackRate);
+      const rollLengthSec = secondsPerBeat * 4 * event.payload.lengthBars;
+      deck.roll = { active: true, startSec, endSec: startSec + rollLengthSec, returnSec };
+      this.state = {
+        ...this.state,
+        ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),
+      };
+      this.notifyStateListeners();
+    });
+
+    // DECK_ROLL_STOP - clear roll state
+    this.socket.on("DECK_ROLL_STOP", (event: {
+      roomId: string;
+      payload: { deckId: "A" | "B" };
+    }) => {
+      if (!this.state) return;
+      const { deckId } = event.payload;
+      const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
+      deck.roll = null;
       this.state = {
         ...this.state,
         ...(deckId === "A" ? { deckA: deck } : { deckB: deck }),

@@ -179,6 +179,24 @@ export const DeckStateSchema = z.object({
    * Combined with epochStartPlayheadSec to calculate current position.
    */
   epochStartTimeMs: z.number(),
+  /**
+   * Loop state (null if no loop active).
+   */
+  loop: z.object({
+    enabled: z.boolean(),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    lengthBars: z.number(),
+  }).nullable(),
+  /**
+   * Roll state (null if no roll active).
+   */
+  roll: z.object({
+    active: z.boolean(),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    returnSec: z.number().nonnegative(),
+  }).nullable(),
 });
 export type DeckState = z.infer<typeof DeckStateSchema>;
 
@@ -344,5 +362,8 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     epochSeq: 0,
     epochStartPlayheadSec: 0,
     epochStartTimeMs: Date.now(),
+    // Loop/Roll state
+    loop: null,
+    roll: null,
   };
 }

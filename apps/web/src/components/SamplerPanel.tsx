@@ -10,10 +10,19 @@ import {
   loadDefaultSamples,
   type SampleSlot,
 } from "@/audio/sampler";
+import type { ClientMutationEvent } from "@puid-board/shared";
 
 export type SamplerPanelProps = {
   /** Optional: width to constrain the panel */
   width?: number;
+  /** Room ID for sending events */
+  roomId?: string;
+  /** Client ID */
+  clientId?: string;
+  /** Send event function */
+  sendEvent?: (e: ClientMutationEvent) => void;
+  /** Get next sequence number */
+  nextSeq?: () => number;
 };
 
 /**
@@ -21,7 +30,7 @@ export type SamplerPanelProps = {
  * Handles keyboard events for R, T, Y, U keys.
  * Positioned below the FX control panel.
  */
-export default function SamplerPanel({ width = 184 }: SamplerPanelProps) {
+export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent, nextSeq }: SamplerPanelProps) {
   // Calculate button size to fit 4 buttons border-to-border (no gaps)
   // Width should be exactly 4 * buttonSize
   const gap = 0;
@@ -30,10 +39,21 @@ export default function SamplerPanel({ width = 184 }: SamplerPanelProps) {
   // Track which slot is currently pressed via keyboard (for visual feedback)
   const [pressedSlot, setPressedSlot] = useState<SampleSlot | null>(null);
 
-  // Handle sample playback
+  // Handle sample playback: play locally first (optimistic), then broadcast
   const handlePlaySample = useCallback((slot: SampleSlot) => {
+    // Play locally immediately
     playSample(slot);
-  }, []);
+    // Broadcast to other clients
+    if (sendEvent && roomId && clientId && nextSeq) {
+      sendEvent({
+        type: "SAMPLER_PLAY",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: { slot },
+      });
+    }
+  }, [sendEvent, roomId, clientId, nextSeq]);
 
   // Load default samples on mount
   useEffect(() => {
@@ -67,7 +87,7 @@ export default function SamplerPanel({ width = 184 }: SamplerPanelProps) {
         console.log(`[Sampler] Key pressed: ${e.code} -> Slot ${slot}`);
         e.preventDefault();
         setPressedSlot(slot);
-        playSample(slot);
+        handlePlaySample(slot);
         // Clear the pressed state after a brief delay for visual feedback
         setTimeout(() => setPressedSlot(null), 150);
       }
@@ -79,7 +99,7 @@ export default function SamplerPanel({ width = 184 }: SamplerPanelProps) {
       console.log("[Sampler] Keyboard listener removed");
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [handlePlaySample]);
 
   const slots: SampleSlot[] = [0, 1, 2, 3];
 
