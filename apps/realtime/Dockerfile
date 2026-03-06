@@ -1,6 +1,5 @@
 # Dockerfile for puidboard-realtime
-# Build artifacts locally first with: pnpm build --filter=@puid-board/realtime...
-# Then build from monorepo root: docker build -f apps/realtime/Dockerfile .
+# Build from monorepo root: docker build -f apps/realtime/Dockerfile .
 
 FROM node:20-alpine AS base
 RUN apk add --no-cache python3 ffmpeg yt-dlp
@@ -15,6 +14,25 @@ COPY packages/shared/package.json ./packages/shared/
 COPY apps/realtime/package.json ./apps/realtime/
 
 RUN pnpm install --frozen-lockfile --prod
+
+# Build stage
+FROM base AS builder
+WORKDIR /app
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY packages/shared ./packages/shared
+COPY apps/realtime ./apps/realtime
+COPY tsconfig.base.json ./
+
+RUN pnpm install --frozen-lockfile
+
+# Build shared package
+WORKDIR /app/packages/shared
+RUN pnpm build
+
+# Build realtime server
+WORKDIR /app/apps/realtime
+RUN pnpm build
 
 # Production image
 FROM base AS runner
@@ -33,9 +51,9 @@ COPY pnpm-workspace.yaml package.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/realtime/package.json ./apps/realtime/
 
-# Copy pre-built artifacts (must build locally first!)
-COPY packages/shared/dist ./packages/shared/dist
-COPY apps/realtime/dist ./apps/realtime/dist
+# Copy built artifacts
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/apps/realtime/dist ./apps/realtime/dist
 
 # Create storage directory for tracks and YouTube cookies
 RUN mkdir -p /app/apps/realtime/.storage/tracks
