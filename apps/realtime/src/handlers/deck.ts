@@ -150,7 +150,6 @@ export function handleDeckLoad(
   deck.loadedTrackId = trackId;
   deck.loadedQueueItemId = queueItemId;
   deck.playState = "stopped";
-  deck.serverStartTime = null;
   deck.playheadSec = 0;
   deck.durationSec = queueItem.durationSec;
 
@@ -241,9 +240,7 @@ export function handleDeckPlay(
     return;
   }
 
-  // Assign server start time (critical for sync)
   const serverTs = Date.now();
-  deck.serverStartTime = serverTs;
   deck.playState = "playing";
 
   // Create new epoch on play (discontinuity)
@@ -280,7 +277,7 @@ export function handleDeckPlay(
   sendAcceptedAck(socket, event.clientSeq, eventId);
 
   console.log(
-    `[DECK_PLAY] deck=${deckId} serverStartTime=${serverTs} playhead=${deck.playheadSec}s roomId=${room.roomId}`
+    `[DECK_PLAY] deck=${deckId} epochId=${deck.epochId} playhead=${deck.playheadSec}s roomId=${room.roomId}`
   );
 }
 
@@ -331,14 +328,12 @@ export function handleDeckPause(
     return;
   }
 
-  // Calculate current playhead if currently playing
-  // FIXED: Account for playbackRate when calculating elapsed position
-  if (deck.playState === "playing" && deck.serverStartTime !== null) {
+  // Calculate current playhead if currently playing using epoch fields
+  if (deck.playState === "playing") {
     const serverTs = Date.now();
-    const elapsedSec = (serverTs - deck.serverStartTime) / 1000;
-    // Multiply elapsed time by playbackRate to get correct position
-    const adjustedElapsed = elapsedSec * deck.playbackRate;
-    deck.playheadSec = Math.max(0, deck.playheadSec + adjustedElapsed);
+    const elapsedMs = serverTs - deck.epochStartTimeMs;
+    const elapsedSec = (elapsedMs / 1000) * deck.playbackRate;
+    deck.playheadSec = Math.max(0, deck.epochStartPlayheadSec + elapsedSec);
 
     // Clamp to track duration if available
     if (deck.durationSec !== null) {
@@ -348,7 +343,6 @@ export function handleDeckPause(
 
   // Update state
   deck.playState = "paused";
-  deck.serverStartTime = null;
 
   // Update queue item status
   const queueItem = room.queue.find(
@@ -456,7 +450,6 @@ export function handleDeckCue(
   const targetPlayhead = deck.cuePointSec !== null ? deck.cuePointSec : 0;
   deck.playheadSec = targetPlayhead;
   deck.playState = "cued";
-  deck.serverStartTime = null;
 
   // Create new epoch on cue (discontinuity)
   const serverTs = Date.now();
@@ -556,10 +549,8 @@ export function handleDeckSeek(
 
   const serverTs = Date.now();
 
-  // If currently playing, update server start time to maintain sync
-  // and create new epoch (seek is a discontinuity)
+  // If currently playing, create new epoch (seek is a discontinuity)
   if (deck.playState === "playing") {
-    deck.serverStartTime = serverTs;
     createNewEpoch(deck, serverTs, positionSec);
   }
 
@@ -641,7 +632,7 @@ export function handleDeckTempoSet(
   // CRITICAL: When tempo changes, we must recalculate the current playhead position
   // with the OLD rate, then create a new epoch with the NEW rate.
   // This prevents retroactive rate application which causes playhead jumps.
-  if (deck.playState === "playing" && deck.serverStartTime !== null) {
+  if (deck.playState === "playing") {
     // Calculate current playhead using the OLD rate
     const elapsedMs = serverTs - deck.epochStartTimeMs;
     const elapsedSec = elapsedMs / 1000;
@@ -650,9 +641,7 @@ export function handleDeckTempoSet(
     // Clamp to track duration
     const clampedPlayhead = Math.min(currentPlayhead, deck.durationSec ?? currentPlayhead);
 
-    // Update legacy serverStartTime for backwards compatibility
     deck.playheadSec = clampedPlayhead;
-    deck.serverStartTime = serverTs;
 
     // Create new epoch with current playhead and new rate
     createNewEpoch(deck, serverTs, clampedPlayhead, clampedRate);

@@ -411,7 +411,6 @@ export class RealtimeClient {
       deck.playheadSec = 0;
       deck.cuePointSec = null;
       deck.durationSec = item.durationSec;
-      deck.serverStartTime = null;
       deck.detectedBpm = null;
 
       const newStatus = deckId === "A" ? "loaded_A" as const : "loaded_B" as const;
@@ -440,7 +439,6 @@ export class RealtimeClient {
       const { deckId } = event.payload;
       const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
       deck.playState = "playing";
-      deck.serverStartTime = event.serverTs;
 
       const playingStatus = deckId === "A" ? "playing_A" as const : "playing_B" as const;
       const newQueue = this.state.queue.map((q) =>
@@ -467,7 +465,6 @@ export class RealtimeClient {
       const { deckId } = event.payload;
       const deck = deckId === "A" ? { ...this.state.deckA } : { ...this.state.deckB };
       deck.playState = "paused";
-      deck.serverStartTime = null;
 
       this.state = {
         ...this.state,
@@ -492,8 +489,7 @@ export class RealtimeClient {
       if (deck.cuePointSec !== null) {
         deck.playheadSec = deck.cuePointSec;
         deck.playState = "cued";
-        deck.serverStartTime = null;
-      }
+        }
 
       this.state = {
         ...this.state,

@@ -299,7 +299,7 @@ export type FxToggleEvent = z.infer<typeof FxToggleEventSchema>;
 // Server → Client Events
 // ============================================================================
 
-/** Deck beacon payload for 250ms sync beacon */
+/** Deck beacon payload for sync beacon */
 export const DeckBeaconPayloadSchema = z.object({
   deckId: DeckIdSchema,
   epochId: z.string(),
@@ -312,7 +312,7 @@ export const DeckBeaconPayloadSchema = z.object({
 });
 export type DeckBeaconPayload = z.infer<typeof DeckBeaconPayloadSchema>;
 
-/** Beacon tick event - 250ms sync broadcast */
+/** Beacon tick event - periodic sync broadcast */
 export const BeaconTickEventSchema = z.object({
   type: z.literal("BEACON_TICK"),
   roomId: RoomIdSchema,

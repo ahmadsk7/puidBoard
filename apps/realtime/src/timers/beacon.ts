@@ -12,7 +12,7 @@ import { BeaconTickEvent, DeckBeaconPayload } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 
 /** Interval for BEACON_TICK broadcasts (milliseconds) */
-const BEACON_INTERVAL_MS = 250; // 250ms for fast sync
+const BEACON_INTERVAL_MS = 100; // 100ms for fast sync (10 samples/sec for PLL)
 
 /** Active beacon intervals by roomId */
 const activeTimers: Map<string, NodeJS.Timeout> = new Map();

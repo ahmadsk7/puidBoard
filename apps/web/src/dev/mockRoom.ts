@@ -131,7 +131,6 @@ export function applyMutation(
       deck.playheadSec = 0;
       deck.cuePointSec = null;
       deck.durationSec = item.durationSec;
-      deck.serverStartTime = null;
       return base;
     }
 
@@ -139,14 +138,12 @@ export function applyMutation(
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       if (!canPlayDeck(deck)) return state;
       deck.playState = "playing";
-      deck.serverStartTime = serverTs;
       return base;
     }
 
     case "DECK_PAUSE": {
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       deck.playState = "paused";
-      deck.serverStartTime = null;
       return base;
     }
 
@@ -158,8 +155,7 @@ export function applyMutation(
       if (deck.cuePointSec !== null) {
         deck.playheadSec = deck.cuePointSec;
         deck.playState = "cued";
-        deck.serverStartTime = null;
-      }
+        }
       return base;
     }
 

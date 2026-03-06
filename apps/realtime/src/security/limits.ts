@@ -24,19 +24,23 @@ export interface RateLimitConfig {
   maxEvents: number;
   /** Time window in milliseconds */
   windowMs: number;
+  /** Maximum events allowed in 1-second burst window (optional) */
+  burstPerSecond?: number;
 }
 
-/** Rate limits for discrete events (per minute) */
+/** Rate limits for discrete events (per minute + burst per second) */
 export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Queue operations
-  QUEUE_ADD: { maxEvents: 20, windowMs: 60_000 },
-  QUEUE_REMOVE: { maxEvents: 30, windowMs: 60_000 },
-  QUEUE_REORDER: { maxEvents: 60, windowMs: 60_000 },
-  QUEUE_EDIT: { maxEvents: 60, windowMs: 60_000 },
+  QUEUE_ADD: { maxEvents: 20, windowMs: 60_000, burstPerSecond: 5 },
+  QUEUE_REMOVE: { maxEvents: 30, windowMs: 60_000, burstPerSecond: 8 },
+  QUEUE_REORDER: { maxEvents: 60, windowMs: 60_000, burstPerSecond: 15 },
+  QUEUE_EDIT: { maxEvents: 60, windowMs: 60_000, burstPerSecond: 15 },
   // Deck operations (combined limit for discrete actions)
-  DECK_ACTIONS: { maxEvents: 100, windowMs: 60_000 },
+  DECK_ACTIONS: { maxEvents: 100, windowMs: 60_000, burstPerSecond: 20 },
   // DECK_SEEK has higher limit for jog wheel scratching (high-frequency operation)
-  DECK_SEEK: { maxEvents: 600, windowMs: 60_000 }, // ~10 per second for smooth scratching
+  DECK_SEEK: { maxEvents: 600, windowMs: 60_000, burstPerSecond: 40 },
+  // Sampler operations
+  SAMPLER_PLAY: { maxEvents: 30, windowMs: 60_000, burstPerSecond: 8 },
 };
 
 /** Event types that share the DECK_ACTIONS rate limit */
@@ -126,9 +130,8 @@ class RateLimiter {
     // Remove timestamps outside the window
     entry.timestamps = entry.timestamps.filter((ts) => ts > windowStart);
 
-    // Check if at limit
+    // Check per-minute limit
     if (entry.timestamps.length >= config.maxEvents) {
-      // Find when the oldest timestamp will expire
       const oldestInWindow = entry.timestamps[0]!;
       const retryAfterMs = oldestInWindow + config.windowMs - now;
 
@@ -137,6 +140,19 @@ class RateLimiter {
         error: `Rate limit exceeded for ${eventType}. Max ${config.maxEvents} per ${config.windowMs / 1000}s.`,
         retryAfterMs: Math.max(0, retryAfterMs),
       };
+    }
+
+    // Check per-second burst limit
+    if (config.burstPerSecond !== undefined) {
+      const burstWindowStart = now - 1000;
+      const recentCount = entry.timestamps.filter((ts) => ts > burstWindowStart).length;
+      if (recentCount >= config.burstPerSecond) {
+        return {
+          allowed: false,
+          error: `Burst rate limit exceeded for ${eventType}. Max ${config.burstPerSecond} per second.`,
+          retryAfterMs: 1000,
+        };
+      }
     }
 
     return { allowed: true };

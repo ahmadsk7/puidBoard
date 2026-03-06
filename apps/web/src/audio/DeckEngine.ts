@@ -35,6 +35,7 @@ export class DeckEngine {
   private state: TransportState;
   private pllController: PLLController;
   private lastBeaconEpochSeq = -1;
+  private lastBeaconServerTs = 0;
   private deck: Deck;
 
   constructor(deck: Deck) {
@@ -66,12 +67,14 @@ export class DeckEngine {
    * @param beacon - Beacon payload from server
    */
   applyServerBeacon(beacon: DeckBeaconPayload): void {
-    // Stale check - ignore old beacons from same epoch
-    if (
-      beacon.epochId === this.state.epochId &&
-      beacon.epochSeq <= this.lastBeaconEpochSeq
-    ) {
-      return;
+    // Stale check - ignore old beacons by epochSeq or timestamp
+    if (beacon.epochId === this.state.epochId) {
+      if (beacon.epochSeq <= this.lastBeaconEpochSeq) {
+        return;
+      }
+      if (beacon.serverTs < this.lastBeaconServerTs) {
+        return;
+      }
     }
 
     // Epoch change = hard reset
@@ -82,6 +85,7 @@ export class DeckEngine {
 
     // Same epoch = PLL correction
     this.lastBeaconEpochSeq = beacon.epochSeq;
+    this.lastBeaconServerTs = beacon.serverTs;
     this.applyPLLCorrection(beacon);
   }
 
@@ -103,6 +107,7 @@ export class DeckEngine {
     };
 
     this.lastBeaconEpochSeq = beacon.epochSeq;
+    this.lastBeaconServerTs = beacon.serverTs;
 
     // Reset PLL
     this.pllController.reset();

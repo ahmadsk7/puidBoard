@@ -102,7 +102,6 @@ export function applyServerEvent(
       deck.playheadSec = 0;
       deck.cuePointSec = null;
       deck.durationSec = item.durationSec;
-      deck.serverStartTime = null;
       // Update queue item status
       const queueIdx = base.queue.findIndex((q) => q.id === queueItemId);
       if (queueIdx >= 0) {
@@ -121,7 +120,6 @@ export function applyServerEvent(
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       if (!canPlayDeck(deck)) return state;
       deck.playState = "playing";
-      deck.serverStartTime = event.serverTs;
       // Update queue item status
       if (deck.loadedQueueItemId) {
         const queueIdx = base.queue.findIndex((q) => q.id === deck.loadedQueueItemId);
@@ -141,7 +139,6 @@ export function applyServerEvent(
     case "DECK_PAUSE": {
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       deck.playState = "paused";
-      deck.serverStartTime = null;
       return base;
     }
 
@@ -153,8 +150,7 @@ export function applyServerEvent(
       if (deck.cuePointSec !== null) {
         deck.playheadSec = deck.cuePointSec;
         deck.playState = "cued";
-        deck.serverStartTime = null;
-      }
+        }
       return base;
     }
 

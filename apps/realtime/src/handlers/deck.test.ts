@@ -222,8 +222,10 @@ describe("Deck Handlers", () => {
       // Check deck state updated
       const updatedRoom = roomStore.getRoom(room.roomId);
       expect(updatedRoom?.deckA.playState).toBe("playing");
-      expect(updatedRoom?.deckA.serverStartTime).toBeGreaterThanOrEqual(beforeTs);
-      expect(updatedRoom?.deckA.serverStartTime).toBeLessThanOrEqual(afterTs);
+      // Epoch fields should be set
+      expect(updatedRoom?.deckA.epochStartTimeMs).toBeGreaterThanOrEqual(beforeTs);
+      expect(updatedRoom?.deckA.epochStartTimeMs).toBeLessThanOrEqual(afterTs);
+      expect(updatedRoom?.deckA.epochId).toBeDefined();
 
       // Check queue item status updated
       expect(updatedRoom?.queue[0]?.status).toBe("playing_A");
@@ -284,7 +286,8 @@ describe("Deck Handlers", () => {
       room.deckA.loadedTrackId = queueItem.trackId;
       room.deckA.loadedQueueItemId = queueItem.id;
       room.deckA.playState = "playing";
-      room.deckA.serverStartTime = Date.now();
+      room.deckA.epochStartTimeMs = Date.now();
+      room.deckA.epochStartPlayheadSec = 10;
       room.deckA.playheadSec = 10;
       room.deckA.durationSec = 180;
 
@@ -310,8 +313,6 @@ describe("Deck Handlers", () => {
       // Check deck state updated
       const updatedRoom = roomStore.getRoom(room.roomId);
       expect(updatedRoom?.deckA.playState).toBe("paused");
-      expect(updatedRoom?.deckA.serverStartTime).toBe(null);
-
       // Playhead should be approximately 10 + 5 = 15 seconds
       expect(updatedRoom?.deckA.playheadSec).toBeGreaterThanOrEqual(14.9);
       expect(updatedRoom?.deckA.playheadSec).toBeLessThanOrEqual(15.1);
@@ -338,7 +339,8 @@ describe("Deck Handlers", () => {
       room.deckA.loadedTrackId = queueItem.trackId;
       room.deckA.loadedQueueItemId = queueItem.id;
       room.deckA.playState = "playing";
-      room.deckA.serverStartTime = Date.now();
+      room.deckA.epochStartTimeMs = Date.now();
+      room.deckA.epochStartPlayheadSec = 175;
       room.deckA.playheadSec = 175;
       room.deckA.durationSec = 180; // 3 minutes
 
@@ -405,8 +407,6 @@ describe("Deck Handlers", () => {
       expect(updatedRoom?.deckA.cuePointSec).toBe(30);
       expect(updatedRoom?.deckA.playheadSec).toBe(30);
       expect(updatedRoom?.deckA.playState).toBe("cued");
-      expect(updatedRoom?.deckA.serverStartTime).toBe(null);
-
       // Check broadcast
       expect(mockIO.emittedEvents.length).toBe(1);
       expect(mockIO.emittedEvents[0]?.event).toBe("DECK_CUE");
@@ -529,7 +529,6 @@ describe("Deck Handlers", () => {
       // Check playhead updated
       const updatedRoom = roomStore.getRoom(room.roomId);
       expect(updatedRoom?.deckA.playheadSec).toBe(60);
-      expect(updatedRoom?.deckA.serverStartTime).toBe(null);
 
       // Check broadcast
       expect(mockIO.emittedEvents.length).toBe(1);
@@ -550,7 +549,8 @@ describe("Deck Handlers", () => {
       room.deckA.loadedTrackId = queueItem.trackId;
       room.deckA.loadedQueueItemId = queueItem.id;
       room.deckA.playState = "playing";
-      room.deckA.serverStartTime = Date.now() - 5000; // Started 5 seconds ago
+      room.deckA.epochStartTimeMs = Date.now() - 5000; // Started 5 seconds ago
+      room.deckA.epochStartPlayheadSec = 0;
       room.deckA.durationSec = 180;
 
       const event = {
@@ -575,8 +575,9 @@ describe("Deck Handlers", () => {
       // Check playhead and server_start_time updated
       const updatedRoom = roomStore.getRoom(room.roomId);
       expect(updatedRoom?.deckA.playheadSec).toBe(90);
-      expect(updatedRoom?.deckA.serverStartTime).toBeGreaterThanOrEqual(beforeTs);
-      expect(updatedRoom?.deckA.serverStartTime).toBeLessThanOrEqual(afterTs);
+      // Epoch should be updated with new start time
+      expect(updatedRoom?.deckA.epochStartTimeMs).toBeGreaterThanOrEqual(beforeTs);
+      expect(updatedRoom?.deckA.epochStartTimeMs).toBeLessThanOrEqual(afterTs);
 
       // Cleanup
       roomStore.leaveRoom(socketId);
