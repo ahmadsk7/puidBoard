@@ -227,18 +227,18 @@ export function getAudioTimeReference(): { audioNow: number; dateNow: number } |
 /**
  * Calculate expected playhead position based on server state.
  *
- * @param serverStartTime - When playback started (server timestamp)
- * @param startPlayheadSec - Playhead position when playback started
+ * @param epochStartTimeMs - When the current epoch started (server timestamp)
+ * @param startPlayheadSec - Playhead position when epoch started
  * @param playbackRate - Current playback rate (default 1.0)
  * @returns Expected current playhead in seconds
  */
 export function calculateExpectedPlayhead(
-  serverStartTime: number,
+  epochStartTimeMs: number,
   startPlayheadSec: number,
   playbackRate: number = 1.0
 ): number {
   const serverNow = getServerTime();
-  const elapsedMs = serverNow - serverStartTime;
+  const elapsedMs = serverNow - epochStartTimeMs;
   // FIXED: Multiply by playbackRate to account for tempo changes
   return startPlayheadSec + (elapsedMs / 1000) * playbackRate;
 }

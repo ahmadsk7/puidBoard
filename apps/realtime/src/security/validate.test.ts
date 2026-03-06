@@ -23,7 +23,6 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     loadedTrackId: "track-1",
     loadedQueueItemId: "queue-1",
     playState: "stopped",
-    serverStartTime: null,
     playheadSec: 0,
     cuePointSec: null,
     durationSec: 180, // 3 minutes
@@ -33,6 +32,8 @@ function createMockDeck(overrides: Partial<DeckState> = {}): DeckState {
     epochSeq: 0,
     epochStartPlayheadSec: 0,
     epochStartTimeMs: Date.now(),
+    loop: null,
+    roll: null,
     ...overrides,
   };
 }

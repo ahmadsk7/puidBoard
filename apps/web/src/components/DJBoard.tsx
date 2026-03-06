@@ -1149,7 +1149,13 @@ export default function DJBoard({
             pointerEvents: "auto",
           }}
         >
-          <SamplerPanel width={MIXER.sampler.width} />
+          <SamplerPanel
+            width={MIXER.sampler.width}
+            roomId={state.roomId}
+            clientId={clientId}
+            sendEvent={sendEvent}
+            nextSeq={nextSeq}
+          />
         </div>
 
         <CrossfaderSection

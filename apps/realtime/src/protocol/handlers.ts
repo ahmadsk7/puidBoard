@@ -22,6 +22,7 @@ import {
 import { registerTimeHandlers } from "../handlers/time.js";
 import { registerDeckHandlers } from "../handlers/deck.js";
 import { registerFxHandlers } from "../handlers/fx.js";
+import { registerSamplerHandlers } from "../handlers/sampler.js";
 import { startBeacon, stopBeacon } from "../timers/beacon.js";
 import { getPersistence } from "../rooms/persistence.js";
 import { idempotencyStore } from "./idempotency.js";
@@ -68,6 +69,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register FX handlers
   registerFxHandlers(io, socket);
+
+  // Register sampler handlers
+  registerSamplerHandlers(io, socket);
 }
 
 /**

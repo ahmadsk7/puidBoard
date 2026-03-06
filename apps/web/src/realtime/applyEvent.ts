@@ -102,7 +102,6 @@ export function applyServerEvent(
       deck.playheadSec = 0;
       deck.cuePointSec = null;
       deck.durationSec = item.durationSec;
-      deck.serverStartTime = null;
       // Update queue item status
       const queueIdx = base.queue.findIndex((q) => q.id === queueItemId);
       if (queueIdx >= 0) {
@@ -121,7 +120,6 @@ export function applyServerEvent(
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       if (!canPlayDeck(deck)) return state;
       deck.playState = "playing";
-      deck.serverStartTime = event.serverTs;
       // Update queue item status
       if (deck.loadedQueueItemId) {
         const queueIdx = base.queue.findIndex((q) => q.id === deck.loadedQueueItemId);
@@ -141,7 +139,6 @@ export function applyServerEvent(
     case "DECK_PAUSE": {
       const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
       deck.playState = "paused";
-      deck.serverStartTime = null;
       return base;
     }
 
@@ -153,8 +150,7 @@ export function applyServerEvent(
       if (deck.cuePointSec !== null) {
         deck.playheadSec = deck.cuePointSec;
         deck.playState = "cued";
-        deck.serverStartTime = null;
-      }
+        }
       return base;
     }
 
@@ -235,6 +231,44 @@ export function applyServerEvent(
 
     case "FX_TOGGLE": {
       base.mixer.fx.enabled = event.payload.enabled;
+      return base;
+    }
+
+    case "SAMPLER_PLAY":
+      return base;
+
+    case "DECK_LOOP_SET": {
+      const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
+      if (event.payload.enabled) {
+        deck.loop = {
+          enabled: true,
+          startSec: event.payload.startSec,
+          endSec: event.payload.endSec,
+          lengthBars: event.payload.lengthBars,
+        };
+      } else {
+        deck.loop = null;
+      }
+      return base;
+    }
+
+    case "DECK_ROLL_START": {
+      const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
+      const bpm = deck.detectedBpm ?? 120;
+      const secondsPerBeat = 60 / (bpm * deck.playbackRate);
+      const rollLengthSec = secondsPerBeat * 4 * event.payload.lengthBars;
+      deck.roll = {
+        active: true,
+        startSec: event.payload.startSec,
+        endSec: event.payload.startSec + rollLengthSec,
+        returnSec: event.payload.returnSec,
+      };
+      return base;
+    }
+
+    case "DECK_ROLL_STOP": {
+      const deck = event.payload.deckId === "A" ? base.deckA : base.deckB;
+      deck.roll = null;
       return base;
     }
 

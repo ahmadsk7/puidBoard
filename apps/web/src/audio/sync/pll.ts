@@ -1,11 +1,12 @@
 /**
  * Phase-Locked Loop (PLL) Controller for Audio Sync
  *
- * Provides smooth drift correction using proportional control with median filtering.
- * Replaces snap-based corrections with gentle playback rate adjustments.
+ * Provides smooth drift correction using proportional control with median filtering
+ * and exponential moving average (EMA) smoothing.
  *
  * Key features:
- * - Median filtering for noise rejection
+ * - Median filtering (window=7) for noise rejection
+ * - EMA smoothing on top of median to prevent micro-wobbles from jittery beacons
  * - Proportional gain for smooth convergence
  * - Configurable correction limits (±2% max)
  * - Snap threshold for large drift
@@ -27,14 +28,20 @@ export class PLLController {
   /** Snap to position if drift exceeds this threshold (ms) */
   private static readonly SNAP_THRESHOLD_MS = 500;
 
-  /** Median filter window size */
-  private static readonly FILTER_WINDOW_SIZE = 5;
+  /** Median filter window size (7 for 100ms beacons) */
+  private static readonly FILTER_WINDOW_SIZE = 7;
+
+  /** EMA smoothing factor (0.3 = moderate smoothing) */
+  private static readonly EMA_ALPHA = 0.3;
 
   /** Recent drift measurements for median filtering */
   private driftHistory: number[] = [];
 
   /** Current correction factor (1.0 = no correction) */
   private correctionFactor = 1.0;
+
+  /** Previous smoothed drift for EMA */
+  private smoothedDrift: number | null = null;
 
   /**
    * Add a new drift measurement and calculate correction.
@@ -52,7 +59,15 @@ export class PLLController {
     // Calculate median drift (robust to noise/outliers)
     const sorted = [...this.driftHistory].sort((a, b) => a - b);
     const medianDrift = sorted[Math.floor(sorted.length / 2)] ?? driftMs;
-    const absDrift = Math.abs(medianDrift);
+
+    // Apply EMA smoothing on top of median
+    const alpha = PLLController.EMA_ALPHA;
+    const smoothed = this.smoothedDrift === null
+      ? medianDrift
+      : alpha * medianDrift + (1 - alpha) * this.smoothedDrift;
+    this.smoothedDrift = smoothed;
+
+    const absDrift = Math.abs(smoothed);
 
     // Check if drift is too large - need to snap
     if (absDrift > PLLController.SNAP_THRESHOLD_MS) {
@@ -69,7 +84,7 @@ export class PLLController {
     // Calculate proportional correction
     // Positive drift (ahead) = slow down (factor < 1)
     // Negative drift (behind) = speed up (factor > 1)
-    const correction = -medianDrift * PLLController.PROPORTIONAL_GAIN;
+    const correction = -smoothed * PLLController.PROPORTIONAL_GAIN;
 
     // Clamp to max correction
     const maxCorrection = PLLController.MAX_CORRECTION_PERCENT / 100;
@@ -98,5 +113,6 @@ export class PLLController {
   reset(): void {
     this.driftHistory = [];
     this.correctionFactor = 1.0;
+    this.smoothedDrift = null;
   }
 }

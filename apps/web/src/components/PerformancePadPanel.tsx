@@ -143,19 +143,38 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
 
     if (!loopState.enabled) {
       // Enable loop at current position
-      loopState.enabled = true;
-      loopState.startPos = deck.playhead;
-      console.log(`[PerformancePad-${deckId}] Loop: Enabled at ${deck.playhead.toFixed(2)}s, length=${loopState.length} bars`);
+      const bpm = deck.bpm ?? 120;
+      const secondsPerBeat = 60 / bpm;
+      const loopLengthSec = secondsPerBeat * 4 * loopState.length; // 4 beats per bar
+      const startSec = deck.playhead;
+      const endSec = startSec + loopLengthSec;
 
-      // TODO: Implement actual looping in Deck class
-      // For now, this is a placeholder
+      loopState.enabled = true;
+      loopState.startPos = startSec;
+      console.log(`[PerformancePad-${deckId}] Loop: Enabled at ${startSec.toFixed(2)}s, length=${loopState.length} bars (${loopLengthSec.toFixed(2)}s)`);
+
+      sendEvent({
+        type: "DECK_LOOP_SET",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: { deckId, enabled: true, startSec, endSec, lengthBars: loopState.length as 1 | 2 | 4 | 8 },
+      });
     } else {
       // Disable loop
       loopState.enabled = false;
       loopState.startPos = null;
       console.log(`[PerformancePad-${deckId}] Loop: Disabled`);
+
+      sendEvent({
+        type: "DECK_LOOP_SET",
+        roomId,
+        clientId,
+        clientSeq: nextSeq(),
+        payload: { deckId, enabled: false, startSec: 0, endSec: 0, lengthBars: loopState.length as 1 | 2 | 4 | 8 },
+      });
     }
-  }, [deck, deckId]);
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleLoopHold = useCallback(() => {
     // Cycle loop length: 1 -> 2 -> 4 -> 8 -> 1
@@ -179,28 +198,41 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
   const handleRollHold = useCallback(() => {
     if (!deck.isLoaded || loopRollStateRef.current.active) return;
 
-    // Start roll - save return position
-    loopRollStateRef.current.active = true;
-    loopRollStateRef.current.returnPos = deck.playhead;
-    console.log(`[PerformancePad-${deckId}] Roll: Started at ${deck.playhead.toFixed(2)}s`);
+    const startSec = deck.playhead;
+    const returnSec = startSec;
+    const loopState = loopStateRef.current;
+    const lengthBars = loopState.length as 1 | 2 | 4 | 8;
 
-    // TODO: Implement momentary roll in Deck class
-  }, [deck, deckId]);
+    loopRollStateRef.current.active = true;
+    loopRollStateRef.current.returnPos = returnSec;
+    console.log(`[PerformancePad-${deckId}] Roll: Started at ${startSec.toFixed(2)}s, length=${lengthBars} bars`);
+
+    sendEvent({
+      type: "DECK_ROLL_START",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, startSec, lengthBars, returnSec },
+    });
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleRollRelease = useCallback(() => {
     if (!loopRollStateRef.current.active) return;
 
-    // Stop roll - snap back to saved position
     const returnPos = loopRollStateRef.current.returnPos;
-    if (returnPos !== null && deck.isLoaded) {
-      // NOTE: This would snap back in a real implementation
-      // For now, just log
-      console.log(`[PerformancePad-${deckId}] Roll: Released, would return to ${returnPos.toFixed(2)}s`);
-    }
+    console.log(`[PerformancePad-${deckId}] Roll: Released, returning to ${returnPos?.toFixed(2)}s`);
 
     loopRollStateRef.current.active = false;
     loopRollStateRef.current.returnPos = null;
-  }, [deck, deckId]);
+
+    sendEvent({
+      type: "DECK_ROLL_STOP",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId },
+    });
+  }, [deckId, sendEvent, roomId, clientId, nextSeq]);
 
   // --- PAD 4: JUMP (±) ---
   const handleJumpClick = useCallback(() => {
@@ -213,8 +245,15 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
 
     const newPos = Math.max(0, deck.playhead + jumpAmount);
     deck.seek(newPos);
+    sendEvent({
+      type: "DECK_SEEK",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, positionSec: newPos },
+    });
     console.log(`[PerformancePad-${deckId}] Jump: ${jumpAmount.toFixed(2)}s (1 beat back) to ${newPos.toFixed(2)}s`);
-  }, [deck, deckId]);
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleJumpHold = useCallback(() => {
     if (!deck.isLoaded || !deck.bpm) return;
@@ -227,8 +266,15 @@ const PerformancePadPanel = memo(function PerformancePadPanel({
 
     const newPos = Math.min(deck.playhead + jumpAmount, deck.duration);
     deck.seek(newPos);
+    sendEvent({
+      type: "DECK_SEEK",
+      roomId,
+      clientId,
+      clientSeq: nextSeq(),
+      payload: { deckId, positionSec: newPos },
+    });
     console.log(`[PerformancePad-${deckId}] Jump: +${jumpAmount.toFixed(2)}s (1 bar forward) to ${newPos.toFixed(2)}s`);
-  }, [deck, deckId]);
+  }, [deck, deckId, sendEvent, roomId, clientId, nextSeq]);
 
   const handleJumpRelease = useCallback(() => {
     // No action on release for jump

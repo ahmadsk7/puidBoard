@@ -200,6 +200,65 @@ export const DeckBpmDetectedEventSchema = ClientEventMetaSchema.extend({
 export type DeckBpmDetectedEvent = z.infer<typeof DeckBpmDetectedEventSchema>;
 
 // ============================================================================
+// Sampler Events
+// ============================================================================
+
+export const SamplerPlayPayloadSchema = z.object({
+  slot: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+});
+export type SamplerPlayPayload = z.infer<typeof SamplerPlayPayloadSchema>;
+
+export const SamplerPlayEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("SAMPLER_PLAY"),
+  payload: SamplerPlayPayloadSchema,
+});
+export type SamplerPlayEvent = z.infer<typeof SamplerPlayEventSchema>;
+
+// ============================================================================
+// Loop / Roll Events
+// ============================================================================
+
+export const DeckLoopSetPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  enabled: z.boolean(),
+  startSec: z.number().nonnegative(),
+  endSec: z.number().nonnegative(),
+  lengthBars: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
+});
+export type DeckLoopSetPayload = z.infer<typeof DeckLoopSetPayloadSchema>;
+
+export const DeckLoopSetEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_LOOP_SET"),
+  payload: DeckLoopSetPayloadSchema,
+});
+export type DeckLoopSetEvent = z.infer<typeof DeckLoopSetEventSchema>;
+
+export const DeckRollStartPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+  startSec: z.number().nonnegative(),
+  lengthBars: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
+  returnSec: z.number().nonnegative(),
+});
+export type DeckRollStartPayload = z.infer<typeof DeckRollStartPayloadSchema>;
+
+export const DeckRollStartEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_ROLL_START"),
+  payload: DeckRollStartPayloadSchema,
+});
+export type DeckRollStartEvent = z.infer<typeof DeckRollStartEventSchema>;
+
+export const DeckRollStopPayloadSchema = z.object({
+  deckId: DeckIdSchema,
+});
+export type DeckRollStopPayload = z.infer<typeof DeckRollStopPayloadSchema>;
+
+export const DeckRollStopEventSchema = ClientEventMetaSchema.extend({
+  type: z.literal("DECK_ROLL_STOP"),
+  payload: DeckRollStopPayloadSchema,
+});
+export type DeckRollStopEvent = z.infer<typeof DeckRollStopEventSchema>;
+
+// ============================================================================
 // Queue Events
 // ============================================================================
 
@@ -299,7 +358,7 @@ export type FxToggleEvent = z.infer<typeof FxToggleEventSchema>;
 // Server → Client Events
 // ============================================================================
 
-/** Deck beacon payload for 250ms sync beacon */
+/** Deck beacon payload for sync beacon */
 export const DeckBeaconPayloadSchema = z.object({
   deckId: DeckIdSchema,
   epochId: z.string(),
@@ -309,10 +368,15 @@ export const DeckBeaconPayloadSchema = z.object({
   playbackRate: z.number().min(0.5).max(2.0),
   playState: z.enum(["stopped", "playing", "paused", "cued"]),
   detectedBpm: z.number().min(20).max(300).nullable(),
+  loop: z.object({
+    enabled: z.boolean(),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+  }).nullable(),
 });
 export type DeckBeaconPayload = z.infer<typeof DeckBeaconPayloadSchema>;
 
-/** Beacon tick event - 250ms sync broadcast */
+/** Beacon tick event - periodic sync broadcast */
 export const BeaconTickEventSchema = z.object({
   type: z.literal("BEACON_TICK"),
   roomId: RoomIdSchema,
@@ -436,6 +500,10 @@ export const ClientMutationEventSchema = z.discriminatedUnion("type", [
   DeckSeekEventSchema,
   DeckTempoSetEventSchema,
   DeckBpmDetectedEventSchema,
+  SamplerPlayEventSchema,
+  DeckLoopSetEventSchema,
+  DeckRollStartEventSchema,
+  DeckRollStopEventSchema,
   QueueAddEventSchema,
   QueueRemoveEventSchema,
   QueueReorderEventSchema,
@@ -480,6 +548,10 @@ export const ServerMutationEventSchema = z.intersection(
     z.object({ type: z.literal("DECK_SEEK"), payload: DeckSeekPayloadSchema }),
     z.object({ type: z.literal("DECK_TEMPO_SET"), payload: DeckTempoSetPayloadSchema }),
     z.object({ type: z.literal("DECK_BPM_DETECTED"), payload: DeckBpmDetectedPayloadSchema }),
+    z.object({ type: z.literal("SAMPLER_PLAY"), payload: SamplerPlayPayloadSchema }),
+    z.object({ type: z.literal("DECK_LOOP_SET"), payload: DeckLoopSetPayloadSchema }),
+    z.object({ type: z.literal("DECK_ROLL_START"), payload: DeckRollStartPayloadSchema }),
+    z.object({ type: z.literal("DECK_ROLL_STOP"), payload: DeckRollStopPayloadSchema }),
     z.object({ type: z.literal("QUEUE_ADD"), payload: QueueAddPayloadSchema }),
     z.object({ type: z.literal("QUEUE_REMOVE"), payload: QueueRemovePayloadSchema }),
     z.object({ type: z.literal("QUEUE_REORDER"), payload: QueueReorderPayloadSchema }),
@@ -507,6 +579,10 @@ export const MUTATION_EVENT_TYPES = [
   "DECK_SEEK",
   "DECK_TEMPO_SET",
   "DECK_BPM_DETECTED",
+  "SAMPLER_PLAY",
+  "DECK_LOOP_SET",
+  "DECK_ROLL_START",
+  "DECK_ROLL_STOP",
   "QUEUE_ADD",
   "QUEUE_REMOVE",
   "QUEUE_REORDER",
@@ -528,6 +604,10 @@ export const DISCRETE_EVENT_TYPES = [
   "DECK_CUE",
   "DECK_SEEK",
   "DECK_TEMPO_SET",
+  "SAMPLER_PLAY",
+  "DECK_LOOP_SET",
+  "DECK_ROLL_START",
+  "DECK_ROLL_STOP",
   "QUEUE_ADD",
   "QUEUE_REMOVE",
   "QUEUE_REORDER",

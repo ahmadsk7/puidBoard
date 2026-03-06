@@ -143,14 +143,7 @@ export const DeckStateSchema = z.object({
   /** Current play state */
   playState: PlayStateSchema,
   /**
-   * Server timestamp when playback started.
-   * Used with clock sync to compute expected playhead.
-   * Null if not playing.
-   * @deprecated Use epochStartTimeMs instead
-   */
-  serverStartTime: z.number().nullable(),
-  /**
-   * Playhead position (in seconds) at serverStartTime.
+   * Playhead position (in seconds) at epoch start.
    * For paused/cued states, this is the current position.
    */
   playheadSec: z.number().nonnegative(),
@@ -186,6 +179,24 @@ export const DeckStateSchema = z.object({
    * Combined with epochStartPlayheadSec to calculate current position.
    */
   epochStartTimeMs: z.number(),
+  /**
+   * Loop state (null if no loop active).
+   */
+  loop: z.object({
+    enabled: z.boolean(),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    lengthBars: z.number(),
+  }).nullable(),
+  /**
+   * Roll state (null if no roll active).
+   */
+  roll: z.object({
+    active: z.boolean(),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    returnSec: z.number().nonnegative(),
+  }).nullable(),
 });
 export type DeckState = z.infer<typeof DeckStateSchema>;
 
@@ -341,7 +352,6 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     loadedTrackId: null,
     loadedQueueItemId: null,
     playState: "stopped",
-    serverStartTime: null,
     playheadSec: 0,
     cuePointSec: null,
     durationSec: null,
@@ -352,5 +362,8 @@ export function createDefaultDeck(deckId: DeckId): DeckState {
     epochSeq: 0,
     epochStartPlayheadSec: 0,
     epochStartTimeMs: Date.now(),
+    // Loop/Roll state
+    loop: null,
+    roll: null,
   };
 }

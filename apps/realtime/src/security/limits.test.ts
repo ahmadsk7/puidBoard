@@ -41,38 +41,81 @@ describe("Rate Limiter", () => {
     });
 
     it("should block events over the rate limit", () => {
-      // Add max events
+      vi.useFakeTimers();
+
+      // Add max events, spreading across seconds to avoid burst limit
       const maxEvents = RATE_LIMITS.QUEUE_ADD!.maxEvents;
+      const burstPerSecond = RATE_LIMITS.QUEUE_ADD!.burstPerSecond!;
       for (let i = 0; i < maxEvents; i++) {
+        if (i > 0 && i % burstPerSecond === 0) {
+          vi.advanceTimersByTime(1100); // Move past burst window
+        }
         const result = rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
         expect(result.allowed).toBe(true);
       }
 
-      // Next event should be blocked
+      // Advance past burst window so we hit the per-minute limit, not burst
+      vi.advanceTimersByTime(1100);
+
+      // Next event should be blocked by per-minute limit
       const blockedResult = rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
       expect(blockedResult.allowed).toBe(false);
       if (!blockedResult.allowed) {
         expect(blockedResult.error).toContain("Rate limit exceeded");
         expect(blockedResult.retryAfterMs).toBeGreaterThan(0);
       }
+
+      vi.useRealTimers();
+    });
+
+    it("should block burst of events exceeding per-second limit", () => {
+      const burstPerSecond = RATE_LIMITS.QUEUE_ADD!.burstPerSecond!;
+
+      // Send up to burst limit
+      for (let i = 0; i < burstPerSecond; i++) {
+        const result = rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
+        expect(result.allowed).toBe(true);
+      }
+
+      // Next event should be blocked by burst limit
+      const blockedResult = rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
+      expect(blockedResult.allowed).toBe(false);
+      if (!blockedResult.allowed) {
+        expect(blockedResult.error).toContain("Burst rate limit exceeded");
+      }
     });
   });
 
   describe("deck actions shared limit", () => {
     it("should share rate limit between all deck actions", () => {
-      const maxEvents = RATE_LIMITS.DECK_ACTIONS!.maxEvents;
+      vi.useFakeTimers();
 
-      // Use up half the limit with DECK_PLAY
+      const maxEvents = RATE_LIMITS.DECK_ACTIONS!.maxEvents;
+      const burstPerSecond = RATE_LIMITS.DECK_ACTIONS!.burstPerSecond!;
+
+      // Use up half the limit with DECK_PLAY, spreading across seconds
       for (let i = 0; i < maxEvents / 2; i++) {
+        if (i > 0 && i % burstPerSecond === 0) {
+          vi.advanceTimersByTime(1100);
+        }
         const result = rateLimiter.checkAndRecord(testClientId, "DECK_PLAY");
         expect(result.allowed).toBe(true);
       }
 
+      // Advance past burst window before switching event types
+      vi.advanceTimersByTime(1100);
+
       // Use up the other half with DECK_LOAD
       for (let i = 0; i < maxEvents / 2; i++) {
+        if (i > 0 && i % burstPerSecond === 0) {
+          vi.advanceTimersByTime(1100);
+        }
         const result = rateLimiter.checkAndRecord(testClientId, "DECK_LOAD");
         expect(result.allowed).toBe(true);
       }
+
+      // Advance past burst window
+      vi.advanceTimersByTime(1100);
 
       // Now any deck action in the shared pool should be blocked
       const blockedPlay = rateLimiter.checkAndRecord(testClientId, "DECK_PLAY");
@@ -92,11 +135,15 @@ describe("Rate Limiter", () => {
       // DECK_SEEK has its own separate limit (600/min for scratching), so it should still be allowed
       const allowedSeek = rateLimiter.checkAndRecord(testClientId, "DECK_SEEK");
       expect(allowedSeek.allowed).toBe(true);
+
+      vi.useRealTimers();
     });
   });
 
   describe("clearClient", () => {
     it("should clear all rate limit entries for a client", () => {
+      vi.useFakeTimers();
+
       // Record some events
       rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
       rateLimiter.checkAndRecord(testClientId, "DECK_PLAY");
@@ -104,12 +151,18 @@ describe("Rate Limiter", () => {
       // Clear the client
       rateLimiter.clearClient(testClientId);
 
-      // Should be able to record max events again
+      // Should be able to record max events again, spreading across seconds
       const maxEvents = RATE_LIMITS.QUEUE_ADD!.maxEvents;
+      const burstPerSecond = RATE_LIMITS.QUEUE_ADD!.burstPerSecond!;
       for (let i = 0; i < maxEvents; i++) {
+        if (i > 0 && i % burstPerSecond === 0) {
+          vi.advanceTimersByTime(1100);
+        }
         const result = rateLimiter.checkAndRecord(testClientId, "QUEUE_ADD");
         expect(result.allowed).toBe(true);
       }
+
+      vi.useRealTimers();
     });
   });
 

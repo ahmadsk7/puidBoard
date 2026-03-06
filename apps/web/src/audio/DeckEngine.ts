@@ -19,6 +19,13 @@ import { getServerTime, getAverageRtt } from "./sync/clock";
 import { Deck } from "./deck";
 import type { DeckBeaconPayload } from "@puid-board/shared";
 
+/** Loop bounds from beacon */
+interface LoopBounds {
+  enabled: boolean;
+  startSec: number;
+  endSec: number;
+}
+
 /** Transport state managed by DeckEngine */
 interface TransportState {
   playState: "stopped" | "playing" | "paused" | "cued";
@@ -26,6 +33,7 @@ interface TransportState {
   playbackRate: number;
   epochId: string;
   epochSeq: number;
+  loop: LoopBounds | null;
 }
 
 /**
@@ -35,6 +43,7 @@ export class DeckEngine {
   private state: TransportState;
   private pllController: PLLController;
   private lastBeaconEpochSeq = -1;
+  private lastBeaconServerTs = 0;
   private deck: Deck;
 
   constructor(deck: Deck) {
@@ -47,6 +56,7 @@ export class DeckEngine {
       playbackRate: 1.0,
       epochId: "",
       epochSeq: 0,
+      loop: null,
     };
 
     this.pllController = new PLLController();
@@ -66,12 +76,14 @@ export class DeckEngine {
    * @param beacon - Beacon payload from server
    */
   applyServerBeacon(beacon: DeckBeaconPayload): void {
-    // Stale check - ignore old beacons from same epoch
-    if (
-      beacon.epochId === this.state.epochId &&
-      beacon.epochSeq <= this.lastBeaconEpochSeq
-    ) {
-      return;
+    // Stale check - ignore old beacons by epochSeq or timestamp
+    if (beacon.epochId === this.state.epochId) {
+      if (beacon.epochSeq <= this.lastBeaconEpochSeq) {
+        return;
+      }
+      if (beacon.serverTs < this.lastBeaconServerTs) {
+        return;
+      }
     }
 
     // Epoch change = hard reset
@@ -82,6 +94,7 @@ export class DeckEngine {
 
     // Same epoch = PLL correction
     this.lastBeaconEpochSeq = beacon.epochSeq;
+    this.lastBeaconServerTs = beacon.serverTs;
     this.applyPLLCorrection(beacon);
   }
 
@@ -100,12 +113,21 @@ export class DeckEngine {
       playbackRate: beacon.playbackRate,
       epochId: beacon.epochId,
       epochSeq: beacon.epochSeq,
+      loop: beacon.loop ?? null,
     };
 
     this.lastBeaconEpochSeq = beacon.epochSeq;
+    this.lastBeaconServerTs = beacon.serverTs;
 
     // Reset PLL
     this.pllController.reset();
+
+    // Update loop bounds on Deck
+    if (beacon.loop?.enabled) {
+      this.deck.setLoopBounds({ startSec: beacon.loop.startSec, endSec: beacon.loop.endSec });
+    } else {
+      this.deck.setLoopBounds(null);
+    }
 
     // Sync to Deck
     this.syncToDeck(beacon.playheadSec, beacon.playbackRate, beacon.playState);
@@ -130,8 +152,18 @@ export class DeckEngine {
 
     // Account for one-way latency in playhead calculation
     const latencyCompensatedElapsed = elapsedSinceBeacon + oneWayLatencyMs / 1000;
-    const expectedPlayhead =
+    let expectedPlayhead =
       beacon.playheadSec + latencyCompensatedElapsed * beacon.playbackRate;
+
+    // Apply loop wrapping to expected playhead
+    const loop = beacon.loop;
+    if (loop?.enabled && loop.endSec > loop.startSec && expectedPlayhead >= loop.endSec) {
+      const loopLength = loop.endSec - loop.startSec;
+      expectedPlayhead = loop.startSec + ((expectedPlayhead - loop.startSec) % loopLength);
+    }
+
+    // Update loop state
+    this.state.loop = loop ?? null;
 
     // Get local playhead from Deck
     const localPlayhead = this.deck.getCurrentPlayhead();

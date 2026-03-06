@@ -12,7 +12,7 @@ import { BeaconTickEvent, DeckBeaconPayload } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
 
 /** Interval for BEACON_TICK broadcasts (milliseconds) */
-const BEACON_INTERVAL_MS = 250; // 250ms for fast sync
+const BEACON_INTERVAL_MS = 100; // 100ms for fast sync (10 samples/sec for PLL)
 
 /** Active beacon intervals by roomId */
 const activeTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -68,15 +68,39 @@ function broadcastBeacon(io: Server, roomId: string): void {
     room.deckB.epochSeq++;
   }
 
-  // Calculate current playhead from epoch for each deck
+  // Calculate current playhead from epoch for each deck (with loop/roll wrapping)
   const calcPlayhead = (deck: typeof room.deckA): number => {
     if (deck.playState !== "playing") {
       return deck.playheadSec;
     }
     const elapsedMs = serverTs - deck.epochStartTimeMs;
     const elapsedSec = elapsedMs / 1000;
-    const playhead = deck.epochStartPlayheadSec + (elapsedSec * deck.playbackRate);
-    return Math.min(playhead, deck.durationSec ?? playhead);
+    let playhead = deck.epochStartPlayheadSec + (elapsedSec * deck.playbackRate);
+    playhead = Math.min(playhead, deck.durationSec ?? playhead);
+
+    // Apply loop wrapping
+    const loopBounds = deck.loop ?? (deck.roll?.active ? deck.roll : null);
+    if (loopBounds) {
+      const start = "startSec" in loopBounds ? loopBounds.startSec : 0;
+      const end = "endSec" in loopBounds ? loopBounds.endSec : 0;
+      if (end > start && playhead >= end) {
+        const loopLength = end - start;
+        playhead = start + ((playhead - start) % loopLength);
+      }
+    }
+
+    return playhead;
+  };
+
+  // Helper to extract loop bounds for beacon
+  const getLoopPayload = (deck: typeof room.deckA) => {
+    if (deck.loop?.enabled) {
+      return { enabled: true, startSec: deck.loop.startSec, endSec: deck.loop.endSec };
+    }
+    if (deck.roll?.active) {
+      return { enabled: true, startSec: deck.roll.startSec, endSec: deck.roll.endSec };
+    }
+    return null;
   };
 
   // Build beacon payloads
@@ -89,6 +113,7 @@ function broadcastBeacon(io: Server, roomId: string): void {
     playbackRate: room.deckA.playbackRate,
     playState: room.deckA.playState,
     detectedBpm: room.deckA.detectedBpm,
+    loop: getLoopPayload(room.deckA),
   };
 
   const deckB: DeckBeaconPayload = {
@@ -100,6 +125,7 @@ function broadcastBeacon(io: Server, roomId: string): void {
     playbackRate: room.deckB.playbackRate,
     playState: room.deckB.playState,
     detectedBpm: room.deckB.detectedBpm,
+    loop: getLoopPayload(room.deckB),
   };
 
   const beaconTick: BeaconTickEvent = {
