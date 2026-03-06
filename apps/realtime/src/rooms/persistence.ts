@@ -117,6 +117,9 @@ class PersistenceManager {
         await this.config.redisClient.set(key, JSON.stringify(persisted), {
           EX: ttlSec,
         });
+        // Save room code -> roomId index for lookups by code
+        const codeKey = `room:code:${room.roomCode}`;
+        await this.config.redisClient.set(codeKey, roomId, { EX: ttlSec });
         console.log(
           `[persistence] saved to Redis roomId=${roomId} version=${room.version} members=${room.members.length}`
         );
@@ -187,7 +190,12 @@ class PersistenceManager {
     const key = this.getRedisKey(roomId);
 
     try {
+      // Also clean up the room code index
+      const persisted = this.inMemoryBackup.get(roomId);
       if (this.config.redisClient) {
+        if (persisted) {
+          await this.config.redisClient.del(`room:code:${persisted.roomState.roomCode}`);
+        }
         await this.config.redisClient.del(key);
         console.log(`[persistence] deleted Redis key roomId=${roomId}`);
       }
@@ -199,6 +207,46 @@ class PersistenceManager {
         error
       );
     }
+  }
+
+  /**
+   * Load a room snapshot by room code.
+   * Scans persistence for a room matching the given code.
+   */
+  async loadSnapshotByCode(roomCode: string): Promise<PersistedRoom | null> {
+    const upperCode = roomCode.toUpperCase();
+
+    // Check in-memory backup first
+    for (const persisted of this.inMemoryBackup.values()) {
+      if (persisted.roomState.roomCode === upperCode) {
+        console.log(
+          `[persistence] found in-memory snapshot for code=${upperCode} roomId=${persisted.roomState.roomId}`
+        );
+        return persisted;
+      }
+    }
+
+    // Check Redis using room code index key
+    if (this.config.redisClient) {
+      try {
+        const indexKey = `room:code:${upperCode}`;
+        const roomId = await this.config.redisClient.get(indexKey);
+        if (roomId) {
+          const data = await this.config.redisClient.get(this.getRedisKey(roomId));
+          if (data) {
+            const persisted = JSON.parse(data) as PersistedRoom;
+            console.log(
+              `[persistence] loaded from Redis by code=${upperCode} roomId=${roomId}`
+            );
+            return persisted;
+          }
+        }
+      } catch (error) {
+        console.error(`[persistence] failed to load by code=${upperCode}`, error);
+      }
+    }
+
+    return null;
   }
 
   /**

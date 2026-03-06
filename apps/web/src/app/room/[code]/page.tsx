@@ -172,6 +172,7 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   }
 
   if (error) {
+    const isPermanent = error.type === "ROOM_NOT_FOUND" || error.type === "CONNECTION_FAILED";
     return (
       <div
         style={{
@@ -198,9 +199,29 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
               background: "#1f2937",
               borderRadius: 8,
               border: "1px solid #ef4444",
+              textAlign: "center",
             }}
           >
             <p style={{ color: "#ef4444", margin: 0 }}>Error: {error.message}</p>
+            {isPermanent && (
+              <button
+                type="button"
+                onClick={() => window.location.href = "/"}
+                style={{
+                  marginTop: 16,
+                  padding: "8px 20px",
+                  background: "#3b82f6",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.875rem",
+                  fontWeight: 500,
+                }}
+              >
+                Back to Home
+              </button>
+            )}
           </div>
         </main>
       </div>
@@ -208,6 +229,8 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   }
 
   if (!state || !clientId) {
+    // If disconnected with no state, show connection error instead of "waiting"
+    const isDisconnected = status === "disconnected";
     return (
       <div
         style={{
@@ -228,7 +251,67 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
             fontFamily: "system-ui, sans-serif",
           }}
         >
-          <p style={{ color: "#9ca3af" }}>Waiting for room state...</p>
+          {isDisconnected ? (
+            <div
+              style={{
+                padding: 24,
+                background: "#1f2937",
+                borderRadius: 8,
+                border: "1px solid #ef4444",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ color: "#ef4444", margin: 0 }}>
+                Unable to connect to server
+              </p>
+              <p style={{ color: "#9ca3af", margin: "8px 0 0", fontSize: "0.875rem" }}>
+                Make sure the realtime server is running on {process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001"}
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{
+                  marginTop: 16,
+                  padding: "8px 20px",
+                  background: "#3b82f6",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.875rem",
+                  fontWeight: 500,
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  border: "3px solid #3b82f6",
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                  animation: "spin 1s linear infinite",
+                }}
+              />
+              <p style={{ color: "#9ca3af" }}>Joining room...</p>
+              <style>{`
+                @keyframes spin {
+                  to { transform: rotate(360deg); }
+                }
+              `}</style>
+            </div>
+          )}
         </main>
       </div>
     );

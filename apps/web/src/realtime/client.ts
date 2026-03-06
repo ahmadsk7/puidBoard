@@ -236,13 +236,36 @@ export class RealtimeClient {
 
     this.socket.on("disconnect", (reason) => {
       console.log("[RealtimeClient] disconnected:", reason);
-      this.setStatus("disconnected");
       this.stopPing();
+      // If Socket.IO will auto-reconnect, show "connecting" instead of "disconnected"
+      // "io client disconnect" = manual disconnect (won't auto-reconnect)
+      // "io server disconnect" = server forced disconnect (won't auto-reconnect)
+      if (reason === "io client disconnect" || reason === "io server disconnect") {
+        this.setStatus("disconnected");
+      } else {
+        // Transport close, ping timeout, etc. — Socket.IO will auto-reconnect
+        this.setStatus("connecting");
+      }
     });
 
     this.socket.on("connect_error", (error) => {
       console.log("[RealtimeClient] connect_error:", error.message);
+      // Don't set "disconnected" — Socket.IO is still retrying.
+      // Keep "connecting" so the UI shows the spinner.
+    });
+
+    // Socket.IO fires this before each reconnection attempt
+    this.socket.io.on("reconnect_attempt", () => {
+      this.setStatus("connecting");
+    });
+
+    // Socket.IO fires this when all reconnection attempts are exhausted
+    this.socket.io.on("reconnect_failed", () => {
       this.setStatus("disconnected");
+      this.emitError({
+        type: "CONNECTION_FAILED",
+        message: "Failed to connect to server. Check that the server is running.",
+      });
     });
 
     this.socket.on("CLIENT_ID", (data: { clientId: string }) => {

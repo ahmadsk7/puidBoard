@@ -98,8 +98,11 @@ export function useRealtimeRoom(
       }
 
       setError(err);
-      // Clear error after 5 seconds
-      setTimeout(() => setError(null), 5000);
+      // Only auto-clear transient errors (not ROOM_NOT_FOUND or CONNECTION_FAILED)
+      const persistentErrors = ["ROOM_NOT_FOUND", "CONNECTION_FAILED"];
+      if (!persistentErrors.includes(err.type)) {
+        setTimeout(() => setError(null), 5000);
+      }
     });
 
     // Connect if not already connected

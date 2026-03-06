@@ -155,7 +155,7 @@ function handleCreateRoom(io: Server, socket: Socket, data: unknown): void {
 /**
  * Handle JOIN_ROOM event.
  */
-function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
+async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
   const parsed = JoinRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[JOIN_ROOM] invalid payload socket=${socket.id}`);
@@ -194,12 +194,33 @@ function handleJoinRoom(io: Server, socket: Socket, data: unknown): void {
   }
 
   // Try to join the room
-  const result = roomStore.joinRoom(roomCode, name, socket.id);
+  let result = roomStore.joinRoom(roomCode, name, socket.id);
 
-  // If room not found in memory, could restore from persistence in future
-  // For MVP, if room not in memory, it's truly not found
+  // If room not found in memory, try to restore from persistence
   if (!result) {
-    console.log(`[JOIN_ROOM] room not in memory code=${roomCode}`);
+    console.log(`[JOIN_ROOM] room not in memory code=${roomCode}, checking persistence...`);
+
+    try {
+      const persistence = getPersistence();
+      const persisted = await persistence.loadSnapshotByCode(roomCode);
+
+      if (persisted) {
+        // Restore the room from persistence
+        // Clear members since they're stale (from before server restart)
+        persisted.roomState.members = [];
+        roomStore.restoreRoom(persisted.roomState);
+        console.log(`[JOIN_ROOM] restored room from persistence code=${roomCode}`);
+
+        // Now try joining again
+        result = roomStore.joinRoom(roomCode, name, socket.id);
+      }
+    } catch (error) {
+      console.error(`[JOIN_ROOM] failed to restore from persistence code=${roomCode}`, error);
+    }
+  }
+
+  if (!result) {
+    console.log(`[JOIN_ROOM] room not found code=${roomCode}`);
 
     socket.emit("ERROR", {
       type: "ROOM_NOT_FOUND",
