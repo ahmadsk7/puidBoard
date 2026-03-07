@@ -207,14 +207,10 @@ import { getYouTubeCookiesPath } from './youtube-cookies.js';
 export async function getYouTubeAudioUrl(
   videoId: string
 ): Promise<YouTubeAudioResult> {
-  console.log(`[YouTube] ========== getYouTubeAudioUrl START ==========`);
-  console.log(`[YouTube] videoId: ${videoId}`);
+  console.log(`[YouTube] getAudioUrl videoId=${videoId}`);
 
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log(`[YouTube] Full URL: ${videoUrl}`);
-
-    console.log(`[YouTube] Extracting audio URL using yt-dlp...`);
 
     // Build yt-dlp options with cookie support
     const options: any = {
@@ -227,67 +223,31 @@ export async function getYouTubeAudioUrl(
       ]
     };
 
-    // Try to fetch fresh cookies from API (helps bypass YouTube bot detection on datacenter IPs)
-    console.log(`[YouTube] Attempting to fetch cookies...`);
     try {
       const cookiesPath = await getYouTubeCookiesPath();
       if (cookiesPath) {
         options.cookies = cookiesPath;
-        console.log(`[YouTube] ✓ Using cookies from: ${cookiesPath}`);
-      } else {
-        console.warn(`[YouTube] ⚠ No cookies available. Proceeding without cookies.`);
       }
     } catch (cookieError) {
-      console.warn(`[YouTube] ⚠ Failed to fetch cookies, proceeding without them:`);
-      console.warn(`[YouTube] Cookie error:`, cookieError instanceof Error ? cookieError.message : cookieError);
+      // Proceed without cookies
     }
 
     // Use yt-dlp to get the best audio format
-    console.log(`[YouTube] Calling yt-dlp with options:`, JSON.stringify(options, null, 2));
     const info = await youtubedl(videoUrl, options) as any;
-    console.log(`[YouTube] yt-dlp returned successfully`);
-    console.log(`[YouTube] Video title: ${info?.title || 'unknown'}`);
-    console.log(`[YouTube] Video duration: ${info?.duration || 'unknown'}s`);
-
-    // DIAGNOSTIC: Check what YouTube actually returned
-    console.log(`[YouTube DIAGNOSTIC] ========== VERBOSE RESPONSE ANALYSIS ==========`);
-    console.log(`[YouTube DIAGNOSTIC] playabilityStatus:`, JSON.stringify(info?.playabilityStatus, null, 2));
-    console.log(`[YouTube DIAGNOSTIC] Has streamingData:`, !!info?.streamingData);
-    if (info?.streamingData) {
-      console.log(`[YouTube DIAGNOSTIC] streamingData.formats count:`, info.streamingData.formats?.length || 0);
-      console.log(`[YouTube DIAGNOSTIC] streamingData.adaptiveFormats count:`, info.streamingData.adaptiveFormats?.length || 0);
-      console.log(`[YouTube DIAGNOSTIC] Sample formats:`, JSON.stringify(info.streamingData.formats?.slice(0, 2) || [], null, 2));
-      console.log(`[YouTube DIAGNOSTIC] Sample adaptiveFormats:`, JSON.stringify(info.streamingData.adaptiveFormats?.slice(0, 2) || [], null, 2));
-    } else {
-      console.error(`[YouTube DIAGNOSTIC] ✗ NO streamingData in response!`);
-    }
-    console.log(`[YouTube DIAGNOSTIC] Top-level formats array count:`, info?.formats?.length || 0);
-    console.log(`[YouTube DIAGNOSTIC] ========================================`);
+    console.log(`[YouTube] yt-dlp returned: "${info?.title}" (${info?.duration}s)`);
 
     if (!info || !info.formats) {
-      console.error(`[YouTube] ✗ No formats found for video: ${videoId}`);
-      console.error(`[YouTube] Info object keys:`, Object.keys(info || {}));
-      console.error(`[YouTube] Full info object:`, JSON.stringify(info, null, 2));
+      console.error(`[YouTube] No formats found for video: ${videoId}`);
       throw new Error('No audio formats available for this video');
     }
-
-    console.log(`[YouTube] Total formats found: ${info.formats.length}`);
 
     // Find the best audio-only format (usually 140 = m4a audio)
     const audioFormats = info.formats.filter((f: any) =>
       f.acodec && f.acodec !== 'none' && f.vcodec === 'none'
     );
 
-    console.log(`[YouTube] Audio-only formats found: ${audioFormats.length}`);
-
     if (audioFormats.length === 0) {
-      console.error(`[YouTube] ✗ No audio-only formats found for video: ${videoId}`);
-      console.error(`[YouTube] Available formats:`, info.formats.map((f: any) => ({
-        format_id: f.format_id,
-        ext: f.ext,
-        acodec: f.acodec,
-        vcodec: f.vcodec
-      })));
+      console.error(`[YouTube] No audio-only formats for ${videoId}`);
       throw new Error('No audio-only formats available');
     }
 
@@ -301,42 +261,21 @@ export async function getYouTubeAudioUrl(
     const bestAudio = audioFormats[0];
     const audioUrl = bestAudio.url;
 
-    console.log(`[YouTube] ✓ Selected format: ${bestAudio.format_id} (${bestAudio.ext})`);
-    console.log(`[YouTube] Bitrate: ${bestAudio.abr || 'unknown'}kbps`);
-    console.log(`[YouTube] Audio URL (first 150 chars): ${audioUrl.substring(0, 150)}...`);
-
-    // Check for errors in response
     if (!audioUrl) {
-      console.error(`[YouTube] ✗ No audio URL found in selected format:`, bestAudio);
       throw new Error('No audio URL extracted from video');
     }
 
-    // YouTube URLs typically expire after a few hours
-    const expiresAt = Date.now() + (6 * 60 * 60 * 1000); // 6 hours from now
+    const expiresAt = Date.now() + (6 * 60 * 60 * 1000);
 
     const mimeType = bestAudio.ext === 'm4a' ? 'audio/mp4' :
                      bestAudio.ext === 'webm' ? 'audio/webm' :
                      'audio/mpeg';
 
-    console.log(`[YouTube] ========== SUCCESS ==========`);
-    console.log(`[YouTube] Title: ${info.title}`);
-    console.log(`[YouTube] Duration: ${info.duration}s`);
-    console.log(`[YouTube] Format: ${bestAudio.ext}`);
-    console.log(`[YouTube] MIME: ${mimeType}`);
-    console.log(`[YouTube] ========== getYouTubeAudioUrl END ==========`);
+    console.log(`[YouTube] Extracted ${videoId}: ${bestAudio.ext} ${bestAudio.abr || '?'}kbps`);
 
-    return {
-      url: audioUrl,
-      mimeType,
-      expiresAt
-    };
+    return { url: audioUrl, mimeType, expiresAt };
   } catch (error) {
-    console.error('[YouTube] ========== EXTRACTION FAILED ==========');
-    console.error('[YouTube] Error type:', error instanceof Error ? error.constructor.name : typeof error);
-    console.error('[YouTube] Error message:', error instanceof Error ? error.message : String(error));
-    console.error('[YouTube] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    console.error('[YouTube] Full error object:', error);
-    console.error('[YouTube] ========================================');
+    console.error(`[YouTube] Extraction failed for ${videoId}:`, error instanceof Error ? error.message : error);
     throw new Error(`YouTube audio extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

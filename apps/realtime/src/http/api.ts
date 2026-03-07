@@ -625,6 +625,10 @@ async function handleResetSamplerSlot(
 // YOUTUBE ENDPOINTS
 // ============================================================================
 
+/** Track active YouTube streams to prevent memory exhaustion */
+const MAX_CONCURRENT_STREAMS = 5;
+let activeStreams = 0;
+
 /**
  * Handle GET /api/youtube/search?q=...
  */
@@ -661,46 +665,53 @@ async function handleYouTubeSearch(
 
 /**
  * Handle GET /api/youtube/stream/:videoId
- * Proxies YouTube audio through our server to avoid CORS issues
+ * Proxies YouTube audio through our server to avoid CORS issues.
+ * Uses AbortController to kill the upstream fetch when the client disconnects.
  */
 async function handleYouTubeStream(
   req: IncomingMessage,
   res: ServerResponse,
   videoId: string
 ): Promise<void> {
-  console.log(`[youtubeStream] ========== STREAM REQUEST START ==========`);
-  console.log(`[youtubeStream] videoId: ${videoId}`);
-  console.log(`[youtubeStream] Client: ${req.headers['user-agent']}`);
-  console.log(`[youtubeStream] Range: ${req.headers.range || 'none'}`);
+  if (activeStreams >= MAX_CONCURRENT_STREAMS) {
+    console.log(`[youtubeStream] Rejected: ${activeStreams}/${MAX_CONCURRENT_STREAMS} streams active`);
+    sendError(res, 503, "Server busy, too many active streams. Try again in a moment.");
+    return;
+  }
+
+  activeStreams++;
+  console.log(`[youtubeStream] Starting stream for ${videoId} (${activeStreams}/${MAX_CONCURRENT_STREAMS} active)`);
+
+  const abortController = new AbortController();
+  let clientDisconnected = false;
+
+  // Abort the upstream fetch if the client disconnects
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      clientDisconnected = true;
+      abortController.abort();
+      console.log(`[youtubeStream] Client disconnected mid-stream for ${videoId}`);
+    }
+  });
 
   try {
-    // Get the audio URL from yt-dlp
-    console.log(`[youtubeStream] Step 1: Calling getYouTubeAudioUrl...`);
     const result = await getYouTubeAudioUrl(videoId);
     const audioUrl = result.url;
 
-    console.log(`[youtubeStream] ✓ Step 1 complete. Audio URL obtained.`);
-    console.log(`[youtubeStream] Step 2: Fetching audio from Google servers...`);
-
     // Fetch the audio from Google servers
     const response = await fetch(audioUrl, {
+      signal: abortController.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Range': req.headers.range || 'bytes=0-'
       }
     });
 
-    console.log(`[youtubeStream] Google response status: ${response.status}`);
-    console.log(`[youtubeStream] Google response headers:`, Object.fromEntries(response.headers.entries()));
-
     if (!response.ok) {
-      console.error(`[youtubeStream] ✗ Failed to fetch audio from Google: ${response.status} ${response.statusText}`);
+      console.error(`[youtubeStream] Google returned ${response.status} for ${videoId}`);
       sendError(res, 502, "Failed to fetch audio from YouTube");
       return;
     }
-
-    console.log(`[youtubeStream] ✓ Step 2 complete. Audio fetched from Google.`);
-    console.log(`[youtubeStream] Step 3: Streaming to client...`);
 
     // Set CORS and streaming headers
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -709,7 +720,6 @@ async function handleYouTubeStream(
     res.setHeader('Content-Type', result.mimeType);
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Forward range headers for seeking support
     const contentLength = response.headers.get('content-length');
     const contentRange = response.headers.get('content-range');
 
@@ -719,7 +729,7 @@ async function handleYouTubeStream(
 
     if (contentRange) {
       res.setHeader('Content-Range', contentRange);
-      res.writeHead(206); // Partial Content
+      res.writeHead(206);
     } else {
       res.writeHead(200);
     }
@@ -728,39 +738,39 @@ async function handleYouTubeStream(
     if (response.body) {
       const reader = response.body.getReader();
 
-      const pump = async (): Promise<void> => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (!res.write(value)) {
-              await new Promise(resolve => res.once('drain', resolve));
-            }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (clientDisconnected) break;
+          if (!res.write(value)) {
+            await new Promise(resolve => res.once('drain', resolve));
           }
-          res.end();
-        } catch (error) {
-          console.error(`[youtubeStream] Stream error:`, error);
-          res.end();
         }
-      };
-
-      await pump();
-    } else {
-      res.end();
+      } catch (error) {
+        // AbortError is expected when client disconnects
+        if (!clientDisconnected) {
+          console.error(`[youtubeStream] Stream read error for ${videoId}:`, error);
+        }
+      } finally {
+        reader.releaseLock();
+      }
     }
 
-    console.log(`[youtubeStream] ✓ Step 3 complete. Stream finished.`);
-    console.log(`[youtubeStream] ========== STREAM REQUEST SUCCESS ==========`);
+    res.end();
+    console.log(`[youtubeStream] Completed stream for ${videoId}`);
   } catch (error) {
-    console.error("[youtubeStream] ========== STREAM REQUEST FAILED ==========");
-    console.error("[youtubeStream] Error type:", error instanceof Error ? error.constructor.name : typeof error);
-    console.error("[youtubeStream] Error message:", error instanceof Error ? error.message : String(error));
-    console.error("[youtubeStream] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
-    console.error("[youtubeStream] Full error:", error);
-    console.error("[youtubeStream] ================================================");
+    if (clientDisconnected) {
+      // Expected — client left, we aborted. No need to log as error.
+      return;
+    }
+    console.error(`[youtubeStream] Failed for ${videoId}:`, error instanceof Error ? error.message : error);
     if (!res.headersSent) {
       sendError(res, 500, error instanceof Error ? error.message : "Stream proxy failed");
     }
+  } finally {
+    activeStreams--;
+    console.log(`[youtubeStream] Streams active: ${activeStreams}/${MAX_CONCURRENT_STREAMS}`);
   }
 }
 
