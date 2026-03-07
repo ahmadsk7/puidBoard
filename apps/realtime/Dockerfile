@@ -63,4 +63,4 @@ WORKDIR /app/apps/realtime
 
 EXPOSE 3001
 
-CMD ["node", "--max-old-space-size=900", "dist/server.js"]
+CMD ["node", "--max-old-space-size=1800", "dist/server.js"]

@@ -45,4 +45,4 @@ primary_region = "iad"
 # Resources (start small, scale as needed)
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1024mb"
+  memory = "2048mb"
