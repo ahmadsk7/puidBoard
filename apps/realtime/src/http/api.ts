@@ -628,6 +628,7 @@ async function handleResetSamplerSlot(
 /** Track active YouTube streams to prevent memory exhaustion */
 const MAX_CONCURRENT_STREAMS = 5;
 let activeStreams = 0;
+const STREAM_TIMEOUT_MS = 120_000; // 2 minutes max per stream
 
 /**
  * Handle GET /api/youtube/search?q=...
@@ -684,6 +685,19 @@ async function handleYouTubeStream(
 
   const abortController = new AbortController();
   let clientDisconnected = false;
+  let streamDone = false;
+
+  // Safety timeout: force-abort and decrement if stream hangs
+  const safetyTimeout = setTimeout(() => {
+    if (!streamDone) {
+      console.warn(`[youtubeStream] Timeout after ${STREAM_TIMEOUT_MS / 1000}s for ${videoId}, force-aborting`);
+      clientDisconnected = true;
+      abortController.abort();
+      if (!res.writableEnded) {
+        res.destroy();
+      }
+    }
+  }, STREAM_TIMEOUT_MS);
 
   // Abort the upstream fetch if the client disconnects
   req.on('close', () => {
@@ -744,7 +758,13 @@ async function handleYouTubeStream(
           if (done) break;
           if (clientDisconnected) break;
           if (!res.write(value)) {
-            await new Promise(resolve => res.once('drain', resolve));
+            // Wait for drain but bail if client disconnected
+            await new Promise<void>((resolve) => {
+              const onDrain = () => { req.removeListener('close', onClose); resolve(); };
+              const onClose = () => { res.removeListener('drain', onDrain); resolve(); };
+              res.once('drain', onDrain);
+              req.once('close', onClose);
+            });
           }
         }
       } catch (error) {
@@ -757,11 +777,13 @@ async function handleYouTubeStream(
       }
     }
 
-    res.end();
+    if (!res.writableEnded) {
+      res.end();
+    }
     console.log(`[youtubeStream] Completed stream for ${videoId}`);
   } catch (error) {
     if (clientDisconnected) {
-      // Expected — client left, we aborted. No need to log as error.
+      // Expected — client left or timed out, we aborted. No need to log as error.
       return;
     }
     console.error(`[youtubeStream] Failed for ${videoId}:`, error instanceof Error ? error.message : error);
@@ -769,6 +791,8 @@ async function handleYouTubeStream(
       sendError(res, 500, error instanceof Error ? error.message : "Stream proxy failed");
     }
   } finally {
+    streamDone = true;
+    clearTimeout(safetyTimeout);
     activeStreams--;
     console.log(`[youtubeStream] Streams active: ${activeStreams}/${MAX_CONCURRENT_STREAMS}`);
   }
