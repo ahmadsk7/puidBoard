@@ -1,31 +1,21 @@
 /**
  * YouTube service for searching and extracting audio.
  *
- * APPROACH (BACKEND AUDIO EXTRACTION):
- * - Server: YouTube Data API v3 for search
- * - Server: RapidAPI youtube-mp36 for audio extraction (GET /dl?id={videoId})
- * - Client: Receives direct audio URLs, uses Web Audio API for full DJ controls
- *
- * WHY THIS APPROACH:
- * All self-hosted server-side approaches failed:
- * 1. ytdl-core: Bot detection, datacenter IP blocked
- * 2. yt-dlp with cookies: Cookies expire/rotate frequently, unreliable
- * 3. play-dl + youtube-dl-exec: Works locally (residential IP) but blocked on servers
- * 4. Invidious API: All public instances down/blocked
- * 5. Piped API: Same issues as Invidious
- * 6. YouTube IFrame Player: Cross-origin restrictions prevent Web Audio API access
- *
- * RapidAPI youtube-mp36 solves these issues:
- * - They handle datacenter IP blocking with residential proxies
- * - Reliable uptime and maintenance
- * - Simple API integration
- * - Client gets direct audio URL for Web Audio API
- * - Predictable costs: ~$10-200/mo depending on volume
- *
- * Alternative: Self-hosted MichaelBelgium/Youtube-API (migrate at scale if needed)
+ * APPROACH:
+ * - Search: YouTube Data API v3 (official, reliable)
+ * - Audio extraction: yt-dlp + ffmpeg on the server
+ *   yt-dlp handles format selection, anti-bot, HLS assembly, etc.
+ *   ffmpeg extracts pure audio from whatever format YouTube serves.
+ *   The server streams the resulting audio file to the client.
+ * - Client: Receives audio bytes, decodes with Web Audio API for full DJ controls
  */
 
 import { google } from 'googleapis';
+import { spawn } from 'child_process';
+import { statSync, existsSync, readdirSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, basename } from 'path';
+import { getYouTubeCookiesPath } from './youtube-cookies.js';
 
 const youtube = google.youtube({
   version: 'v3',
@@ -48,10 +38,10 @@ export interface YouTubeSearchResult {
   channelName: string;
 }
 
-export interface YouTubeAudioResult {
-  url: string;
+export interface YouTubeAudioFile {
+  filePath: string;
   mimeType: string;
-  expiresAt: number;
+  fileSize: number;
 }
 
 // ============================================================================
@@ -84,6 +74,20 @@ function parseDuration(isoDuration: string): number {
   const seconds = parseInt(match[3] || '0');
 
   return hours * 3600 + minutes * 60 + seconds;
+}
+
+/**
+ * Clean up any temp files matching a base path prefix
+ */
+function cleanupTempFiles(tempBase: string): void {
+  try {
+    const dir = tmpdir();
+    const prefix = basename(tempBase);
+    const files = readdirSync(dir).filter(f => f.startsWith(prefix));
+    for (const f of files) {
+      try { unlinkSync(join(dir, f)); } catch {}
+    }
+  } catch {}
 }
 
 // ============================================================================
@@ -192,90 +196,121 @@ export async function searchYouTube(
 }
 
 // ============================================================================
-// Audio Extraction via yt-dlp (Self-hosted)
+// Audio Extraction via yt-dlp + ffmpeg
 // ============================================================================
 
-import youtubedl from 'youtube-dl-exec';
-import { getYouTubeCookiesPath } from './youtube-cookies.js';
-
 /**
- * Get audio download URL for a YouTube video using yt-dlp
+ * Download and extract audio from a YouTube video using yt-dlp + ffmpeg.
  *
- * @param videoId YouTube video ID (e.g., "dQw4w9WgXcQ")
- * @returns Audio URL, mime type, and expiration timestamp
+ * Instead of parsing format JSON and proxying URLs (which breaks when YouTube
+ * changes what formats they serve from datacenter IPs), this lets yt-dlp handle
+ * everything: format selection, anti-bot measures, HLS assembly, and audio
+ * extraction via ffmpeg. The result is always a clean audio file.
+ *
+ * @param videoId YouTube video ID
+ * @param signal Optional AbortSignal to cancel the download
+ * @returns Path to extracted audio file, mime type, and file size
  */
-export async function getYouTubeAudioUrl(
-  videoId: string
-): Promise<YouTubeAudioResult> {
-  console.log(`[YouTube] getAudioUrl videoId=${videoId}`);
+export async function downloadYouTubeAudio(
+  videoId: string,
+  signal?: AbortSignal
+): Promise<YouTubeAudioFile> {
+  console.log(`[YouTube] downloadAudio videoId=${videoId}`);
 
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const tempBase = join(tmpdir(), `yt-audio-${videoId}-${Date.now()}`);
+  const expectedOutput = `${tempBase}.m4a`;
+
+  // Get cookies path
+  let cookiesPath: string | null = null;
   try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    cookiesPath = await getYouTubeCookiesPath();
+  } catch {
+    // Proceed without cookies
+  }
 
-    // Build yt-dlp options with cookie support
-    const options: any = {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      addHeader: [
-        'referer:youtube.com',
-        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      ]
-    };
+  const args: string[] = [
+    '--format', 'bestaudio/worst[height>=360]/best',   // Best audio-only; fall back to smallest muxed with AAC-LC audio (360p+); last resort: best overall
+    '-x',                            // Extract audio
+    '--audio-format', 'm4a',        // Convert to m4a (AAC) — universal browser support
+    '--audio-quality', '0',          // Best quality
+    '-o', `${tempBase}.%(ext)s`,     // Output template
+    '--no-check-certificates',
+    '--no-warnings',
+    '--add-header', 'referer:youtube.com',
+    '--add-header', 'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  ];
 
-    try {
-      const cookiesPath = await getYouTubeCookiesPath();
-      if (cookiesPath) {
-        options.cookies = cookiesPath;
-      }
-    } catch (cookieError) {
-      // Proceed without cookies
+  if (cookiesPath) {
+    args.push('--cookies', cookiesPath);
+  }
+
+  args.push(videoUrl);
+
+  return new Promise<YouTubeAudioFile>((resolve, reject) => {
+    const spawnOpts: any = {};
+    if (signal) {
+      spawnOpts.signal = signal;
     }
 
-    // Use yt-dlp to get the best audio format
-    const info = await youtubedl(videoUrl, options) as any;
-    console.log(`[YouTube] yt-dlp returned: "${info?.title}" (${info?.duration}s)`);
+    console.log(`[YouTube] Spawning yt-dlp for ${videoId}`);
+    const proc = spawn('yt-dlp', args, spawnOpts);
+    let stderr = '';
 
-    if (!info || !info.formats) {
-      console.error(`[YouTube] No formats found for video: ${videoId}`);
-      throw new Error('No audio formats available for this video');
-    }
-
-    // Find the best audio-only format (usually 140 = m4a audio)
-    const audioFormats = info.formats.filter((f: any) =>
-      f.acodec && f.acodec !== 'none' && f.vcodec === 'none'
-    );
-
-    if (audioFormats.length === 0) {
-      console.error(`[YouTube] No audio-only formats for ${videoId}`);
-      throw new Error('No audio-only formats available');
-    }
-
-    // Sort by quality and prefer m4a/webm
-    audioFormats.sort((a: any, b: any) => {
-      const aScore = (a.abr || 0) + (a.ext === 'm4a' ? 10 : 0);
-      const bScore = (b.abr || 0) + (b.ext === 'm4a' ? 10 : 0);
-      return bScore - aScore;
+    proc.stdout?.on('data', (data: Buffer) => {
+      const line = data.toString().trim();
+      if (line) console.log(`[YouTube] yt-dlp: ${line}`);
     });
 
-    const bestAudio = audioFormats[0];
-    const audioUrl = bestAudio.url;
+    proc.stderr?.on('data', (data: Buffer) => {
+      const line = data.toString().trim();
+      stderr += line + '\n';
+      if (line) console.log(`[YouTube] yt-dlp: ${line}`);
+    });
 
-    if (!audioUrl) {
-      throw new Error('No audio URL extracted from video');
-    }
+    proc.on('error', (err: NodeJS.ErrnoException) => {
+      cleanupTempFiles(tempBase);
+      if (err.code === 'ABORT_ERR') {
+        reject(new Error('Download cancelled'));
+      } else {
+        reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
+      }
+    });
 
-    const expiresAt = Date.now() + (6 * 60 * 60 * 1000);
+    proc.on('close', (code: number | null) => {
+      if (code !== 0) {
+        cleanupTempFiles(tempBase);
+        console.error(`[YouTube] yt-dlp exited with code ${code} for ${videoId}`);
+        reject(new Error(`yt-dlp failed (code ${code}): ${stderr.slice(-500)}`));
+        return;
+      }
 
-    const mimeType = bestAudio.ext === 'm4a' ? 'audio/mp4' :
-                     bestAudio.ext === 'webm' ? 'audio/webm' :
-                     'audio/mpeg';
+      // Find the output file — should be .m4a after extraction
+      if (existsSync(expectedOutput)) {
+        const stat = statSync(expectedOutput);
+        console.log(`[YouTube] Extracted ${videoId}: m4a ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
+        resolve({ filePath: expectedOutput, mimeType: 'audio/mp4', fileSize: stat.size });
+        return;
+      }
 
-    console.log(`[YouTube] Extracted ${videoId}: ${bestAudio.ext} ${bestAudio.abr || '?'}kbps`);
+      // yt-dlp may output with a different extension if ffmpeg conversion was skipped
+      const dir = tmpdir();
+      const prefix = basename(tempBase);
+      const files = readdirSync(dir).filter(f => f.startsWith(prefix));
 
-    return { url: audioUrl, mimeType, expiresAt };
-  } catch (error) {
-    console.error(`[YouTube] Extraction failed for ${videoId}:`, error instanceof Error ? error.message : error);
-    throw new Error(`YouTube audio extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+      if (files.length > 0) {
+        const matchedFile = files[0]!;
+        const filePath = join(dir, matchedFile);
+        const stat = statSync(filePath);
+        const ext = matchedFile.split('.').pop() || '';
+        const mimeType = ext === 'm4a' || ext === 'mp4' ? 'audio/mp4' :
+                        ext === 'webm' || ext === 'opus' ? 'audio/webm' :
+                        'audio/mpeg';
+        console.log(`[YouTube] Extracted ${videoId}: ${ext} ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
+        resolve({ filePath, mimeType, fileSize: stat.size });
+      } else {
+        reject(new Error(`yt-dlp completed but no output file found for ${videoId}`));
+      }
+    });
+  });
 }

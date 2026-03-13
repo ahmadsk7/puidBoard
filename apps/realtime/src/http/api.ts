@@ -22,10 +22,12 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Server as SocketIOServer } from "socket.io";
 import busboy from "busboy";
+import { createReadStream } from "fs";
+import { unlink } from "fs/promises";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
-import { searchYouTube, getYouTubeAudioUrl } from "../services/youtube.js";
+import { searchYouTube, downloadYouTubeAudio } from "../services/youtube.js";
 import { roomStore } from "../rooms/store.js";
 
 // Max file size: 50MB
@@ -666,8 +668,11 @@ async function handleYouTubeSearch(
 
 /**
  * Handle GET /api/youtube/stream/:videoId
- * Proxies YouTube audio through our server to avoid CORS issues.
- * Uses AbortController to kill the upstream fetch when the client disconnects.
+ *
+ * Uses yt-dlp + ffmpeg to download and extract audio on the server, then
+ * streams the resulting file to the client. This is robust against YouTube
+ * format changes — yt-dlp handles format selection, HLS assembly, and
+ * audio extraction regardless of what YouTube serves from datacenter IPs.
  */
 async function handleYouTubeStream(
   req: IncomingMessage,
@@ -681,118 +686,87 @@ async function handleYouTubeStream(
   }
 
   activeStreams++;
-  console.log(`[youtubeStream] Starting stream for ${videoId} (${activeStreams}/${MAX_CONCURRENT_STREAMS} active)`);
+  console.log(`[youtubeStream] Starting extraction for ${videoId} (${activeStreams}/${MAX_CONCURRENT_STREAMS} active)`);
 
   const abortController = new AbortController();
-  let clientDisconnected = false;
   let streamDone = false;
+  let tempFilePath: string | null = null;
 
-  // Safety timeout: force-abort and decrement if stream hangs
+  const cleanup = () => {
+    if (tempFilePath) {
+      const p = tempFilePath;
+      tempFilePath = null;
+      unlink(p).catch(() => {});
+    }
+  };
+
+  // Safety timeout: kill yt-dlp and clean up if extraction hangs
   const safetyTimeout = setTimeout(() => {
     if (!streamDone) {
       console.warn(`[youtubeStream] Timeout after ${STREAM_TIMEOUT_MS / 1000}s for ${videoId}, force-aborting`);
-      clientDisconnected = true;
       abortController.abort();
+      cleanup();
       if (!res.writableEnded) {
         res.destroy();
       }
     }
   }, STREAM_TIMEOUT_MS);
 
-  // Abort the upstream fetch if the client disconnects
+  // Kill yt-dlp if client disconnects during extraction
   req.on('close', () => {
-    if (!res.writableEnded) {
-      clientDisconnected = true;
+    if (!streamDone) {
       abortController.abort();
-      console.log(`[youtubeStream] Client disconnected mid-stream for ${videoId}`);
+      console.log(`[youtubeStream] Client disconnected for ${videoId}`);
     }
   });
 
   try {
-    const result = await getYouTubeAudioUrl(videoId);
-    const audioUrl = result.url;
+    // Download + extract audio via yt-dlp (handles all format/HLS/anti-bot complexity)
+    const result = await downloadYouTubeAudio(videoId, abortController.signal);
+    tempFilePath = result.filePath;
 
-    // Fetch the audio from Google servers
-    const response = await fetch(audioUrl, {
-      signal: abortController.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Range': req.headers.range || 'bytes=0-'
-      }
-    });
-
-    if (!response.ok) {
-      console.error(`[youtubeStream] Google returned ${response.status} for ${videoId}`);
-      sendError(res, 502, "Failed to fetch audio from YouTube");
+    // Client may have disconnected during extraction
+    if (req.destroyed || abortController.signal.aborted) {
+      cleanup();
       return;
     }
 
-    // Set CORS and streaming headers
+    // Stream the extracted audio file to the client
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Range');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
     res.setHeader('Content-Type', result.mimeType);
-    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Length', result.fileSize.toString());
+    res.writeHead(200);
 
-    const contentLength = response.headers.get('content-length');
-    const contentRange = response.headers.get('content-range');
+    const fileStream = createReadStream(result.filePath);
 
-    if (contentLength) {
-      res.setHeader('Content-Length', contentLength);
-    }
-
-    if (contentRange) {
-      res.setHeader('Content-Range', contentRange);
-      res.writeHead(206);
-    } else {
-      res.writeHead(200);
-    }
-
-    // Stream the audio data
-    if (response.body) {
-      const reader = response.body.getReader();
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (clientDisconnected) break;
-          if (!res.write(value)) {
-            // Wait for drain but bail if client disconnected
-            await new Promise<void>((resolve) => {
-              const onDrain = () => { req.removeListener('close', onClose); resolve(); };
-              const onClose = () => { res.removeListener('drain', onDrain); resolve(); };
-              res.once('drain', onDrain);
-              req.once('close', onClose);
-            });
-          }
-        }
-      } catch (error) {
-        // AbortError is expected when client disconnects
-        if (!clientDisconnected) {
-          console.error(`[youtubeStream] Stream read error for ${videoId}:`, error);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    }
+    await new Promise<void>((resolve, reject) => {
+      fileStream.on('end', resolve);
+      fileStream.on('error', reject);
+      res.on('close', () => {
+        fileStream.destroy();
+        resolve();
+      });
+      fileStream.pipe(res);
+    });
 
     if (!res.writableEnded) {
       res.end();
     }
-    console.log(`[youtubeStream] Completed stream for ${videoId}`);
+    console.log(`[youtubeStream] Completed for ${videoId} (${(result.fileSize / 1024 / 1024).toFixed(1)}MB)`);
   } catch (error) {
-    if (clientDisconnected) {
-      // Expected — client left or timed out, we aborted. No need to log as error.
+    if (abortController.signal.aborted) {
+      // Expected — client left or timed out
       return;
     }
     console.error(`[youtubeStream] Failed for ${videoId}:`, error instanceof Error ? error.message : error);
     if (!res.headersSent) {
-      sendError(res, 500, error instanceof Error ? error.message : "Stream proxy failed");
+      sendError(res, 500, error instanceof Error ? error.message : "Audio extraction failed");
     }
   } finally {
     streamDone = true;
     clearTimeout(safetyTimeout);
+    cleanup();
     activeStreams--;
     console.log(`[youtubeStream] Streams active: ${activeStreams}/${MAX_CONCURRENT_STREAMS}`);
   }

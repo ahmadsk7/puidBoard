@@ -431,9 +431,9 @@ Users can search for and add YouTube tracks directly from the UI.
 | Component | File | Purpose |
 |-----------|------|---------|
 | `searchYouTube(query)` | `services/youtube.ts` | Search via YouTube Data API v3, returns up to 15 video results (30-1200s duration, music category) |
-| `getYouTubeAudioUrl(videoId)` | `services/youtube.ts` | Extract direct audio URL using yt-dlp (`youtube-dl-exec`), returns best quality m4a/webm audio |
+| `downloadYouTubeAudio(videoId, signal?)` | `services/youtube.ts` | Download and extract audio using yt-dlp + ffmpeg. Uses `--format bestaudio/worst[height>=360]/best -x --audio-format m4a` to handle any format YouTube serves (audio-only, muxed, HLS). Returns path to extracted m4a file. |
 | `getYouTubeCookiesPath()` | `services/youtube-cookies.ts` | Fetch fresh YouTube cookies from remote API to bypass datacenter IP blocking |
-| `/api/youtube/stream/:videoId` | `http/api.ts` | Streaming proxy that forwards YouTube audio with CORS headers |
+| `/api/youtube/stream/:videoId` | `http/api.ts` | Extracts audio via yt-dlp + ffmpeg on server, streams resulting m4a file to client |
 | `/api/youtube/search?q=...` | `http/api.ts` | Search endpoint wrapping `searchYouTube()` |
 | `/api/youtube/status` | `http/api.ts` | YouTube service health check |
 
@@ -449,13 +449,16 @@ QueueItem created with source: "youtube", youtubeVideoId: "xxx"
 useQueueAudioLoader hook detects new YouTube track in queue
     |
     v
-Backend: yt-dlp extracts direct Google Video URL (m4a/webm format)
+Backend: yt-dlp downloads best format (audio-only, muxed, or HLS)
     |
     v
-Backend: Streaming proxy forwards audio with CORS headers
+Backend: ffmpeg extracts pure m4a audio from whatever was downloaded
     |
     v
-Client: Downloads entire audio file via streaming proxy (with progress tracking)
+Backend: Streams extracted audio file to client
+    |
+    v
+Client: Downloads entire audio file (with progress tracking)
     |
     v
 Client: Decodes to AudioBuffer using Web Audio API decodeAudioData()
@@ -469,6 +472,10 @@ Queue UI enables Deck A/B buttons (loading complete)
     v
 User loads to deck -> Deck uses pre-loaded AudioBuffer (instant)
 ```
+
+**Why server-side extraction instead of URL proxying?**
+
+YouTube serves different format lists depending on IP type. From datacenter IPs (like Fly.io), YouTube often returns only muxed formats (video+audio combined) via HLS, with no audio-only streams. Rather than manually parsing format JSON and proxying raw URLs (which breaks when YouTube changes their format response), we let yt-dlp handle everything end-to-end: format selection, HLS segment assembly, anti-bot measures, and audio extraction via ffmpeg. The result is always a clean m4a file regardless of what YouTube serves.
 
 **Why Buffered Download Instead of Streaming?**
 
@@ -1146,7 +1153,7 @@ The sampler fires locally first for instant feedback, then sends `SAMPLER_PLAY` 
 | `services/supabaseStorage.ts` | Supabase storage wrapper |
 | `services/tracks.ts` | Track upload validation and deduplication |
 | `services/samplerSounds.ts` | Sampler sound management service |
-| `services/youtube.ts` | YouTube search (Data API v3) + audio extraction (yt-dlp) |
+| `services/youtube.ts` | YouTube search (Data API v3) + audio download/extraction (yt-dlp + ffmpeg, outputs m4a) |
 | `services/youtube-cookies.ts` | YouTube cookie fetcher for yt-dlp auth |
 | `db/trackStore.ts` | In-memory track metadata store |
 | `db/samplerSoundStore.ts` | In-memory sampler sound metadata store |
