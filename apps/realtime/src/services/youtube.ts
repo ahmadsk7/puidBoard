@@ -279,18 +279,18 @@ export async function downloadYouTubeAudio(
 
     proc.on('close', (code: number | null) => {
       if (code !== 0) {
-        cleanupTempFiles(tempBase);
-        console.error(`[YouTube] yt-dlp exited with code ${code} for ${videoId}`);
-        reject(new Error(`yt-dlp failed (code ${code}): ${stderr.slice(-500)}`));
-        return;
+        console.warn(`[YouTube] yt-dlp exited with code ${code} for ${videoId} — checking for output file anyway`);
       }
 
-      // Find the output file — should be .m4a after extraction
+      // Check for output file FIRST — yt-dlp can exit non-zero (e.g. one HLS
+      // fragment out of 55 fails) but still produce a perfectly valid audio file.
       if (existsSync(expectedOutput)) {
         const stat = statSync(expectedOutput);
-        console.log(`[YouTube] Extracted ${videoId}: m4a ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
-        resolve({ filePath: expectedOutput, mimeType: 'audio/mp4', fileSize: stat.size });
-        return;
+        if (stat.size > 0) {
+          console.log(`[YouTube] Extracted ${videoId}: m4a ${(stat.size / 1024 / 1024).toFixed(1)}MB (exit code ${code})`);
+          resolve({ filePath: expectedOutput, mimeType: 'audio/mp4', fileSize: stat.size });
+          return;
+        }
       }
 
       // yt-dlp may output with a different extension if ffmpeg conversion was skipped
@@ -302,15 +302,21 @@ export async function downloadYouTubeAudio(
         const matchedFile = files[0]!;
         const filePath = join(dir, matchedFile);
         const stat = statSync(filePath);
-        const ext = matchedFile.split('.').pop() || '';
-        const mimeType = ext === 'm4a' || ext === 'mp4' ? 'audio/mp4' :
-                        ext === 'webm' || ext === 'opus' ? 'audio/webm' :
-                        'audio/mpeg';
-        console.log(`[YouTube] Extracted ${videoId}: ${ext} ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
-        resolve({ filePath, mimeType, fileSize: stat.size });
-      } else {
-        reject(new Error(`yt-dlp completed but no output file found for ${videoId}`));
+        if (stat.size > 0) {
+          const ext = matchedFile.split('.').pop() || '';
+          const mimeType = ext === 'm4a' || ext === 'mp4' ? 'audio/mp4' :
+                          ext === 'webm' || ext === 'opus' ? 'audio/webm' :
+                          'audio/mpeg';
+          console.log(`[YouTube] Extracted ${videoId}: ${ext} ${(stat.size / 1024 / 1024).toFixed(1)}MB (exit code ${code})`);
+          resolve({ filePath, mimeType, fileSize: stat.size });
+          return;
+        }
       }
+
+      // No valid output file — now it's a real failure
+      cleanupTempFiles(tempBase);
+      console.error(`[YouTube] yt-dlp failed for ${videoId}: no output file produced (exit code ${code})`);
+      reject(new Error(`yt-dlp failed (code ${code}): ${stderr.slice(-500)}`));
     });
   });
 }
