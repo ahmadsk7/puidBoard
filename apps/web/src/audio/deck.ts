@@ -855,6 +855,23 @@ export class Deck {
   }
 
   /**
+   * Apply pre-computed analysis data from server cache.
+   * Used when joining a room where another client already analyzed the track.
+   */
+  setAnalysisFromCache(bpm: number, waveform: WaveformData | null): void {
+    if (this.state.analysis.bpm !== null) return; // Already analyzed locally
+    if (this.state.analysis.status === "analyzing") return; // Analysis in progress
+
+    this.state.analysis = {
+      bpm,
+      waveform,
+      status: "complete",
+    };
+    this.notify();
+    console.log(`[deck-${this.state.deckId}] Applied cached analysis: BPM=${bpm}`);
+  }
+
+  /**
    * Seek to a specific position.
    */
   seek(positionSec: number): void {

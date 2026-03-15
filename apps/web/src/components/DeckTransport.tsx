@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import type { DeckState as ServerDeckState, ClientMutationEvent, QueueItem } from "@puid-board/shared";
-import { useDeck, syncDeckBPM } from "@/audio/useDeck";
+import { useDeck, syncDeckBPM, getDeck } from "@/audio/useDeck";
 // DISABLED: getDeck was used for seekSmooth during playback, now handled by DeckEngine
 // import { getDeck } from "@/audio/useDeck";
 import { DeckControlPanel } from "./displays";
 import { initAudioEngine } from "@/audio/engine";
+import { getRealtimeClient } from "@/realtime/client";
 
 export type DeckTransportProps = {
   /** Deck ID (A or B) */
@@ -83,11 +84,15 @@ export default function DeckTransport({
 
       // Helper function to get the audio URL (for YouTube, returns videoId format)
       const getAudioUrl = async (): Promise<string> => {
-        // For YouTube tracks, return in format "youtube:VIDEO_ID"
         const isYouTube = queueItem.source === "youtube" && queueItem.youtubeVideoId;
-        console.log(`[DeckTransport-${deckId}]   - isYouTube check: source="${queueItem.source}" videoId="${queueItem.youtubeVideoId}" => ${isYouTube}`);
 
         if (isYouTube) {
+          // If track is cached, use the direct URL (same path as uploaded tracks)
+          if (queueItem.cached) {
+            console.log(`[DeckTransport-${deckId}]   - Using cached URL: ${queueItem.url}`);
+            return queueItem.url;
+          }
+          // Uncached YouTube track — use the youtube:VIDEO_ID format for yt-dlp extraction
           const youtubeUrl = `youtube:${queueItem.youtubeVideoId}`;
           console.log(`[DeckTransport-${deckId}]   - Using YouTube URL: ${youtubeUrl}`);
           return youtubeUrl;
@@ -223,11 +228,35 @@ export default function DeckTransport({
   // DeckEngine is the single writer for transport state and applies rate changes
   // smoothly via PLL-based drift correction.
 
+  // Get the current queue item for this deck
+  const queueItem = serverState.loadedQueueItemId
+    ? queue.find((q) => q.id === serverState.loadedQueueItemId) ?? null
+    : null;
+
+  // Apply pre-computed BPM and waveform from cache to the Deck instance
+  useEffect(() => {
+    if (!queueItem?.bpm) return;
+    const deckInstance = getDeck(deckId);
+    // If the deck hasn't detected BPM yet, apply cached values
+    if (deckInstance.getState().analysis.bpm === null && deckInstance.getState().analysis.status !== "analyzing") {
+      deckInstance.setAnalysisFromCache(
+        queueItem.bpm,
+        queueItem.waveform
+          ? {
+              peaks: new Float32Array(queueItem.waveform),
+              sampleRate: 44100,
+              duration: queueItem.durationSec,
+              bucketCount: queueItem.waveform.length,
+            }
+          : null
+      );
+    }
+  }, [queueItem?.bpm, queueItem?.waveform, deckId, queueItem?.durationSec]);
+
   // Send detected BPM to server when analysis completes
   useEffect(() => {
     const bpm = deck.state.analysis.bpm;
     const status = deck.state.analysis.status;
-
 
     // Only send when analysis is complete and we have a valid BPM
     if (status === "complete" && bpm !== null && bpm > 0) {
@@ -239,16 +268,21 @@ export default function DeckTransport({
         clientSeq: nextSeq(),
         payload: { deckId, bpm },
       });
-      console.log(`[DeckTransport-${deckId}] ✓ DECK_BPM_DETECTED event sent`);
-    } else {
-      if (status !== "complete") {
-      }
-      if (bpm === null) {
-      }
-      if (bpm !== null && bpm <= 0) {
+
+      // Also report to server cache for YouTube tracks
+      if (queueItem?.source === "youtube" && queueItem?.youtubeVideoId && !queueItem?.cached) {
+        const waveform = deck.state.analysis.waveform;
+        if (waveform) {
+          const client = getRealtimeClient();
+          client.sendTrackMetadata(
+            queueItem.youtubeVideoId,
+            bpm,
+            Array.from(waveform.peaks)
+          );
+        }
       }
     }
-  }, [deck.state.analysis.bpm, deck.state.analysis.status, deckId, roomId, clientId, sendEvent, nextSeq]);
+  }, [deck.state.analysis.bpm, deck.state.analysis.status, deckId, roomId, clientId, sendEvent, nextSeq, queueItem]);
 
   // Send DECK_PLAY event (optimistic: play locally first, then notify server)
   const handlePlay = useCallback(async () => {

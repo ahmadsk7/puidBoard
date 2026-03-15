@@ -1,14 +1,14 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
-import { initAudioEngine } from "@/audio/engine";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
+import { RoomLoadingScreen } from "../../../components/RoomLoadingScreen";
 
 /** Shared room UI content */
 function RoomContent({
@@ -24,23 +24,6 @@ function RoomContent({
   sendEvent: (e: ClientMutationEvent) => void;
   nextSeq: () => number;
 }) {
-  // Initialize audio on first user interaction (click anywhere)
-  useEffect(() => {
-    const handleFirstClick = async () => {
-      try {
-        await initAudioEngine();
-        console.log("[Room] Audio engine initialized on first click");
-        // Remove listener after first successful initialization
-        document.removeEventListener("click", handleFirstClick);
-      } catch (err) {
-        console.error("[Room] Failed to initialize audio:", err);
-      }
-    };
-
-    document.addEventListener("click", handleFirstClick);
-    return () => document.removeEventListener("click", handleFirstClick);
-  }, []);
-
   return (
     <div
       style={{
@@ -111,6 +94,8 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
 
   // Don't update URL - just show the actual room code in the UI
   // Updating URL causes navigation issues and disconnects
+
+  const [roomReady, setRoomReady] = useState(false);
 
   const seqRef = useRef(0);
   const nextSeq = () => ++seqRef.current;
@@ -317,6 +302,20 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
     );
   }
 
+  const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
+
+  // Phase 1: Loading screen — wait for assets
+  if (!roomReady) {
+    return (
+      <RoomLoadingScreen
+        state={state}
+        realtimeUrl={realtimeUrl}
+        onReady={() => setRoomReady(true)}
+      />
+    );
+  }
+
+  // Phase 2: Board is ready
   return (
     <RoomContent
       state={state}

@@ -22,16 +22,25 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Server as SocketIOServer } from "socket.io";
 import busboy from "busboy";
-import { createReadStream } from "fs";
+import { createReadStream, existsSync, statSync } from "fs";
 import { unlink } from "fs/promises";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { trackService, TrackValidationError } from "../services/tracks.js";
 import { storageService } from "../services/storage.js";
 import { samplerSoundsService, SamplerSoundValidationError } from "../services/samplerSounds.js";
 import { searchYouTube, downloadYouTubeAudio } from "../services/youtube.js";
 import { roomStore } from "../rooms/store.js";
+import { hasCachedAudio, getCachedAudioUrl, cacheAudio } from "../services/youtubeCache.js";
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+// Storage directory for cached YouTube audio (matches storage.ts pattern)
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const isInDist = __dirname.includes("/dist/");
+const appRoot = isInDist ? resolve(__dirname, "../../..") : resolve(__dirname, "../..");
+const STORAGE_DIR = process.env.STORAGE_DIR ?? resolve(appRoot, ".storage/tracks");
 
 interface ParsedFormData {
   fields: Record<string, string>;
@@ -679,6 +688,34 @@ async function handleYouTubeStream(
   res: ServerResponse,
   videoId: string
 ): Promise<void> {
+  // Check cache first — skip yt-dlp entirely if we have this audio
+  try {
+    const isCached = await hasCachedAudio(videoId);
+    if (isCached) {
+      const cachedUrl = getCachedAudioUrl(videoId);
+      if (cachedUrl) {
+        // Local file — stream from disk
+        const storageKey = `yt-${videoId}.m4a`;
+        const filePath = join(STORAGE_DIR, storageKey);
+        if (existsSync(filePath)) {
+          const stat = statSync(filePath);
+          res.writeHead(200, {
+            "Content-Type": "audio/mp4",
+            "Content-Length": stat.size,
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=31536000",
+          });
+          createReadStream(filePath).pipe(res);
+          console.log(`[api] YouTube cache hit for ${videoId}, serving from disk`);
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[api] Cache check failed for ${videoId}, falling back to yt-dlp:`, err);
+    // Continue to normal extraction flow
+  }
+
   if (activeStreams >= MAX_CONCURRENT_STREAMS) {
     console.log(`[youtubeStream] Rejected: ${activeStreams}/${MAX_CONCURRENT_STREAMS} streams active`);
     sendError(res, 503, "Server busy, too many active streams. Try again in a moment.");
@@ -724,6 +761,11 @@ async function handleYouTubeStream(
     // Download + extract audio via yt-dlp (handles all format/HLS/anti-bot complexity)
     const result = await downloadYouTubeAudio(videoId, abortController.signal);
     tempFilePath = result.filePath;
+
+    // Cache the extracted audio (must complete before cleanup deletes temp file)
+    await cacheAudio(videoId, result.filePath).catch((err) => {
+      console.warn(`[api] Cache write failed for ${videoId}:`, err);
+    });
 
     // Client may have disconnected during extraction
     if (req.destroyed || abortController.signal.aborted) {
