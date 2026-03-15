@@ -106,10 +106,10 @@ git commit -m "feat: add DJ-style random name generator"
 
 ```typescript
 // apps/web/src/utils/username.test.ts
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 import { getUsername, setUsername } from "./username";
 
-// Vitest has a jsdom environment that provides localStorage
 describe("username persistence", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -275,7 +275,7 @@ Add the following after `RejoinRoomEventSchema` (around line 526) but before the
 
 /** Rename request (client → server) */
 export const MemberRenamePayloadSchema = z.object({
-  name: z.string().min(1).max(32).trim(),
+  name: z.string().min(1).max(32),
 });
 export type MemberRenamePayload = z.infer<typeof MemberRenamePayloadSchema>;
 
@@ -328,15 +328,32 @@ export const ServerEventSchema = z.discriminatedUnion("type", [
 ]);
 ```
 
-- [ ] **Step 2: Build shared package to verify types compile**
+- [ ] **Step 2: Export new schemas from `packages/shared/src/index.ts`**
+
+Add to the schema exports block (after `RejoinRoomEventSchema` around line 170):
+```typescript
+  // Member rename events
+  MemberRenamePayloadSchema,
+  MemberRenameEventSchema,
+  MemberRenamedEventSchema,
+```
+
+Add to the type exports block (after `RejoinRoomEvent` around line 242):
+```typescript
+  MemberRenamePayload,
+  MemberRenameEvent,
+  MemberRenamedEvent,
+```
+
+- [ ] **Step 3: Build shared package to verify types compile**
 
 Run: `cd packages/shared && npx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/shared/src/events.ts
+git add packages/shared/src/events.ts packages/shared/src/index.ts
 git commit -m "feat: add MEMBER_RENAME and MEMBER_RENAMED event schemas"
 ```
 
@@ -388,7 +405,7 @@ export function handleMemberRename(
   if (!member) return;
 
   const oldName = member.name;
-  const newName = parsed.data.payload.name;
+  const newName = parsed.data.payload.name.trim();
 
   if (oldName === newName) return; // No change
 
@@ -599,21 +616,33 @@ In `apps/web/src/realtime/useRealtimeRoom.ts`:
    const { roomCode, name, create = false, autoCreate = false, onMemberJoined, onMemberLeft, onMemberRenamed } = options;
    ```
 
-4. Add subscriptions inside the main `useEffect` (after `unsubError` around line 106):
+4. **Use refs for callbacks** to avoid infinite re-subscribe loops. Add before the main `useEffect`:
    ```typescript
-   const unsubJoined = onMemberJoined ? client.onMemberJoined(onMemberJoined) : undefined;
-   const unsubLeft = onMemberLeft ? client.onMemberLeft(onMemberLeft) : undefined;
-   const unsubRenamed = onMemberRenamed ? client.onMemberRenamed(onMemberRenamed) : undefined;
+   const onMemberJoinedRef = useRef(onMemberJoined);
+   onMemberJoinedRef.current = onMemberJoined;
+   const onMemberLeftRef = useRef(onMemberLeft);
+   onMemberLeftRef.current = onMemberLeft;
+   const onMemberRenamedRef = useRef(onMemberRenamed);
+   onMemberRenamedRef.current = onMemberRenamed;
    ```
 
-5. Clean up in the return function:
+5. Add subscriptions inside the main `useEffect` (after `unsubError` around line 106). **Use the refs, not the callbacks directly** — this prevents the effect from re-running when callbacks change:
    ```typescript
-   unsubJoined?.();
-   unsubLeft?.();
-   unsubRenamed?.();
+   const unsubJoined = client.onMemberJoined((p) => onMemberJoinedRef.current?.(p));
+   const unsubLeft = client.onMemberLeft((p) => onMemberLeftRef.current?.(p));
+   const unsubRenamed = client.onMemberRenamed((p) => onMemberRenamedRef.current?.(p));
    ```
 
-6. Add `sendRename` callback:
+   **Do NOT add `onMemberJoined`/`onMemberLeft`/`onMemberRenamed` to the useEffect dependency array** — the refs handle staleness.
+
+6. Clean up in the return function:
+   ```typescript
+   unsubJoined();
+   unsubLeft();
+   unsubRenamed();
+   ```
+
+7. Add `sendRename` callback:
    ```typescript
    const sendRename = useCallback(
      (newName: string) => {
@@ -623,16 +652,7 @@ In `apps/web/src/realtime/useRealtimeRoom.ts`:
    );
    ```
 
-7. Return `sendRename` in the result object.
-
-**Important:** The `onMemberJoined`/`onMemberLeft`/`onMemberRenamed` callbacks must be wrapped in refs (not passed directly to useEffect deps) to avoid re-subscribing on every render. Use `useRef` for each callback and update on render:
-
-```typescript
-const onMemberJoinedRef = useRef(onMemberJoined);
-onMemberJoinedRef.current = onMemberJoined;
-// Then in useEffect:
-const unsubJoined = client.onMemberJoined((p) => onMemberJoinedRef.current?.(p));
-```
+8. Return `sendRename` in the result object.
 
 - [ ] **Step 2: Build to verify types**
 
@@ -917,36 +937,43 @@ In `apps/web/src/app/room/[code]/page.tsx`:
 
 In `RealtimeRoomContent`:
 
-1. Add `useToasts()` hook.
-2. Pass member event callbacks to `useRealtimeRoom`:
+1. Add `useToasts()` hook and a ref for `clientId` (to avoid stale closures):
    ```typescript
    const { toasts, addToast } = useToasts();
+   const clientIdRef = useRef<string | null>(null);
+   ```
 
+2. Define stable callbacks before calling `useRealtimeRoom`. Use `useCallback` with only `addToast` as a dependency (the ref handles `clientId` staleness):
+   ```typescript
+   const handleMemberJoined = useCallback((p: { clientId: string; name: string; color: string }) => {
+     if (clientIdRef.current && p.clientId === clientIdRef.current) return;
+     addToast({ message: `${p.name} joined`, color: p.color, type: "join" });
+   }, [addToast]);
+
+   const handleMemberLeft = useCallback((p: { clientId: string; name: string; color: string }) => {
+     addToast({ message: `${p.name} left`, color: p.color, type: "leave" });
+   }, [addToast]);
+
+   const handleMemberRenamed = useCallback((p: { clientId: string; oldName: string; newName: string }) => {
+     // Look up the member's color from current state via ref, fallback to gray
+     addToast({ message: `${p.oldName} is now ${p.newName}`, color: "#9ca3af", type: "rename" });
+   }, [addToast]);
+   ```
+
+3. Call `useRealtimeRoom` with these stable callbacks:
+   ```typescript
    const { state, clientId, latencyMs, status, error, sendEvent, sendRename } = useRealtimeRoom({
      roomCode: isCreating ? undefined : roomCode,
      name,
      create: isCreating,
      autoCreate: false,
-     onMemberJoined: useCallback((p) => {
-       // Don't toast for self
-       if (clientId && p.clientId === clientId) return;
-       addToast({ message: `${p.name} joined`, color: p.color, type: "join" });
-     }, [addToast, clientId]),
-     onMemberLeft: useCallback((p) => {
-       addToast({ message: `${p.name} left`, color: p.color, type: "leave" });
-     }, [addToast]),
-     onMemberRenamed: useCallback((p) => {
-       addToast({ message: `${p.oldName} is now ${p.newName}`, color: "#9ca3af", type: "rename" });
-     }, [addToast]),
+     onMemberJoined: handleMemberJoined,
+     onMemberLeft: handleMemberLeft,
+     onMemberRenamed: handleMemberRenamed,
    });
-   ```
 
-   **Note:** The `clientId` reference in `onMemberJoined` may be stale. Use a ref instead:
-   ```typescript
-   const clientIdRef = useRef<string | null>(null);
+   // Keep the ref in sync
    clientIdRef.current = clientId;
-   // Then in callback:
-   if (clientIdRef.current && p.clientId === clientIdRef.current) return;
    ```
 
 3. Add `<ToastContainer toasts={toasts} />` just before the closing `</div>` of the return.
