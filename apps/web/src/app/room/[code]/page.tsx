@@ -8,6 +8,7 @@ import TopBar from "@/components/TopBar";
 import DJBoard from "@/components/DJBoard";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import { initAudioEngine } from "@/audio/engine";
+import { getUsername } from "@/utils/username";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 
 /** Shared room UI content */
@@ -97,7 +98,7 @@ function MockRoomContent() {
 /** Real room wrapper */
 function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   // Generate a stable name for this session
-  const [name] = useState(() => `User${Math.floor(Math.random() * 1000)}`);
+  const [name] = useState(() => getUsername());
 
   // If roomCode is "create", we want to create a new room, otherwise join existing
   const isCreating = roomCode.toLowerCase() === "create";
