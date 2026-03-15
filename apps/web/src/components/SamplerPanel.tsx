@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import SamplerButton from "./SamplerButton";
 import {
   playSample,
@@ -11,6 +11,7 @@ import {
   type SampleSlot,
 } from "@/audio/sampler";
 import type { ClientMutationEvent } from "@puid-board/shared";
+import { getRealtimeClient } from "@/realtime/client";
 
 export type SamplerPanelProps = {
   /** Optional: width to constrain the panel */
@@ -36,13 +37,33 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
   const gap = 0;
   const buttonSize = Math.floor(width / 4); // 46px each for 184px width
 
-  // Track which slot is currently pressed via keyboard (for visual feedback)
-  const [pressedSlot, setPressedSlot] = useState<SampleSlot | null>(null);
+  // Track which slots are currently pressed (supports simultaneous local + remote)
+  const [pressedSlots, setPressedSlots] = useState<Set<SampleSlot>>(new Set());
+  const timersRef = useRef<Map<SampleSlot, ReturnType<typeof setTimeout>>>(new Map());
+
+  const flashSlot = useCallback((slot: SampleSlot) => {
+    // Clear any existing timer for this slot
+    const existing = timersRef.current.get(slot);
+    if (existing) clearTimeout(existing);
+
+    setPressedSlots((prev) => new Set(prev).add(slot));
+    const timer = setTimeout(() => {
+      setPressedSlots((prev) => {
+        const next = new Set(prev);
+        next.delete(slot);
+        return next;
+      });
+      timersRef.current.delete(slot);
+    }, 150);
+    timersRef.current.set(slot, timer);
+  }, []);
 
   // Handle sample playback: play locally first (optimistic), then broadcast
   const handlePlaySample = useCallback((slot: SampleSlot) => {
     // Play locally immediately
     playSample(slot);
+    // Visual feedback
+    flashSlot(slot);
     // Broadcast to other clients
     if (sendEvent && roomId && clientId && nextSeq) {
       sendEvent({
@@ -53,7 +74,15 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
         payload: { slot },
       });
     }
-  }, [sendEvent, roomId, clientId, nextSeq]);
+  }, [sendEvent, roomId, clientId, nextSeq, flashSlot]);
+
+  // Subscribe to remote sampler play events for visual feedback
+  useEffect(() => {
+    const client = getRealtimeClient();
+    return client.onSamplerPlay((slot) => {
+      flashSlot(slot);
+    });
+  }, [flashSlot]);
 
   // Load default samples on mount
   useEffect(() => {
@@ -86,10 +115,7 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
       if (slot !== undefined) {
         console.log(`[Sampler] Key pressed: ${e.code} -> Slot ${slot}`);
         e.preventDefault();
-        setPressedSlot(slot);
         handlePlaySample(slot);
-        // Clear the pressed state after a brief delay for visual feedback
-        setTimeout(() => setPressedSlot(null), 150);
       }
     };
 
@@ -100,6 +126,14 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [handlePlaySample]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+    };
+  }, []);
 
   const slots: SampleSlot[] = [0, 1, 2, 3];
 
@@ -122,7 +156,7 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
           color={SLOT_COLORS[slot]}
           onClick={() => handlePlaySample(slot)}
           size={buttonSize}
-          externalPressed={pressedSlot === slot}
+          externalPressed={pressedSlots.has(slot)}
           icon={SLOT_ICONS[slot]}
         />
       ))}

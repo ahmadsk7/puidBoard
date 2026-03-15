@@ -55,6 +55,7 @@ export class RealtimeClient {
   private latencyListeners = new Set<LatencyListener>();
   private errorListeners = new Set<ErrorListener>();
   private samplerListeners = new Set<(payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }) => void>();
+  private samplerPlayListeners = new Set<(slot: 0 | 1 | 2 | 3) => void>();
 
   /** Pending room to rejoin on reconnect */
   private pendingRejoin: { roomCode: string; name: string } | null = null;
@@ -94,6 +95,12 @@ export class RealtimeClient {
   onSamplerChange(listener: (payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }) => void): () => void {
     this.samplerListeners.add(listener);
     return () => this.samplerListeners.delete(listener);
+  }
+
+  /** Subscribe to remote sampler play events (for visual feedback) */
+  onSamplerPlay(listener: (slot: 0 | 1 | 2 | 3) => void): () => void {
+    this.samplerPlayListeners.add(listener);
+    return () => this.samplerPlayListeners.delete(listener);
   }
 
   /** Subscribe to latency updates */
@@ -636,6 +643,7 @@ export class RealtimeClient {
         playRemoteSample(event.payload.slot as SampleSlot).catch((err) => {
           console.warn("[RealtimeClient] Failed to play remote sample:", err);
         });
+        this.samplerPlayListeners.forEach((l) => l(event.payload.slot));
       }
     });
 
