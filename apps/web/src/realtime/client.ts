@@ -10,6 +10,7 @@ import type {
   RoomSnapshotEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
+  MemberRenamedEvent,
   TimePongEvent,
   Member,
 } from "@puid-board/shared";
@@ -56,6 +57,9 @@ export class RealtimeClient {
   private errorListeners = new Set<ErrorListener>();
   private samplerListeners = new Set<(payload: { slot: 0 | 1 | 2 | 3; url: string | null; name: string; isCustom: boolean }) => void>();
   private samplerPlayListeners = new Set<(slot: 0 | 1 | 2 | 3) => void>();
+  private memberJoinedListeners = new Set<(payload: { clientId: string; name: string; color: string }) => void>();
+  private memberLeftListeners = new Set<(payload: { clientId: string; name: string; color: string }) => void>();
+  private memberRenamedListeners = new Set<(payload: { clientId: string; oldName: string; newName: string }) => void>();
 
   /** Pending room to rejoin on reconnect */
   private pendingRejoin: { roomCode: string; name: string } | null = null;
@@ -101,6 +105,21 @@ export class RealtimeClient {
   onSamplerPlay(listener: (slot: 0 | 1 | 2 | 3) => void): () => void {
     this.samplerPlayListeners.add(listener);
     return () => this.samplerPlayListeners.delete(listener);
+  }
+
+  onMemberJoined(listener: (payload: { clientId: string; name: string; color: string }) => void): () => void {
+    this.memberJoinedListeners.add(listener);
+    return () => this.memberJoinedListeners.delete(listener);
+  }
+
+  onMemberLeft(listener: (payload: { clientId: string; name: string; color: string }) => void): () => void {
+    this.memberLeftListeners.add(listener);
+    return () => this.memberLeftListeners.delete(listener);
+  }
+
+  onMemberRenamed(listener: (payload: { clientId: string; oldName: string; newName: string }) => void): () => void {
+    this.memberRenamedListeners.add(listener);
+    return () => this.memberRenamedListeners.delete(listener);
   }
 
   /** Subscribe to latency updates */
@@ -209,6 +228,17 @@ export class RealtimeClient {
     }
     console.log(`[RealtimeClient] sendEvent: ${event.type}`, event);
     this.socket.emit(event.type, event);
+  }
+
+  /** Send a rename request to the server */
+  sendRename(newName: string): void {
+    if (!this.socket?.connected || !this.state || !this.clientId) return;
+    this.socket.emit("MEMBER_RENAME", {
+      type: "MEMBER_RENAME",
+      roomId: this.state.roomId,
+      clientId: this.clientId,
+      payload: { name: newName },
+    });
   }
 
   private registerSocketHandlers(): void {
@@ -326,10 +356,16 @@ export class RealtimeClient {
         members: [...this.state.members, newMember],
       };
       this.notifyStateListeners();
+      this.memberJoinedListeners.forEach((l) => l({
+        clientId: event.payload.clientId,
+        name: event.payload.name,
+        color: event.payload.color,
+      }));
     });
 
     this.socket.on("MEMBER_LEFT", (event: MemberLeftEvent) => {
       if (!this.state) return;
+      const leaving = this.state.members.find((m) => m.clientId === event.payload.clientId);
       this.state = {
         ...this.state,
         members: this.state.members.filter(
@@ -337,6 +373,31 @@ export class RealtimeClient {
         ),
       };
       this.notifyStateListeners();
+      if (leaving) {
+        this.memberLeftListeners.forEach((l) => l({
+          clientId: event.payload.clientId,
+          name: leaving.name,
+          color: leaving.color,
+        }));
+      }
+    });
+
+    this.socket.on("MEMBER_RENAMED", (event: MemberRenamedEvent) => {
+      if (!this.state) return;
+      this.state = {
+        ...this.state,
+        members: this.state.members.map((m) =>
+          m.clientId === event.payload.clientId
+            ? { ...m, name: event.payload.newName }
+            : m
+        ),
+      };
+      this.notifyStateListeners();
+      this.memberRenamedListeners.forEach((l) => l({
+        clientId: event.payload.clientId,
+        oldName: event.payload.oldName,
+        newName: event.payload.newName,
+      }));
     });
 
     // Handle cursor updates from other members
