@@ -8,15 +8,15 @@ Add room presence awareness to the multiplayer DJ board: who's in the room (pres
 
 ### 1.1 Random Name Generator
 
-Generate fun DJ-style names from two word lists combined with an optional numeric suffix.
+Generate fun DJ-style names from two word lists combined with a numeric suffix.
 
 **Adjective pool (~20):** Iron, Neon, Cyber, Cosmic, Velvet, Turbo, Shadow, Crystal, Hyper, Golden, Stealth, Lunar, Phantom, Atomic, Blazing, Frozen, Thunder, Mystic, Savage, Radical
 
 **Noun pool (~20):** Moose, Falcon, Panther, Cobra, Phoenix, Wolf, Tiger, Hawk, Viper, Lynx, Raven, Shark, Dragon, Mustang, Jaguar, Coyote, Condor, Mantis, Badger, Orca
 
-**Format:** `{Adjective}{Noun}` — e.g. "IronMoose", "NeonFalcon", "CyberPanther". Append a random 1-3 digit number if desired for uniqueness (e.g. "TurboWolf42").
+**Format:** `{Adjective}{Noun}{NN}` — always append a 2-digit suffix (00-99). E.g. "IronMoose42", "NeonFalcon07", "CyberPanther88". This gives 20 x 20 x 100 = 40,000 unique names.
 
-**Location:** New utility file `apps/web/src/utils/generateName.ts` exporting `generateRandomName(): string`.
+**Location:** New utility file `apps/web/src/utils/generateName.ts` exporting `generateRandomName(): string`. Pure function, no browser APIs.
 
 ### 1.2 localStorage Persistence
 
@@ -24,6 +24,7 @@ Generate fun DJ-style names from two word lists combined with an optional numeri
 - **First visit:** Generate a random name via the generator, store it.
 - **Return visits:** Read from localStorage; skip generation.
 - **On edit:** Overwrite localStorage immediately.
+- **Guard:** All localStorage access must happen in `"use client"` components (both `page.tsx` files already are).
 
 ### 1.3 Home Screen (`apps/web/src/app/page.tsx`)
 
@@ -36,7 +37,7 @@ Username: [IronMoose42    ] [pencil icon or "edit" affordance]
 - Renders as an inline-editable text field.
 - On page load, reads from localStorage (or generates + stores if absent).
 - Edits update localStorage on blur / Enter.
-- Max length: 20 characters.
+- Max length: 32 characters (matches existing `MemberSchema` max).
 - Non-empty validation — if user clears it, regenerate a random name.
 
 ### 1.4 Room Page Integration (`apps/web/src/app/room/[code]/page.tsx`)
@@ -64,6 +65,8 @@ export type TopBarProps = {
 
 Existing content (room code, copy buttons, latency) stays on the left. Presence pills are pushed to the right via `margin-left: auto`.
 
+If more than 5 members, show the first 4 pills + a "+N more" overflow indicator to prevent TopBar overflow on narrow screens.
+
 ### 2.3 Pill Rendering
 
 Each member rendered as a small pill/chip:
@@ -81,8 +84,10 @@ Each member rendered as a small pill/chip:
 
 - Clicking the current user's pill replaces the name text with a small `<input>` field (same size as the pill).
 - Press Enter or blur to confirm. Escape to cancel.
-- On confirm: call `onRename(newName)` prop, which sends `MEMBER_RENAME` event and updates localStorage.
-- Validate: non-empty, max 20 chars. If empty, revert to previous name.
+- On confirm: call `onRename(newName)` prop, which sends `MEMBER_RENAME` to the server and updates localStorage.
+- Validate: non-empty, max 32 chars. If empty, revert to previous name.
+- Focus management: on click, focus moves to input. On Escape, focus returns to the pill.
+- Throttle: one rename per 5 seconds client-side to prevent spam.
 
 ## 3. Join/Leave Toast Notifications
 
@@ -98,6 +103,7 @@ New file: `apps/web/src/components/Toast.tsx`
 
 - **Join:** `"● {name} joined"` — dot uses the member's color.
 - **Leave:** `"● {name} left"` — dot uses the member's color, text slightly dimmed.
+- **Rename:** `"● {oldName} is now {newName}"` — dot uses the member's color.
 
 ### 3.3 Behavior
 
@@ -108,40 +114,63 @@ New file: `apps/web/src/components/Toast.tsx`
 
 ### 3.4 Integration
 
-- The room page component (`RoomContent` or the parent) listens for member changes by comparing `members` array across state updates.
-- When a new member appears (by `clientId`) that wasn't in the previous state → show join toast.
-- When a member disappears → show leave toast.
-- Implemented as a `useToasts()` hook + `<ToastContainer />` component.
+The `RealtimeClient` already receives discrete `MEMBER_JOINED` and `MEMBER_LEFT` events from the server. Use these directly:
+
+- Add `onMemberJoined` and `onMemberLeft` listener callbacks to `RealtimeClient`, following the existing pattern of `onSamplerPlay`/`onSamplerChange`.
+- Add `onMemberRenamed` listener for rename broadcasts.
+- Expose these in `useRealtimeRoom` hook as callback options.
+- The room page subscribes to these callbacks and triggers toasts via a `useToasts()` hook + `<ToastContainer />` component.
+- Don't fire join toast for the current user's own `clientId`.
 
 ## 4. Backend: MEMBER_RENAME Event
 
-### 4.1 Shared Schema (`packages/shared/src/events.ts`)
+### 4.1 Event Architecture
 
-Add new event type to `ClientMutationEvent`:
+`MEMBER_RENAME` is a **standalone client-to-server event**, NOT a `ClientMutationEvent`. It follows the same pattern as `JOIN_ROOM` / `LEAVE_ROOM` — member metadata, not room state mutations.
 
+**Client-to-server event** (`MEMBER_RENAME`):
 ```typescript
-{
-  type: "MEMBER_RENAME";
-  roomId: string;
-  clientId: string;
-  clientSeq: number;
-  payload: { name: string };
-}
+// In packages/shared/src/events.ts — standalone schema, not in ClientMutationEventSchema
+const MemberRenamePayloadSchema = z.object({
+  name: z.string().min(1).max(32).trim(),
+});
+
+const MemberRenameEventSchema = z.object({
+  type: z.literal("MEMBER_RENAME"),
+  roomId: z.string(),
+  clientId: z.string(),
+  payload: MemberRenamePayloadSchema,
+});
+```
+
+**Server-to-client broadcast** (`MEMBER_RENAMED`):
+```typescript
+const MemberRenamedBroadcastSchema = z.object({
+  type: z.literal("MEMBER_RENAMED"),
+  clientId: z.string(),
+  oldName: z.string(),
+  newName: z.string(),
+});
 ```
 
 ### 4.2 Server Handler (`apps/realtime/src/handlers/`)
 
-New handler (can be added to an existing handler file or a small new file):
+New handler file `apps/realtime/src/handlers/member.ts`:
 
-- Validate: `name` is a non-empty string, trimmed, max 20 chars.
+- Validate payload with `MemberRenamePayloadSchema`.
 - Find the member in room state by `clientId`.
-- Update `member.name` to the new name.
+- Update `member.name` to the new trimmed name.
 - Bump room version.
-- Broadcast updated room snapshot to all members.
+- Broadcast `MEMBER_RENAMED` event (with `oldName` and `newName`) to all members in the room.
 
-### 4.3 No New Server Events for Join/Leave
+Register this handler in `apps/realtime/src/protocol/handlers.ts`.
 
-Join and leave detection is handled client-side by diffing the `members` array across state snapshots. The server already broadcasts `ROOM_SNAPSHOT` on member join/leave, so no new server events are needed for toasts.
+### 4.3 Client Handler (`apps/web/src/realtime/client.ts`)
+
+Add a listener for `MEMBER_RENAMED` in `registerSocketHandlers()`:
+
+- Update the member's name in the local state's `members` array.
+- Fire `onMemberRenamed` callback with `{ clientId, oldName, newName }`.
 
 ## 5. File Changes Summary
 
@@ -152,9 +181,11 @@ Join and leave detection is handled client-side by diffing the `members` array a
 | `apps/web/src/app/room/[code]/page.tsx` | Read username from localStorage, pass `members`/`clientId`/`onRename` to TopBar, add toast integration |
 | `apps/web/src/components/TopBar.tsx` | Add presence pills, inline rename |
 | `apps/web/src/components/Toast.tsx` | NEW — toast notification component + `useToasts` hook |
-| `packages/shared/src/events.ts` | Add `MEMBER_RENAME` event type |
-| `apps/realtime/src/handlers/` | Add rename handler |
-| `apps/realtime/src/protocol/handlers.ts` | Register rename handler |
+| `packages/shared/src/events.ts` | Add `MemberRenameEventSchema`, `MemberRenamedBroadcastSchema` (standalone, not in mutation union) |
+| `apps/realtime/src/handlers/member.ts` | NEW — rename handler |
+| `apps/realtime/src/protocol/handlers.ts` | Register `MEMBER_RENAME` handler |
+| `apps/web/src/realtime/client.ts` | Add `MEMBER_RENAMED` listener, expose `onMemberJoined`/`onMemberLeft`/`onMemberRenamed` callbacks |
+| `apps/web/src/realtime/useRealtimeRoom.ts` | Expose member event callbacks |
 
 ## 6. Out of Scope
 
