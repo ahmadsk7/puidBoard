@@ -167,6 +167,10 @@ export {
   CreateRoomEventSchema,
   LeaveRoomEventSchema,
   RejoinRoomEventSchema,
+  // Member rename events
+  MemberRenamePayloadSchema,
+  MemberRenameEventSchema,
+  MemberRenamedEventSchema,
   RoomRejoinSnapshotEventSchema,
   // Union schemas
   ClientMutationEventSchema,
@@ -240,6 +244,9 @@ export type {
   CreateRoomEvent,
   LeaveRoomEvent,
   RejoinRoomEvent,
+  MemberRenamePayload,
+  MemberRenameEvent,
+  MemberRenamedEvent,
   RoomRejoinSnapshotEvent,
   ClientMutationEvent,
   ClientEvent,
