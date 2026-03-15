@@ -525,6 +525,37 @@ export const RejoinRoomEventSchema = z.object({
 });
 export type RejoinRoomEvent = z.infer<typeof RejoinRoomEventSchema>;
 
+// ============================================================================
+// Member Rename Events
+// ============================================================================
+
+/** Rename request (client → server) */
+export const MemberRenamePayloadSchema = z.object({
+  name: z.string().min(1).max(32),
+});
+export type MemberRenamePayload = z.infer<typeof MemberRenamePayloadSchema>;
+
+export const MemberRenameEventSchema = z.object({
+  type: z.literal("MEMBER_RENAME"),
+  roomId: RoomIdSchema,
+  clientId: ClientIdSchema,
+  payload: MemberRenamePayloadSchema,
+});
+export type MemberRenameEvent = z.infer<typeof MemberRenameEventSchema>;
+
+/** Rename broadcast (server → client) */
+export const MemberRenamedEventSchema = z.object({
+  type: z.literal("MEMBER_RENAMED"),
+  roomId: RoomIdSchema,
+  serverTs: z.number(),
+  payload: z.object({
+    clientId: ClientIdSchema,
+    oldName: z.string(),
+    newName: z.string(),
+  }),
+});
+export type MemberRenamedEvent = z.infer<typeof MemberRenamedEventSchema>;
+
 /** Rejoin snapshot response */
 export const RoomRejoinSnapshotEventSchema = z.object({
   type: z.literal("ROOM_REJOIN_SNAPSHOT"),
@@ -575,6 +606,7 @@ export const ClientEventSchema = z.union([
   CreateRoomEventSchema,
   LeaveRoomEventSchema,
   RejoinRoomEventSchema,
+  MemberRenameEventSchema,
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
 
@@ -585,6 +617,7 @@ export const ServerEventSchema = z.discriminatedUnion("type", [
   TimePongEventSchema,
   MemberJoinedEventSchema,
   MemberLeftEventSchema,
+  MemberRenamedEventSchema,
 ]);
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 

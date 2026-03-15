@@ -4,10 +4,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { VERSION } from "@puid-board/shared";
+import { getUsername, setUsername } from "@/utils/username";
 
 export default function Home() {
   const router = useRouter();
   const [joinCode, setJoinCode] = useState("");
+  const [username, setUsernameState] = useState(() => getUsername());
 
   const handleCreateRoom = () => {
     // Navigate to special "create" route which will create a new room
@@ -31,6 +33,48 @@ export default function Home() {
       <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1.5rem" }}>
         Shared package version: {VERSION}
       </p>
+
+      <section style={{ marginBottom: "1.5rem" }}>
+        <label htmlFor="username" style={{ display: "block", marginBottom: "0.25rem", fontWeight: 500 }}>
+          Username
+        </label>
+        <input
+          id="username"
+          type="text"
+          value={username}
+          onChange={(e) => setUsernameState(e.target.value)}
+          onBlur={() => {
+            if (username.trim().length === 0) {
+              setUsername("");
+              setUsernameState(getUsername());
+            } else {
+              setUsername(username);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              if (username.trim().length === 0) {
+                setUsername("");
+                setUsernameState(getUsername());
+              } else {
+                setUsername(username);
+              }
+            }
+          }}
+          maxLength={32}
+          placeholder="Enter your name"
+          style={{
+            padding: "0.5rem 0.75rem",
+            fontSize: "1rem",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            width: "12rem",
+          }}
+        />
+        <p style={{ fontSize: "0.75rem", color: "#666", marginTop: "0.25rem" }}>
+          Your name is saved locally and shown to other users in rooms.
+        </p>
+      </section>
 
       <section style={{ marginBottom: "1.5rem" }}>
         <button

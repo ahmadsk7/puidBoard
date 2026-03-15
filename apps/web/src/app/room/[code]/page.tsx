@@ -1,13 +1,15 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { USE_MOCK_ROOM } from "@/dev/featureFlags";
 import { MockRoomProvider, useMockRoom } from "@/dev/MockRoomProvider";
 import TopBar from "@/components/TopBar";
 import DJBoard from "@/components/DJBoard";
+import { useToasts, ToastContainer } from "@/components/Toast";
 import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import { initAudioEngine } from "@/audio/engine";
+import { getUsername, setUsername } from "@/utils/username";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
 
 /** Shared room UI content */
@@ -17,12 +19,14 @@ function RoomContent({
   latencyMs,
   sendEvent,
   nextSeq,
+  sendRename,
 }: {
   state: RoomState;
   clientId: string;
   latencyMs: number;
   sendEvent: (e: ClientMutationEvent) => void;
   nextSeq: () => number;
+  sendRename?: (newName: string) => void;
 }) {
   // Initialize audio on first user interaction (click anywhere)
   useEffect(() => {
@@ -41,6 +45,11 @@ function RoomContent({
     return () => document.removeEventListener("click", handleFirstClick);
   }, []);
 
+  const handleRename = useCallback((newName: string) => {
+    setUsername(newName);
+    sendRename?.(newName);
+  }, [sendRename]);
+
   return (
     <div
       style={{
@@ -53,6 +62,9 @@ function RoomContent({
       <TopBar
         roomCode={state.roomCode}
         latencyMs={latencyMs}
+        members={state.members}
+        clientId={clientId}
+        onRename={handleRename}
       />
       {/* Main content area - full width DJ board with integrated queue */}
       <main
@@ -97,17 +109,39 @@ function MockRoomContent() {
 /** Real room wrapper */
 function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   // Generate a stable name for this session
-  const [name] = useState(() => `User${Math.floor(Math.random() * 1000)}`);
+  const [name] = useState(() => getUsername());
 
   // If roomCode is "create", we want to create a new room, otherwise join existing
   const isCreating = roomCode.toLowerCase() === "create";
 
-  const { state, clientId, latencyMs, status, error, sendEvent } = useRealtimeRoom({
+  const { toasts, addToast } = useToasts();
+  const clientIdRef = useRef<string | null>(null);
+
+  const handleMemberJoined = useCallback((p: { clientId: string; name: string; color: string }) => {
+    if (clientIdRef.current && p.clientId === clientIdRef.current) return;
+    addToast({ message: `${p.name} joined`, color: p.color, type: "join" });
+  }, [addToast]);
+
+  const handleMemberLeft = useCallback((p: { clientId: string; name: string; color: string }) => {
+    addToast({ message: `${p.name} left`, color: p.color, type: "leave" });
+  }, [addToast]);
+
+  const handleMemberRenamed = useCallback((p: { clientId: string; oldName: string; newName: string }) => {
+    addToast({ message: `${p.oldName} is now ${p.newName}`, color: "#9ca3af", type: "rename" });
+  }, [addToast]);
+
+  const { state, clientId, latencyMs, status, error, sendEvent, sendRename } = useRealtimeRoom({
     roomCode: isCreating ? undefined : roomCode,
     name,
-    create: isCreating, // Create new room if code is "create"
-    autoCreate: false, // Don't auto-create for join attempts
+    create: isCreating,
+    autoCreate: false,
+    onMemberJoined: handleMemberJoined,
+    onMemberLeft: handleMemberLeft,
+    onMemberRenamed: handleMemberRenamed,
   });
+
+  // Keep the ref in sync
+  clientIdRef.current = clientId;
 
   // Don't update URL - just show the actual room code in the UI
   // Updating URL causes navigation issues and disconnects
@@ -318,13 +352,17 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
   }
 
   return (
-    <RoomContent
-      state={state}
-      clientId={clientId}
-      latencyMs={latencyMs}
-      sendEvent={sendEvent}
-      nextSeq={nextSeq}
-    />
+    <>
+      <RoomContent
+        state={state}
+        clientId={clientId}
+        latencyMs={latencyMs}
+        sendEvent={sendEvent}
+        nextSeq={nextSeq}
+        sendRename={sendRename}
+      />
+      <ToastContainer toasts={toasts} />
+    </>
   );
 }
 

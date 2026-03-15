@@ -17,6 +17,9 @@ export type UseRealtimeRoomOptions = {
   create?: boolean;
   /** Auto-create room if join fails (room not found) */
   autoCreate?: boolean;
+  onMemberJoined?: (payload: { clientId: string; name: string; color: string }) => void;
+  onMemberLeft?: (payload: { clientId: string; name: string; color: string }) => void;
+  onMemberRenamed?: (payload: { clientId: string; oldName: string; newName: string }) => void;
 };
 
 export type UseRealtimeRoomResult = {
@@ -26,6 +29,7 @@ export type UseRealtimeRoomResult = {
   status: ConnectionStatus;
   error: { type: string; message: string } | null;
   sendEvent: (event: ClientMutationEvent) => void;
+  sendRename: (newName: string) => void;
   leaveRoom: () => void;
 };
 
@@ -36,7 +40,7 @@ export type UseRealtimeRoomResult = {
 export function useRealtimeRoom(
   options: UseRealtimeRoomOptions
 ): UseRealtimeRoomResult {
-  const { roomCode, name, create = false, autoCreate = false } = options;
+  const { roomCode, name, create = false, autoCreate = false, onMemberJoined, onMemberLeft, onMemberRenamed } = options;
 
   const [state, setState] = useState<RoomState | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -52,6 +56,14 @@ export function useRealtimeRoom(
   const hasTriedCreateRef = useRef(false);
   // Track the room code we've joined to detect navigation changes
   const joinedRoomCodeRef = useRef<string | null>(null);
+
+  // Use refs for callbacks to avoid infinite re-subscribe loops
+  const onMemberJoinedRef = useRef(onMemberJoined);
+  onMemberJoinedRef.current = onMemberJoined;
+  const onMemberLeftRef = useRef(onMemberLeft);
+  onMemberLeftRef.current = onMemberLeft;
+  const onMemberRenamedRef = useRef(onMemberRenamed);
+  onMemberRenamedRef.current = onMemberRenamed;
 
   // Reset join state when options change (navigation to different room)
   useEffect(() => {
@@ -105,6 +117,10 @@ export function useRealtimeRoom(
       }
     });
 
+    const unsubJoined = client.onMemberJoined((p) => onMemberJoinedRef.current?.(p));
+    const unsubLeft = client.onMemberLeft((p) => onMemberLeftRef.current?.(p));
+    const unsubRenamed = client.onMemberRenamed((p) => onMemberRenamedRef.current?.(p));
+
     // Connect if not already connected
     if (client.getStatus() === "disconnected") {
       client.connect();
@@ -130,12 +146,22 @@ export function useRealtimeRoom(
       unsubStatus();
       unsubLatency();
       unsubError();
+      unsubJoined();
+      unsubLeft();
+      unsubRenamed();
     };
   }, [client, roomCode, name, create, autoCreate]);
 
   const sendEvent = useCallback(
     (event: ClientMutationEvent) => {
       client.sendEvent(event);
+    },
+    [client]
+  );
+
+  const sendRename = useCallback(
+    (newName: string) => {
+      client.sendRename(newName);
     },
     [client]
   );
@@ -153,6 +179,7 @@ export function useRealtimeRoom(
     status,
     error,
     sendEvent,
+    sendRename,
     leaveRoom,
   };
 }
