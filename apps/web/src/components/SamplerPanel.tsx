@@ -8,6 +8,7 @@ import {
   SLOT_COLORS,
   SLOT_ICONS,
   loadDefaultSamples,
+  loadCustomSample,
   type SampleSlot,
 } from "@/audio/sampler";
 import type { ClientMutationEvent } from "@puid-board/shared";
@@ -24,6 +25,8 @@ export type SamplerPanelProps = {
   sendEvent?: (e: ClientMutationEvent) => void;
   /** Get next sequence number */
   nextSeq?: () => number;
+  /** Room sampler state from snapshot — for auto-loading custom sounds on join */
+  samplerState?: { slots: Array<{ url: string | null; name: string; isCustom: boolean }> };
 };
 
 /**
@@ -31,7 +34,7 @@ export type SamplerPanelProps = {
  * Handles keyboard events for R, T, Y, U keys.
  * Positioned below the FX control panel.
  */
-export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent, nextSeq }: SamplerPanelProps) {
+export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent, nextSeq, samplerState }: SamplerPanelProps) {
   // Calculate button size to fit 4 buttons border-to-border (no gaps)
   // Width should be exactly 4 * buttonSize
   const gap = 0;
@@ -84,12 +87,30 @@ export default function SamplerPanel({ width = 184, roomId, clientId, sendEvent,
     });
   }, [flashSlot]);
 
-  // Load default samples on mount
+  // Load default samples on mount, then overlay any custom sounds from room state
   useEffect(() => {
-    loadDefaultSamples().catch((error) => {
-      console.error("[SamplerPanel] Failed to load default samples:", error);
+    const init = async () => {
+      await loadDefaultSamples();
+
+      // Auto-load custom sounds from room snapshot
+      if (samplerState) {
+        for (let i = 0; i < samplerState.slots.length; i++) {
+          const slot = samplerState.slots[i];
+          if (slot && slot.isCustom && slot.url) {
+            try {
+              await loadCustomSample(i as 0 | 1 | 2 | 3, slot.url, slot.name);
+            } catch (err) {
+              console.warn(`[SamplerPanel] Failed to load custom sample for slot ${i}:`, err);
+            }
+          }
+        }
+      }
+    };
+
+    init().catch((error) => {
+      console.error("[SamplerPanel] Failed to initialize samples:", error);
     });
-  }, []);
+  }, []); // Empty deps — only run on mount
 
   // Handle keyboard events
   useEffect(() => {

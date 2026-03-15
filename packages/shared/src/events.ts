@@ -493,6 +493,22 @@ export const TimePingEventSchema = z.object({
 });
 export type TimePingEvent = z.infer<typeof TimePingEventSchema>;
 
+/**
+ * Client reports computed BPM and waveform for a YouTube track.
+ * Server caches this metadata for future joiners.
+ * Standalone event (like TIME_PING) — NOT in ClientMutationEventSchema.
+ */
+export const TrackMetadataReportEventSchema = z.object({
+  type: z.literal("TRACK_METADATA_REPORT"),
+  /** YouTube video ID */
+  videoId: z.string().min(1),
+  /** Detected BPM */
+  bpm: z.number().min(20).max(300).nullable(),
+  /** Waveform data (480 floats, 0-1 normalized) */
+  waveform: z.array(z.number()).length(480),
+});
+export type TrackMetadataReportEvent = z.infer<typeof TrackMetadataReportEventSchema>;
+
 /** Join room request */
 export const JoinRoomEventSchema = z.object({
   type: z.literal("JOIN_ROOM"),

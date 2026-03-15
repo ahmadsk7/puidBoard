@@ -220,6 +220,17 @@ export class RealtimeClient {
     return this.state !== null;
   }
 
+  /** Report computed BPM/waveform for a YouTube track to server for caching */
+  sendTrackMetadata(videoId: string, bpm: number | null, waveform: number[]): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit("TRACK_METADATA_REPORT", {
+      type: "TRACK_METADATA_REPORT",
+      videoId,
+      bpm,
+      waveform,
+    });
+  }
+
   /** Send a client mutation event */
   sendEvent(event: ClientMutationEvent): void {
     if (!this.socket?.connected) {

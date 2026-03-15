@@ -125,6 +125,12 @@ export const QueueItemSchema = z.object({
   loading: LoadingStateSchema.optional(),
   /** Pre-loaded audio buffer (client-side only, for YouTube tracks) */
   audioBuffer: z.any().optional(),
+  /** Whether this track's audio is cached on the server (no yt-dlp needed) */
+  cached: z.boolean().optional(),
+  /** Pre-computed BPM from server cache */
+  bpm: z.number().min(20).max(300).nullable().optional(),
+  /** Pre-computed waveform data from server cache (480 floats, 0-1 normalized) */
+  waveform: z.array(z.number()).optional(),
 });
 export type QueueItem = z.infer<typeof QueueItemSchema>;
 

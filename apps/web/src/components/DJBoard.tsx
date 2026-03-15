@@ -1176,6 +1176,7 @@ export default function DJBoard({
             clientId={clientId}
             sendEvent={sendEvent}
             nextSeq={nextSeq}
+            samplerState={state.sampler}
           />
         </div>
 

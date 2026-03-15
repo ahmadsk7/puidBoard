@@ -161,6 +161,8 @@ export {
   MemberJoinedEventSchema,
   MemberLeftEventSchema,
   EventAckSchema,
+  // Track metadata report
+  TrackMetadataReportEventSchema,
   // Client request events
   TimePingEventSchema,
   JoinRoomEventSchema,
@@ -239,6 +241,7 @@ export type {
   MemberJoinedEvent,
   MemberLeftEvent,
   EventAck,
+  TrackMetadataReportEvent,
   TimePingEvent,
   JoinRoomEvent,
   CreateRoomEvent,

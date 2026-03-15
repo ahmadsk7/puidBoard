@@ -11,6 +11,7 @@ import { useRealtimeRoom } from "@/realtime/useRealtimeRoom";
 import { initAudioEngine } from "@/audio/engine";
 import { getUsername, setUsername } from "@/utils/username";
 import type { ClientMutationEvent, RoomState } from "@puid-board/shared";
+import { RoomLoadingScreen } from "../../../components/RoomLoadingScreen";
 
 /** Shared room UI content */
 function RoomContent({
@@ -49,7 +50,6 @@ function RoomContent({
     setUsername(newName);
     sendRename?.(newName);
   }, [sendRename]);
-
   return (
     <div
       style={{
@@ -145,6 +145,8 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
 
   // Don't update URL - just show the actual room code in the UI
   // Updating URL causes navigation issues and disconnects
+
+  const [roomReady, setRoomReady] = useState(false);
 
   const seqRef = useRef(0);
   const nextSeq = () => ++seqRef.current;
@@ -351,6 +353,20 @@ function RealtimeRoomContent({ roomCode }: { roomCode: string }) {
     );
   }
 
+  const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL || "http://localhost:3001";
+
+  // Phase 1: Loading screen — wait for assets
+  if (!roomReady) {
+    return (
+      <RoomLoadingScreen
+        state={state}
+        realtimeUrl={realtimeUrl}
+        onReady={() => setRoomReady(true)}
+      />
+    );
+  }
+
+  // Phase 2: Board is ready
   return (
     <>
       <RoomContent

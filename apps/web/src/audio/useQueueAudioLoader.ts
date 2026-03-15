@@ -48,10 +48,11 @@ export function useQueueAudioLoader(
       console.log(`[QueueAudioLoader] Starting pre-load for: ${item.title}`);
       loadingItemsRef.current.add(item.id);
 
-      // Update loading state
+      // Update loading state — skip "extracting" for cached tracks
+      const initialStage = item.cached ? "downloading" : "extracting";
       setLoadingStates((prev) => {
         const next = new Map(prev);
-        next.set(item.id, { stage: "extracting", progress: 0, error: null });
+        next.set(item.id, { stage: initialStage, progress: 0, error: null });
         return next;
       });
 
@@ -125,7 +126,10 @@ async function loadYouTubeAudio(
   // Stage 1: Extracting (backend yt-dlp runs, takes ~10s)
   onProgress({ stage: "extracting", progress: 0, error: null });
 
-  const streamUrl = `${realtimeUrl}/api/youtube/stream/${encodeURIComponent(videoId)}`;
+  // For cached tracks, use the direct URL. For uncached, construct the stream URL.
+  const streamUrl = item.cached
+    ? item.url
+    : `${realtimeUrl}/api/youtube/stream/${encodeURIComponent(videoId)}`;
   console.log(`[loadYouTubeAudio] Streaming from: ${streamUrl}`);
 
   const response = await fetch(streamUrl);

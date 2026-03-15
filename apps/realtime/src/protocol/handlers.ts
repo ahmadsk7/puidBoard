@@ -12,7 +12,10 @@ import {
   MemberJoinedEvent,
   MemberLeftEvent,
 } from "@puid-board/shared";
+import type { RoomState } from "@puid-board/shared";
 import { roomStore } from "../rooms/store.js";
+import { getCachedAudioUrl, getCachedMetadata } from "../services/youtubeCache.js";
+import { registerMetadataHandlers } from "../handlers/metadata.js";
 import { registerCursorHandlers, clearCursorThrottle } from "../handlers/cursor.js";
 import { registerQueueHandlers } from "../handlers/queue.js";
 import {
@@ -29,6 +32,39 @@ import { startBeacon, stopBeacon } from "../timers/beacon.js";
 import { getPersistence } from "../rooms/persistence.js";
 import { idempotencyStore } from "./idempotency.js";
 import { rateLimiter } from "../security/index.js";
+
+/**
+ * Resolve cached YouTube track URLs in a room state snapshot.
+ * Replaces stream URLs with direct file URLs for cached tracks
+ * and attaches pre-computed metadata (BPM, waveform).
+ */
+async function resolveSnapshotCacheUrls(state: RoomState): Promise<RoomState> {
+  const resolvedQueue = await Promise.all(
+    state.queue.map(async (item) => {
+      if (item.source !== "youtube" || !item.youtubeVideoId) {
+        return item;
+      }
+
+      try {
+        const cachedUrl = getCachedAudioUrl(item.youtubeVideoId);
+        if (!cachedUrl) return item;
+
+        const meta = await getCachedMetadata(item.youtubeVideoId);
+        return {
+          ...item,
+          url: cachedUrl,
+          cached: true,
+          ...(meta?.bpm != null ? { bpm: meta.bpm } : {}),
+          ...(meta?.waveform ? { waveform: meta.waveform } : {}),
+        };
+      } catch {
+        return item;
+      }
+    })
+  );
+
+  return { ...state, queue: resolvedQueue };
+}
 
 /**
  * Register all protocol handlers on a socket.
@@ -82,6 +118,9 @@ export function registerHandlers(io: Server, socket: Socket): void {
 
   // Register member handlers (rename)
   registerMemberHandlers(io, socket);
+
+  // Register metadata handlers (TRACK_METADATA_REPORT)
+  registerMetadataHandlers(socket);
 }
 
 /**
@@ -238,12 +277,13 @@ async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promis
   // Join the socket.io room for broadcasts
   socket.join(room.roomId);
 
-  // Send snapshot to the joiner
+  // Send snapshot to the joiner (with cached URLs resolved)
+  const resolvedState = await resolveSnapshotCacheUrls(room);
   const snapshot: RoomSnapshotEvent = {
     type: "ROOM_SNAPSHOT",
     roomId: room.roomId,
     serverTs: Date.now(),
-    state: room,
+    state: resolvedState,
   };
 
   socket.emit("ROOM_SNAPSHOT", snapshot);
@@ -281,7 +321,7 @@ async function handleJoinRoom(io: Server, socket: Socket, data: unknown): Promis
 /**
  * Handle REJOIN_ROOM event (reconnection with grace period).
  */
-function handleRejoinRoom(io: Server, socket: Socket, data: unknown): void {
+async function handleRejoinRoom(io: Server, socket: Socket, data: unknown): Promise<void> {
   const parsed = RejoinRoomEventSchema.safeParse(data);
   if (!parsed.success) {
     console.log(`[REJOIN_ROOM] invalid payload socket=${socket.id}`);
@@ -310,12 +350,13 @@ function handleRejoinRoom(io: Server, socket: Socket, data: unknown): void {
   // Join the socket.io room for broadcasts
   socket.join(room.roomId);
 
-  // Send rejoin snapshot
+  // Send rejoin snapshot (with cached URLs resolved)
+  const resolvedState = await resolveSnapshotCacheUrls(room);
   socket.emit("ROOM_REJOIN_SNAPSHOT", {
     type: "ROOM_REJOIN_SNAPSHOT",
     roomId: room.roomId,
     serverTs: Date.now(),
-    state: room,
+    state: resolvedState,
     clientId,
     missedEvents: [], // Events from idempotency store could be added here
   });
